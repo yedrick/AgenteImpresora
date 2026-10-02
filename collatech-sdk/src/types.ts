@@ -14,10 +14,12 @@ export interface CollaTechResponse<T = unknown> {
 // Health / Status
 // ---------------------------------------------------------------------------
 
-export interface HealthData {
-  ok: boolean;
-  message: string;
-}
+/**
+ * El agente responde a /health con `{ok, message}` y SIN campo `data`, y el
+ * cliente desenvuelve `data`. Por eso `health()` resuelve a `undefined`: lo
+ * que importa es que no lance. Usa `isReady()` si solo quieres un booleano.
+ */
+export type HealthData = void;
 
 export interface StatusData {
   service: string;
@@ -29,7 +31,6 @@ export interface PrintJob {
   id: string;
   printer: string;
   status: "Pending" | "Printing" | "Completed" | "Failed" | string;
-  state?: string;
   attempts?: number;
   error?: string;
   created_at: string;
@@ -57,7 +58,9 @@ export interface NetworkInfo {
 
 export interface PrinterInfo {
   name: string;
-  type: "windows" | "tcp" | "file";
+  /** Detalle del estado reportado por Windows ("lista", "sin papel", ...). */
+  status?: string;
+  type: "windows" | "tcp" | "com" | "file" | string;
   address: string;
   online: boolean;
 }
@@ -127,24 +130,66 @@ export interface PrintTextOptions {
 
 export type TextAlign = "left" | "center" | "right";
 
-export interface TicketLine {
+/** Tamanos de fuente que entiende el agente. */
+export type FontSize = "normal" | "double" | "wide" | "tall" | "small";
+
+export interface TableColumn {
   text: string;
+  width: number;
+  align?: TextAlign;
+}
+
+export interface TicketTable {
+  columns: TableColumn[];
+  /** Cada fila debe tener como mucho tantas celdas como columnas. */
+  rows: string[][];
+  header?: boolean;
+  border?: boolean;
+}
+
+export interface TicketLine {
+  /** "table" dibuja `table`; vacio o ausente imprime `text`. */
+  type?: "text" | "table";
+  text?: string;
+  table?: TicketTable;
   align?: TextAlign;
   bold?: boolean;
   underline?: boolean;
+  size?: FontSize;
+  /** Lineas en blanco despues de esta. */
+  gap?: number;
+  /** Enmarca el texto en un recuadro. */
+  box?: boolean;
+  /** Margen izquierdo, en caracteres. */
+  ml?: number;
+  /** Margen derecho, en caracteres. */
+  mr?: number;
 }
 
 export interface PrintTicketOptions {
   printer: string;
   title?: string;
   lines?: TicketLine[];
+  /** Hasta 2953 caracteres. */
   qr?: string;
+  /** Hasta 253 caracteres (Code128). */
   barcode?: string;
+  /** PNG/JPEG/GIF en base64 o data URI. */
   logo?: string;
+  /** Ancho del papel en PUNTOS: 384 (58mm), 512 (72mm) o 576 (80mm). */
   width?: number;
+  /** Escala de la imagen en porcentaje, 35-100. */
   scale?: number;
   cut?: boolean;
   drawer?: boolean;
+  /** Lineas en blanco al principio. */
+  feed_top?: number;
+  /** Lineas en blanco antes del corte (minimo 4). */
+  feed_bottom?: number;
+  /** Dibuja un marco alrededor de todo el ticket. */
+  border?: boolean;
+  margin_left?: number;
+  margin_right?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -207,10 +252,13 @@ export interface PrintRawOptions {
 // Logs
 // ---------------------------------------------------------------------------
 
+/** Una linea de logs/YYYY-MM-DD.jsonl. */
 export interface LogEntry {
-  level?: string;
-  message?: string;
   time?: string;
+  level?: "info" | "error" | string;
+  /** Nombre del evento: "print_enqueued", "print_status", ... */
+  event?: string;
+  details?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -225,6 +273,12 @@ export interface CollaTechConfig {
   timeout?: number;
   /** Enable console debug logs from the SDK. Defaults to false. */
   debug?: boolean;
+  /**
+   * Token de acceso. El agente lo exige en /api/* a las peticiones que no
+   * vienen de su propia PC. Lo muestra el panel local y el instalador al
+   * terminar. No hace falta si el codigo corre en la misma PC que el agente.
+   */
+  token?: string;
   /** Custom fetch implementation (for Node.js < 18 or edge runtimes). */
   fetch?: typeof globalThis.fetch;
 }

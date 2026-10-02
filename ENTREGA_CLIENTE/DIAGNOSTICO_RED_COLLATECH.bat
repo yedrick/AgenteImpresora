@@ -39,16 +39,10 @@ echo.
 netsh advfirewall firewall show rule name="CollaTech Agent App"
 echo.
 
-echo [6] Intentando reforzar reglas firewall (requiere administrador)
-netsh advfirewall firewall delete rule name="CollaTech Agent 18743" >nul 2>nul
-netsh advfirewall firewall delete rule name="CollaTech Agent App" >nul 2>nul
-netsh advfirewall firewall add rule name="CollaTech Agent 18743" dir=in action=allow protocol=TCP localport=18743 profile=any
-if exist "%ProgramFiles%\CollaTech Agent\CollaTechAgent.exe" (
-  netsh advfirewall firewall add rule name="CollaTech Agent App" dir=in action=allow program="%ProgramFiles%\CollaTech Agent\CollaTechAgent.exe" enable=yes profile=any
-)
-if exist "%~dp0CollaTechAgent.exe" (
-  netsh advfirewall firewall add rule name="CollaTech Agent App" dir=in action=allow program="%~dp0CollaTechAgent.exe" enable=yes profile=any
-)
+REM Un script de diagnostico no debe modificar el sistema. Antes borraba y
+REM recreaba las reglas del firewall aqui: si se ejecutaba sin administrador,
+REM el delete funcionaba y el add fallaba, dejando al cliente peor que antes.
+echo [6] Si falta alguna regla, ejecuta ABRIR_FIREWALL_LAN.bat como administrador
 echo.
 
 echo [7] URLs para probar desde celular

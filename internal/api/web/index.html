@@ -345,6 +345,20 @@
         <button id="refreshNetwork" class="secondary">Actualizar rutas</button>
       </div>
       <pre id="network">Cargando rutas de red...</pre>
+
+      <div id="tokenBox" style="display:none">
+        <div class="section-head" style="margin-top:18px">
+          <div>
+            <h2>Token de acceso desde la red</h2>
+            <p class="hint">Los sistemas que impriman desde OTRA PC deben enviarlo en la cabecera <code>Authorization: Bearer &lt;token&gt;</code>. Desde esta misma PC no hace falta.</p>
+          </div>
+          <span class="badge">Seguridad</span>
+        </div>
+        <pre id="tokenValue"></pre>
+        <div class="actions">
+          <button id="copyToken" class="secondary">Copiar token</button>
+        </div>
+      </div>
     </section>
 
     <section class="tab-panel" data-tab-panel="printers">
@@ -436,12 +450,12 @@ Gracias por usar CollaTech</textarea>
       <div class="actions">
         <button id="printText">Imprimir texto</button>
         <button id="printTicket">Imprimir ticket QR</button>
-        <button id="printHTML">Imprimir factura limpia</button>
+        <button id="printHTML">Imprimir HTML de prueba</button>
         <button id="openDrawer" class="warn">Abrir caja</button>
       </div>
-    </section>
+    
 
-    <section class="tab-panel" data-tab-panel="tests">
+    
       <h2>Prueba rapida</h2>
       <p class="hint">Estos botones mandan ejemplos listos para probar texto, QR, codigos, imagen y templates.</p>
       <div class="actions">
@@ -453,10 +467,7 @@ Gracias por usar CollaTech</textarea>
         <button id="quickImage">Imagen</button>
         <button id="quickLogo">Logo PNG</button>
       </div>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="logs">
-      <div class="section-head">
+      <div class="section-head" style="margin-top:18px">
         <div>
           <h2>Respuesta</h2>
           <p class="hint">Aqui aparece la respuesta JSON de la ultima accion.</p>
@@ -545,15 +556,61 @@ Gracias por usar CollaTech</textarea>
       });
     }
 
-    async function api(path, options = {}) {
-      const response = await fetch(API_BASE + path, {
-        headers: { "Content-Type": "application/json" },
-        ...options
-      });
+    // El agente exige un token a las peticiones que no vienen de su propia
+    // PC. Se guarda por navegador y se pide la primera vez que haga falta.
+    const TOKEN_KEY = "collatech.token";
+
+    function storedToken() {
+      try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
+    }
+
+    function storeToken(value) {
+      try { localStorage.setItem(TOKEN_KEY, value); } catch (e) { /* modo privado */ }
+    }
+
+    async function request(path, options) {
+      const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+      const token = storedToken();
+      if (token) headers["Authorization"] = "Bearer " + token;
+      const response = await fetch(API_BASE + path, { ...options, headers });
       const text = await response.text();
-      const data = text ? JSON.parse(text) : {};
+      return { response, data: text ? JSON.parse(text) : {} };
+    }
+
+    async function api(path, options = {}) {
+      let { response, data } = await request(path, options);
+      if (response.status === 401) {
+        const entered = prompt(
+          "Este agente pide un token de acceso para las conexiones desde la red.\n" +
+          "Lo encuentras en el panel abierto en la PC del agente, pestana Estado."
+        );
+        if (entered) {
+          storeToken(entered.trim());
+          ({ response, data } = await request(path, options));
+        }
+      }
       if (!response.ok) throw data;
       return data;
+    }
+
+    // /api/token solo responde en local: sirve para que el operador copie el
+    // token y lo configure en las demas estaciones.
+    async function showLocalToken() {
+      const box = $("tokenBox");
+      if (!box) return;
+      try {
+        const { response, data } = await request("/api/token", {});
+        if (!response.ok) { box.style.display = "none"; return; }
+        const info = data.data || {};
+        if (!info.required) {
+          box.style.display = "none";
+          return;
+        }
+        box.style.display = "";
+        $("tokenValue").textContent = info.token;
+      } catch (e) {
+        box.style.display = "none";
+      }
     }
 
     async function checkHealth() {
@@ -813,25 +870,33 @@ Gracias por usar CollaTech</textarea>
     $("printHTML").addEventListener("click", async () => {
       try {
         const printer = await requirePrinter();
-        notify(await api("/api/print/template", {
+        // Este boton llamaba a /api/print/template pese a llamarse printHTML,
+        // asi que /api/print/html no se probaba desde ninguna pantalla.
+        notify(await api("/api/print/html", {
           method: "POST",
           body: JSON.stringify({
             printer,
-            template: "factura.html",
-            width: 576,
+            width: selectedWidth(),
             cut: true,
-            data: {
-              empresa: "CollaTech",
-              cliente: "Demo",
-              items: [{ nombre: "Producto Demo", precio: "Bs 10.00" }],
-              total: "Bs 10.00",
-              mensaje: "Factura limpia ESC/POS"
-            }
+            html: `<!DOCTYPE html>
+<html><body>
+  <h1>CollaTech</h1>
+  <p align="center">Prueba de impresion HTML</p>
+  <hr>
+  <table>
+    <tr><td>Producto</td><td>Cant</td><td>Precio</td></tr>
+    <tr><td>Empanada de queso</td><td>2</td><td>24.00</td></tr>
+    <tr><td>Caf&eacute; con leche</td><td>1</td><td>12.00</td></tr>
+  </table>
+  <hr>
+  <p>Total: <b>Bs 36.00</b></p>
+  <p align="center">Gracias por su compra</p>
+</body></html>`
           })
-        }), "Factura enviada a imprimir");
+        }), "HTML enviado a imprimir");
         refreshAfterPrint();
       } catch (error) {
-        notifyError(error, "No se pudo imprimir la factura");
+        notifyError(error, "No se pudo imprimir el HTML");
         loadLogs();
       }
     });
@@ -985,7 +1050,17 @@ Gracias por usar CollaTech</textarea>
       }
     });
 
+    $("copyToken")?.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($("tokenValue").textContent.trim());
+        notify({ ok: true }, "Token copiado al portapapeles");
+      } catch (e) {
+        notifyError(e, "No se pudo copiar; seleccionalo a mano");
+      }
+    });
+
     checkHealth();
+    showLocalToken();
     loadNetwork();
     loadSettings().then(loadPrinters);
     loadAliases();

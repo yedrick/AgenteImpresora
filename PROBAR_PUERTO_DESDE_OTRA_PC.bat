@@ -2,8 +2,16 @@
 setlocal
 title CollaTech Agent - Probar puerto desde otra PC
 
-set "IP=192.168.1.250"
+REM La IP se pregunta: estaba cableada a 192.168.1.250, asi que en cualquier
+REM instalacion con otra IP el script probaba un equipo ajeno y daba un falso
+REM negativo.
 set "PORT=18743"
+set /p "IP=IP de la PC donde corre CollaTech Agent (ej. 192.168.1.50): "
+if "%IP%"=="" (
+  echo No se indico ninguna IP. Mirala en el panel del agente, pestana Estado.
+  pause
+  exit /b 1
+)
 
 echo ==========================================
 echo   COLLATECH AGENT - PRUEBA DESDE CLIENTE

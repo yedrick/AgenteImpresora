@@ -1,6 +1,6 @@
 {
   "default_printer": "POS1",
-  "paper_width": 384,
+  "paper_width": 576,
   "image_scale": 70,
   "aliases": [
     {

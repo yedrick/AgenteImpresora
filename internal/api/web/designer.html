@@ -112,7 +112,7 @@ hr{border:none;border-top:1px solid var(--border);margin:4px 0}
 
 <div class="canvas-area">
   <div class="cbar">
-    <button class="danger" onclick="if(elements.length&&confirm('Limpiar todo?')){elements=[];sel();render()}">🗑 Limpiar</button>
+    <button class="danger" onclick="clearAll()">🗑 Limpiar</button>
     <span style="color:var(--text2);font-size:9px">|</span>
     <button onclick="tmpl('simple')">📋 Ticket</button>
     <button onclick="tmpl('factura')">🧾 Factura</button>
@@ -133,7 +133,7 @@ hr{border:none;border-top:1px solid var(--border);margin:4px 0}
   <h5>🎫 Ticket</h5>
   <div class="pr"><label>Impresora</label><input id="pr" list="prList" value="Demo" oninput="render()"><button class="btn-s" type="button" title="Buscar impresoras" onclick="loadPrinters()">⟳</button></div>
   <datalist id="prList"></datalist>
-  <div class="pr"><label>Ancho</label><select id="pw" onchange="render()"><option value=384>58mm</option><option value=576 selected>80mm</option></select></div>
+  <div class="pr"><label>Ancho</label><select id="pw" onchange="render()"><option value=384>58mm</option><option value=512>72mm</option><option value=576 selected>80mm</option></select></div>
   <div class="pr"><label>Borde</label><input type=checkbox id="tb" onchange="render()"></div>
   <div class="pr"><label>Margen izq <span id="mlv">0</span></label>
     <div class="mctrl"><button onclick="adj('tktML',-1)">−</button><button onclick="adj('tktML',1)">+</button></div>
@@ -195,7 +195,24 @@ hr{border:none;border-top:1px solid var(--border);margin:4px 0}
 
 <script>
 let E=[]; let SI=-1; let dragFrom=-1;
-const COLS={384:32,576:42};
+// Debe coincidir con ticketCols() del servidor (internal/api/server.go):
+// 576 son 48 columnas, no 42. Con 42 la previsualizacion y los separadores
+// salian mas cortos que el papel real.
+const API_BASE = location.protocol === "file:" ? "http://localhost:18743" : "";
+const TOKEN_KEY = "collatech.token";
+function storedToken(){ try { return localStorage.getItem(TOKEN_KEY) || ""; } catch(e) { return ""; } }
+// apiFetch anade la base y el token: las llamadas eran relativas, asi que el
+// disenador no funcionaba abierto como archivo local, al reves que el panel.
+async function apiFetch(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  const token = storedToken();
+  if (token) headers["Authorization"] = "Bearer " + token;
+  return fetch(API_BASE + path, { ...options, headers });
+}
+// El boton Limpiar llamaba a 'elements' y 'sel()', que no existen: lanzaba
+// ReferenceError al primer clic. El array es E y la seleccion es SI.
+function clearAll(){ if(E.length && confirm('Limpiar todo?')){ E=[]; SI=-1; render(); pp(); } }
+const COLS={384:32,512:42,576:48};
 
 function add(type,data){
   const el={type};
@@ -390,8 +407,7 @@ function addRow(i){E[i].table.rows.push(E[i].table.columns.map(()=>''));render()
 
 function imgUp(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{if(SI>=0){E[SI].image=ev.target.result;render()}};r.readAsDataURL(f)}
 
-let globalImg='';
-function globalImage(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{globalImg=ev.target.result;add('image',{image:ev.target.result})};r.readAsDataURL(f)}
+function globalImage(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>add('image',{image:ev.target.result});r.readAsDataURL(f)}
 
 // ===== JSON GENERATOR =====
 function genJSON(){
@@ -465,7 +481,7 @@ function out(){
 async function printNow(ev){
   const b=ev.target; b.textContent='🔄'; b.disabled=true;
   try{
-    const r=await fetch('/api/print/ticket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(genJSON())});
+    const r=await apiFetch('/api/print/ticket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(genJSON())});
     const j=await r.json();
     b.textContent=j.ok?'✅ OK':'❌ '+j.error;
     setTimeout(()=>{b.textContent='🖨 Imprimir';b.disabled=false},2000);
@@ -524,7 +540,7 @@ function sw(t,b){
 async function loadPrinters(){
   const list=document.getElementById('prList');
   try{
-    const r=await fetch('/api/printers'); const j=await r.json();
+    const r=await apiFetch('/api/printers'); const j=await r.json();
     const printers=j.data||[];
     list.innerHTML=printers.map(p=>'<option value="'+esc(p.name)+'">').join('');
   }catch(e){/* sin conexion al agente todavia */}

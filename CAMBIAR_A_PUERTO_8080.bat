@@ -65,20 +65,57 @@ if exist "%CFG_PARENT%" (
     "$cfg | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path -Encoding UTF8"
 )
 
-echo [3] Abriendo puerto 8080 en Firewall...
+echo [3] Abriendo puerto 8080 en Firewall y cerrando el 18743...
 netsh advfirewall firewall delete rule name="CollaTech Agent 8080" >nul 2>nul
-netsh advfirewall firewall add rule name="CollaTech Agent 8080" dir=in action=allow protocol=TCP localport=8080 profile=any
+netsh advfirewall firewall add rule name="CollaTech Agent 8080" dir=in action=allow protocol=TCP localport=8080 profile=private,domain
+
+REM Antes el 18743 se quedaba abierto para siempre: el equipo acababa con dos
+REM puertos de entrada aunque el agente solo escuchara en uno.
+netsh advfirewall firewall delete rule name="GOServer18743" >nul 2>nul
+netsh advfirewall firewall delete rule name="CollaTech Agent 18743" >nul 2>nul
 
 if exist "%ProgramFiles%\CollaTech Agent\CollaTechAgent.exe" (
   netsh advfirewall firewall delete rule name="CollaTech Agent App" >nul 2>nul
-  netsh advfirewall firewall add rule name="CollaTech Agent App" dir=in action=allow program="%ProgramFiles%\CollaTech Agent\CollaTechAgent.exe" enable=yes profile=any
+  netsh advfirewall firewall add rule name="CollaTech Agent App" dir=in action=allow program="%ProgramFiles%\CollaTech Agent\CollaTechAgent.exe" enable=yes profile=private,domain
 )
 
 echo.
-echo [OK] Configurado en puerto 8080.
+echo [4] Volviendo a arrancar el agente...
+REM Antes el script mataba el proceso y dejaba al cliente sin imprimir hasta
+REM que arrancara el agente a mano.
+sc query CollaTechAgent >nul 2>nul
+if %errorlevel% equ 0 (
+  sc start CollaTechAgent >nul 2>nul
+) else (
+  if exist "%ProgramFiles%\CollaTech Agent\CollaTechAgent.exe" (
+    start "" /D "%ProgramFiles%\CollaTech Agent" "%ProgramFiles%\CollaTech Agent\CollaTechAgent.exe"
+  ) else (
+    if exist "%~dp0CollaTechAgent.exe" start "" /D "%~dp0" "%~dp0CollaTechAgent.exe"
+  )
+)
+
+echo     Esperando a que responda...
+set "LISTO="
+for /l %%i in (1,1,20) do (
+  if not defined LISTO (
+    curl.exe -s -o nul http://127.0.0.1:8080/health && set "LISTO=1"
+    if not defined LISTO timeout /t 1 /nobreak >nul
+  )
+)
+
 echo.
-echo Ahora abre CollaTechAgent.exe otra vez y prueba desde esta PC:
+if defined LISTO (
+  echo [OK] Configurado en puerto 8080 y agente en marcha.
+) else (
+  echo [AVISO] Configurado en puerto 8080, pero el agente no respondio.
+  echo         Abre CollaTechAgent.exe a mano y revisa la carpeta logs\.
+)
+echo.
+echo Prueba desde esta PC:
 echo   http://127.0.0.1:8080/health
+echo.
+echo NOTA: para volver al puerto 18743, edita configs\config.json y vuelve a
+echo       ejecutar ABRIR_FIREWALL_LAN.bat como administrador.
 echo.
 echo Desde celular prueba:
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (

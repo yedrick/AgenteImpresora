@@ -12,7 +12,7 @@
 //
 // ---------------------------------------------------------------------------
 
-export { CollaTech, PrintJobBuilder } from "./client.js";
+export { CollaTech, PrintJobBuilder, MAX_QR_LEN, MAX_BARCODE_LEN } from "./client.js";
 export { CollaTechPool } from "./pool.js";
 export {
   CollaTechError,
@@ -20,6 +20,8 @@ export {
   ApiError,
   ValidationError,
   ForbiddenError,
+  UnauthorizedError,
+  QueueFullError,
 } from "./errors.js";
 export { fileToBase64, toBase64, fromBase64, stripDataUri } from "./utils.js";
 

@@ -1,7 +1,7 @@
 {
   "name": "collatech-sdk",
-  "version": "1.1.0",
-  "description": "Official SDK for CollaTech Agent – print receipts, invoices, tickets, QR codes, and barcodes from any JavaScript/TypeScript app",
+  "version": "1.2.0",
+  "description": "Official SDK for CollaTech Agent \u2013 print receipts, invoices, tickets, QR codes, and barcodes from any JavaScript/TypeScript app",
   "keywords": [
     "collatech",
     "escpos",

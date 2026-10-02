@@ -332,16 +332,19 @@ func openFirewall(programPath string) bool {
 		return cmd.Run()
 	}
 
+	// Solo los perfiles Privado y Dominio: con "any" el puerto quedaba abierto
+	// tambien en redes Publicas (WiFi de cafeteria), donde no hay nada que
+	// imprimir y si alguien a quien dejar entrar.
 	_ = run("advfirewall", "firewall", "delete", "rule", "name=GOServer18743")
 	_ = run("advfirewall", "firewall", "delete", "rule", "name=CollaTech Agent 18743")
 	_ = run("advfirewall", "firewall", "delete", "rule", "name=CollaTech Agent App")
 
 	portOK := run("advfirewall", "firewall", "add", "rule",
-		"name=GOServer18743", "dir=in", "action=allow", "protocol=TCP", "localport=18743", "profile=any") == nil
+		"name=GOServer18743", "dir=in", "action=allow", "protocol=TCP", "localport=18743", "profile=private,domain") == nil
 	_ = run("advfirewall", "firewall", "add", "rule",
-		"name=CollaTech Agent 18743", "dir=in", "action=allow", "protocol=TCP", "localport=18743", "profile=any")
+		"name=CollaTech Agent 18743", "dir=in", "action=allow", "protocol=TCP", "localport=18743", "profile=private,domain")
 	appOK := run("advfirewall", "firewall", "add", "rule",
-		"name=CollaTech Agent App", "dir=in", "action=allow", "program="+programPath, "enable=yes", "profile=any") == nil
+		"name=CollaTech Agent App", "dir=in", "action=allow", "program="+programPath, "enable=yes", "profile=private,domain") == nil
 
 	return portOK && appOK
 }

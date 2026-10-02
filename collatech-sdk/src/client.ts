@@ -22,6 +22,10 @@ import type {
   PrintLogoOptions,
   PrintRawOptions,
   LogEntry,
+  TicketLine,
+  TicketTable,
+  TextAlign,
+  FontSize,
 } from "./types.js";
 
 import {
@@ -29,12 +33,33 @@ import {
   ConnectionError,
   ApiError,
   ForbiddenError,
+  UnauthorizedError,
+  QueueFullError,
+  ValidationError,
 } from "./errors.js";
 
 import { normalizeUrl } from "./utils.js";
 
 const DEFAULT_BASE_URL = "http://localhost:18743";
 const DEFAULT_TIMEOUT = 10_000;
+
+/** Limites del agente (internal/escpos/builder.go). */
+export const MAX_QR_LEN = 2953;
+export const MAX_BARCODE_LEN = 253;
+
+/**
+ * El agente exige un token a las peticiones que no vienen de su propia PC.
+ * Ademas de pasarlo en la configuracion, se admite `window.__COLLATECH_TOKEN__`
+ * para inyectarlo desde el HTML sin recompilar.
+ */
+function resolveToken(): string {
+  if (typeof window !== "undefined") {
+    const w = window as any;
+    if (w.__COLLATECH_TOKEN__) return w.__COLLATECH_TOKEN__;
+    if (w.collatech?.token) return w.collatech.token;
+  }
+  return "";
+}
 
 function resolveBaseUrl(): string {
   if (typeof window !== "undefined") {
@@ -68,12 +93,14 @@ export class CollaTech {
   private readonly baseUrl: string;
   private readonly timeout: number;
   private readonly debug: boolean;
+  private readonly token: string;
   private readonly _fetch: typeof globalThis.fetch;
 
   constructor(config?: CollaTechConfig) {
     this.baseUrl = normalizeUrl(config?.baseUrl ?? resolveBaseUrl());
     this.timeout = config?.timeout ?? DEFAULT_TIMEOUT;
     this.debug = config?.debug ?? false;
+    this.token = config?.token ?? resolveToken();
     this._fetch = config?.fetch ?? globalThis.fetch;
     this.log(`[CollaTech] SDK initialized. URL: ${this.baseUrl}`);
   }
@@ -481,6 +508,13 @@ export class CollaTech {
   // Internal HTTP helpers
   // -------------------------------------------------------------------------
 
+  /** Cabeceras comunes, con el token si hay uno configurado. */
+  private headers(extra?: Record<string, string>): Record<string, string> {
+    const headers: Record<string, string> = { Accept: "application/json", ...extra };
+    if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+    return headers;
+  }
+
   private async get<T>(path: string): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     this.log(`[CollaTech] GET ${url}`);
@@ -490,7 +524,7 @@ export class CollaTech {
     try {
       const res = await this._fetch(url, {
         method: "GET",
-        headers: { Accept: "application/json" },
+        headers: this.headers(),
         signal: controller.signal,
       });
 
@@ -521,10 +555,7 @@ export class CollaTech {
     try {
       const res = await this._fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
+        headers: this.headers({ "Content-Type": "application/json" }),
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -548,9 +579,19 @@ export class CollaTech {
   }
 
   private async handleResponse<T>(res: Response): Promise<T> {
+    if (res.status === 401) {
+      this.error(`[CollaTech] Response 401 Unauthorized`);
+      throw new UnauthorizedError();
+    }
+
     if (res.status === 403) {
       this.error(`[CollaTech] Response 403 Forbidden`);
       throw new ForbiddenError();
+    }
+
+    if (res.status === 503) {
+      this.error(`[CollaTech] Response 503 Queue full`);
+      throw new QueueFullError();
     }
 
     let json: CollaTechResponse<T>;
@@ -584,9 +625,18 @@ export class CollaTech {
 // ---------------------------------------------------------------------------
 
 type LineOptions = {
-  align?: "left" | "center" | "right";
+  align?: TextAlign;
   bold?: boolean;
   underline?: boolean;
+  size?: FontSize;
+  /** Lineas en blanco despues de esta. */
+  gap?: number;
+  /** Enmarca el texto en un recuadro. */
+  box?: boolean;
+  /** Margen izquierdo, en caracteres. */
+  ml?: number;
+  /** Margen derecho, en caracteres. */
+  mr?: number;
 };
 
 /**
@@ -597,12 +647,7 @@ export class PrintJobBuilder {
   private readonly client: CollaTech;
   private readonly printer: string;
   private _title?: string;
-  private _lines: Array<{
-    text: string;
-    align?: "left" | "center" | "right";
-    bold?: boolean;
-    underline?: boolean;
-  }> = [];
+  private _lines: TicketLine[] = [];
   private _qr?: string;
   private _barcode?: string;
   private _logo?: string;
@@ -624,12 +669,27 @@ export class PrintJobBuilder {
 
   /** Add a text line to the ticket. */
   line(text: string, options?: LineOptions): this {
-    this._lines.push({
-      text,
-      align: options?.align,
-      bold: options?.bold,
-      underline: options?.underline,
-    });
+    this._lines.push({ text, ...options });
+    return this;
+  }
+
+  /** Add a blank line (or several). */
+  blank(count = 1): this {
+    this._lines.push({ text: "", gap: Math.max(0, count - 1) });
+    return this;
+  }
+
+  /** Add a framed line. */
+  box(text: string, options?: Omit<LineOptions, "box">): this {
+    return this.line(text, { ...options, box: true });
+  }
+
+  /**
+   * Add a table. Each row must have at most as many cells as columns; the
+   * extra ones are ignored by the agent.
+   */
+  table(table: TicketTable): this {
+    this._lines.push({ type: "table", table });
     return this;
   }
 
@@ -638,14 +698,26 @@ export class PrintJobBuilder {
     return this.line(text, { ...options, bold: true });
   }
 
-  /** Add a QR code. */
+  /** Add a QR code. Up to 2953 characters. */
   qr(data: string): this {
+    if (data.length > MAX_QR_LEN) {
+      throw new ValidationError(
+        `El QR admite ${MAX_QR_LEN} caracteres como maximo, se pasaron ${data.length}`,
+        "qr"
+      );
+    }
     this._qr = data;
     return this;
   }
 
-  /** Add a barcode. */
+  /** Add a barcode. Up to 253 characters (Code128). */
   barcode(data: string): this {
+    if (data.length > MAX_BARCODE_LEN) {
+      throw new ValidationError(
+        `El codigo de barras admite ${MAX_BARCODE_LEN} caracteres como maximo, se pasaron ${data.length}`,
+        "barcode"
+      );
+    }
     this._barcode = data;
     return this;
   }
@@ -702,7 +774,9 @@ export class PrintJobBuilder {
 // ---------------------------------------------------------------------------
 
 function isAbortError(err: unknown): boolean {
-  return err instanceof DOMException && err.name === "AbortError";
+  // En algunos runtimes de Node/edge DOMException no esta en el ambito global,
+  // asi que comprobar el instanceof degradaba el timeout a un error generico.
+  return typeof err === "object" && err !== null && (err as { name?: string }).name === "AbortError";
 }
 
 function delay(ms: number): Promise<void> {

@@ -19,12 +19,16 @@ export interface PoolAgentConfig extends CollaTechConfig {
 
 export interface PoolHealthResult {
   name: string;
+  /** Etiqueta legible del agente; si no se configuro, el nombre. */
+  label: string;
   ok: boolean;
   error?: string;
 }
 
 export interface PoolPrintResult {
   name: string;
+  /** Etiqueta legible del agente; si no se configuro, el nombre. */
+  label: string;
   ok: boolean;
   result?: PrintResult;
   error?: string;
@@ -56,6 +60,12 @@ export interface PoolPrintResult {
  */
 export class CollaTechPool {
   private readonly agents = new Map<string, CollaTech>();
+  private readonly labels = new Map<string, string>();
+
+  /** Etiqueta legible de un agente; el nombre si no se configuro ninguna. */
+  label(name: string): string {
+    return this.labels.get(name) ?? name;
+  }
 
   constructor(initial?: Record<string, PoolAgentConfig | string>) {
     if (!initial) return;
@@ -69,11 +79,13 @@ export class CollaTechPool {
     const resolved = typeof config === "string" ? { baseUrl: config } : config;
     const client = new CollaTech(resolved);
     this.agents.set(name, client);
+    if (resolved.label) this.labels.set(name, resolved.label);
     return client;
   }
 
   /** Remove a previously registered agent. Returns false if it didn't exist. */
   remove(name: string): boolean {
+    this.labels.delete(name);
     return this.agents.delete(name);
   }
 
@@ -99,9 +111,9 @@ export class CollaTechPool {
       this.list().map(async (name) => {
         try {
           await this.agent(name).health();
-          return { name, ok: true };
+          return { name, label: this.label(name), ok: true };
         } catch (err) {
-          return { name, ok: false, error: errorMessage(err) };
+          return { name, label: this.label(name), ok: false, error: errorMessage(err) };
         }
       })
     );
@@ -123,9 +135,9 @@ export class CollaTechPool {
       this.list().map(async (name) => {
         try {
           const result = await this.agent(name).printTicket(options);
-          return { name, ok: true, result };
+          return { name, label: this.label(name), ok: true, result };
         } catch (err) {
-          return { name, ok: false, error: errorMessage(err) };
+          return { name, label: this.label(name), ok: false, error: errorMessage(err) };
         }
       })
     );
@@ -137,9 +149,9 @@ export class CollaTechPool {
       this.list().map(async (name) => {
         try {
           const result = await this.agent(name).printText(options);
-          return { name, ok: true, result };
+          return { name, label: this.label(name), ok: true, result };
         } catch (err) {
-          return { name, ok: false, error: errorMessage(err) };
+          return { name, label: this.label(name), ok: false, error: errorMessage(err) };
         }
       })
     );

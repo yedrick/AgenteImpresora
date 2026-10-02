@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"collatech-agent/internal/config"
@@ -14,6 +16,7 @@ import (
 	"collatech-agent/internal/logs"
 	"collatech-agent/internal/printers"
 	"collatech-agent/internal/queue"
+	"collatech-agent/internal/settings"
 )
 
 func newTestServer(t *testing.T, tune func(*config.Config)) http.Handler {
@@ -380,4 +383,63 @@ func decodeBoxLine(s string) string {
 		}
 	}
 	return string(out)
+}
+
+// Los ajustes se cachean para no leer el disco en cada impresion, pero un
+// cambio en el archivo tiene que verse sin reiniciar el agente.
+func TestLaCacheDeAjustesSeRefresca(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.DefaultPaths(dir)
+	if err := os.MkdirAll(filepath.Dir(paths.Settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{cfg: config.Default(), paths: paths}
+
+	escribir := func(alias, destino string) {
+		body := `{"default_printer":"POS1","paper_width":576,"image_scale":80,"aliases":[{"name":"` +
+			alias + `","printer":"` + destino + `"}]}`
+		if err := os.WriteFile(paths.Settings, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	escribir("cocina", "IMPRESORA-A")
+	if got, _ := s.resolvePrinters("cocina"); len(got) != 1 || got[0] != "IMPRESORA-A" {
+		t.Fatalf("primera lectura: %v", got)
+	}
+	// Dos veces seguidas debe dar lo mismo (y la segunda sale de la cache).
+	if got, _ := s.resolvePrinters("cocina"); got[0] != "IMPRESORA-A" {
+		t.Fatalf("segunda lectura: %v", got)
+	}
+
+	// Al cambiar el archivo, la cache tiene que invalidarse. Se fuerza una
+	// fecha distinta porque el test escribe en el mismo instante.
+	escribir("cocina", "IMPRESORA-B")
+	futuro := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(paths.Settings, futuro, futuro); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.resolvePrinters("cocina"); len(got) != 1 || got[0] != "IMPRESORA-B" {
+		t.Fatalf("tras cambiar el archivo deberia leerse de nuevo, obtuve %v", got)
+	}
+}
+
+// Guardar por la API tambien tiene que refrescar la cache.
+func TestGuardarAjustesRefrescaLaCache(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.DefaultPaths(dir)
+	if err := os.MkdirAll(filepath.Dir(paths.Settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{cfg: config.Default(), paths: paths}
+
+	if _, err := s.saveSettingsFile(settings.Settings{
+		PaperWidth: 576,
+		Aliases:    []settings.Alias{{Name: "caja", Printer: "IMPRESORA-C"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.resolvePrinters("caja"); len(got) != 1 || got[0] != "IMPRESORA-C" {
+		t.Fatalf("la cache no se refresco al guardar: %v", got)
+	}
 }

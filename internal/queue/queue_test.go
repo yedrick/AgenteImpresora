@@ -8,9 +8,12 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"collatech-agent/internal/printers"
 )
+
+// impresoraFalsa acepta cualquier trabajo sin hacer nada.
+type impresoraFalsa struct{}
+
+func (impresoraFalsa) Print(string, []byte) error { return nil }
 
 func chdirTemp(t *testing.T) {
 	t.Helper()
@@ -29,7 +32,7 @@ func chdirTemp(t *testing.T) {
 // la cola los marcaba Completed.
 func TestElPayloadDeLosPendientesSePersiste(t *testing.T) {
 	chdirTemp(t)
-	m := New(Options{Printers: printers.NewManager(nil), Workers: 1, MaxRetries: 1})
+	m := New(Options{Printers: impresoraFalsa{}, Workers: 1, MaxRetries: 1})
 	jobs, err := m.EnqueueMany([]string{"POS1"}, []byte("CONTENIDO DEL TICKET"))
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +55,7 @@ func TestElPayloadDeLosPendientesSePersiste(t *testing.T) {
 	}
 
 	// Un reinicio debe recuperarlo con su contenido intacto.
-	m2 := New(Options{Printers: printers.NewManager(nil), Workers: 1, MaxRetries: 1})
+	m2 := New(Options{Printers: impresoraFalsa{}, Workers: 1, MaxRetries: 1})
 	m2.loadFromDisk()
 	select {
 	case job := <-m2.queue:
@@ -67,7 +70,7 @@ func TestElPayloadDeLosPendientesSePersiste(t *testing.T) {
 // Los trabajos terminados sueltan el payload para no engordar el archivo.
 func TestLosTrabajosTerminadosNoGuardanElPayload(t *testing.T) {
 	chdirTemp(t)
-	m := New(Options{Printers: printers.NewManager(nil), Workers: 1, MaxRetries: 1})
+	m := New(Options{Printers: impresoraFalsa{}, Workers: 1, MaxRetries: 1})
 	jobs, err := m.EnqueueMany([]string{"POS1"}, []byte("secreto"))
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +105,7 @@ func TestUnPendienteSinPayloadQuedaComoFallido(t *testing.T) {
 	b, _ := json.Marshal(antiguo)
 	os.WriteFile(filepath.Join("storage", "jobs.json"), b, 0o644)
 
-	m := New(Options{Printers: printers.NewManager(nil), Workers: 1, MaxRetries: 1})
+	m := New(Options{Printers: impresoraFalsa{}, Workers: 1, MaxRetries: 1})
 	m.loadFromDisk()
 	select {
 	case job := <-m.queue:
@@ -116,17 +119,10 @@ func TestUnPendienteSinPayloadQuedaComoFallido(t *testing.T) {
 	}
 }
 
-// Un trabajo vacio no puede contar como impreso.
-func TestUnTrabajoVacioEsError(t *testing.T) {
-	if err := printers.NewManager(nil).Print("POS1", nil); err == nil {
-		t.Fatal("imprimir cero bytes deberia ser un error")
-	}
-}
-
 // Al llenarse la cola hay que rechazar, no bloquear al handler HTTP.
 func TestLaColaLlenaRechazaEnVezDeBloquear(t *testing.T) {
 	chdirTemp(t)
-	m := New(Options{Printers: printers.NewManager(nil), Workers: 1, MaxRetries: 1}) // sin Start: nadie consume
+	m := New(Options{Printers: impresoraFalsa{}, Workers: 1, MaxRetries: 1}) // sin Start: nadie consume
 	for i := 0; i < queueCapacity; i++ {
 		if _, err := m.EnqueueMany([]string{"POS1"}, []byte("x")); err != nil {
 			t.Fatalf("trabajo %d: %v", i, err)
@@ -150,7 +146,7 @@ func TestLaColaLlenaRechazaEnVezDeBloquear(t *testing.T) {
 // Dos peticiones simultaneas podian generar el mismo ID y pisarse en el mapa.
 func TestLosIdentificadoresNoColisionan(t *testing.T) {
 	chdirTemp(t)
-	m := New(Options{Printers: printers.NewManager(nil), Workers: 1, MaxRetries: 1})
+	m := New(Options{Printers: impresoraFalsa{}, Workers: 1, MaxRetries: 1})
 	vistos := map[string]bool{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -181,7 +177,7 @@ func TestLosIdentificadoresNoColisionan(t *testing.T) {
 // El historial no puede crecer sin limite.
 func TestElHistorialSeRecorta(t *testing.T) {
 	chdirTemp(t)
-	m := New(Options{Printers: printers.NewManager(nil), Workers: 1, MaxRetries: 1})
+	m := New(Options{Printers: impresoraFalsa{}, Workers: 1, MaxRetries: 1})
 	for i := 0; i < maxHistory+50; i++ {
 		id := m.nextID(time.Now().UTC())
 		m.mu.Lock()

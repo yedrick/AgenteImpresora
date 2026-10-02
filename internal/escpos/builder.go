@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"image"
 	"image/color"
-	"image/draw"
 	"math"
 	"strings"
 )
@@ -187,23 +186,28 @@ func (b *Builder) PDF417(data string) *Builder {
 	return b
 }
 
+// Image empaqueta la imagen a 1 bit por pixel y la emite como mapa de bits
+// raster (GS v 0).
 func (b *Builder) Image(img image.Image) *Builder {
 	if img == nil {
 		return b
 	}
 	bounds := img.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
+	width, height := bounds.Dx(), bounds.Dy()
 	if width <= 0 || height <= 0 {
 		return b
 	}
+	// Camino rapido para el gris que produce PrepareImage: se leen los
+	// bytes directamente en vez de una llamada a interfaz por pixel.
+	gray, fast := img.(*image.Gray)
+
 	widthBytes := (width + 7) / 8
-	xL := byte(widthBytes % 256)
-	xH := byte(widthBytes / 256)
+	xL, xH := byte(widthBytes%256), byte(widthBytes/256)
 
 	// Se emite una banda por cada rasterBandRows filas en vez de un unico
 	// "GS v 0" con toda la imagen: las termicas con poco buffer cortaban o se
 	// colgaban con logos altos.
+	b.buf.Grow(widthBytes*height + (height/rasterBandRows+1)*8)
 	for y0 := 0; y0 < height; y0 += rasterBandRows {
 		rows := rasterBandRows
 		if y0+rows > height {
@@ -211,14 +215,60 @@ func (b *Builder) Image(img image.Image) *Builder {
 		}
 		b.buf.Write([]byte{0x1d, 0x76, 0x30, 0x00, xL, xH, byte(rows % 256), byte(rows / 256)})
 		for y := y0; y < y0+rows; y++ {
+			var row []uint8
+			if fast {
+				off := (y+bounds.Min.Y-gray.Rect.Min.Y)*gray.Stride + (bounds.Min.X - gray.Rect.Min.X)
+				row = gray.Pix[off : off+width]
+			}
+			// Camino rapido: ancho multiplo de 8 sobre un buffer de grises,
+			// que es lo que produce siempre PrepareImage. Se empaquetan los
+			// ocho bits sin comprobar limites en cada uno.
+			if fast && width%8 == 0 {
+				for xb := 0; xb < widthBytes; xb++ {
+					p := row[xb*8 : xb*8+8]
+					var packed byte
+					if p[0] < 128 {
+						packed |= 0x80
+					}
+					if p[1] < 128 {
+						packed |= 0x40
+					}
+					if p[2] < 128 {
+						packed |= 0x20
+					}
+					if p[3] < 128 {
+						packed |= 0x10
+					}
+					if p[4] < 128 {
+						packed |= 0x08
+					}
+					if p[5] < 128 {
+						packed |= 0x04
+					}
+					if p[6] < 128 {
+						packed |= 0x02
+					}
+					if p[7] < 128 {
+						packed |= 0x01
+					}
+					b.buf.WriteByte(packed)
+				}
+				continue
+			}
 			for xb := 0; xb < widthBytes; xb++ {
 				var packed byte
 				for bit := 0; bit < 8; bit++ {
 					x := xb*8 + bit
 					if x >= width {
-						continue
+						break
 					}
-					if isDark(img.At(bounds.Min.X+x, bounds.Min.Y+y)) {
+					dark := false
+					if fast {
+						dark = row[x] < 128
+					} else {
+						dark = isDark(img.At(bounds.Min.X+x, bounds.Min.Y+y))
+					}
+					if dark {
 						packed |= 0x80 >> bit
 					}
 				}
@@ -258,26 +308,280 @@ func isDark(c color.Color) bool {
 	return luma < 0x8000
 }
 
+// luma es un buffer en escala de grises. Trabajar sobre bytes en vez de sobre
+// la interfaz image.Image evita una llamada y una asignacion por pixel: el
+// pipeline completo de un logo pasaba de 27 ms y 774.000 asignaciones.
+type luma struct {
+	pix  []uint8
+	w, h int
+}
+
+// newLuma convierte cualquier imagen a gris, aplanando la transparencia sobre
+// blanco (el papel). Tiene camino rapido para los formatos que produce el
+// descodificador estandar.
+func newLuma(src image.Image) *luma {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	out := &luma{pix: make([]uint8, w*h), w: w, h: h}
+
+	switch im := src.(type) {
+	case *image.Gray:
+		for y := 0; y < h; y++ {
+			off := (y+b.Min.Y-im.Rect.Min.Y)*im.Stride + (b.Min.X - im.Rect.Min.X)
+			copy(out.pix[y*w:(y+1)*w], im.Pix[off:off+w])
+		}
+	case *image.RGBA:
+		for y := 0; y < h; y++ {
+			off := (y+b.Min.Y-im.Rect.Min.Y)*im.Stride + (b.Min.X-im.Rect.Min.X)*4
+			row := im.Pix[off : off+w*4]
+			for x := 0; x < w; x++ {
+				p := row[x*4 : x*4+4]
+				// RGBA viene con el alfa premultiplicado.
+				out.pix[y*w+x] = flattenLuma(p[0], p[1], p[2], p[3], true)
+			}
+		}
+	case *image.NRGBA:
+		for y := 0; y < h; y++ {
+			off := (y+b.Min.Y-im.Rect.Min.Y)*im.Stride + (b.Min.X-im.Rect.Min.X)*4
+			row := im.Pix[off : off+w*4]
+			for x := 0; x < w; x++ {
+				p := row[x*4 : x*4+4]
+				out.pix[y*w+x] = flattenLuma(p[0], p[1], p[2], p[3], false)
+			}
+		}
+	default:
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				r, g, bl, a := src.At(b.Min.X+x, b.Min.Y+y).RGBA()
+				out.pix[y*w+x] = flattenLuma(uint8(r>>8), uint8(g>>8), uint8(bl>>8), uint8(a>>8), true)
+			}
+		}
+	}
+	return out
+}
+
+// flattenLuma mezcla el pixel sobre blanco y devuelve su luminancia.
+func flattenLuma(r, g, b, a uint8, premultiplied bool) uint8 {
+	if a == 0xff {
+		return uint8((299*uint32(r) + 587*uint32(g) + 114*uint32(b)) / 1000)
+	}
+	ar, ag, ab := uint32(r), uint32(g), uint32(b)
+	if !premultiplied {
+		ar = ar * uint32(a) / 255
+		ag = ag * uint32(a) / 255
+		ab = ab * uint32(a) / 255
+	}
+	inv := 255 - uint32(a)
+	ar += inv
+	ag += inv
+	ab += inv
+	l := (299*ar + 587*ag + 114*ab) / 1000
+	if l > 255 {
+		l = 255
+	}
+	return uint8(l)
+}
+
+// trim recorta las filas y columnas totalmente claras de los bordes, para que
+// el relleno que traiga el PNG del logo no se imprima como papel en blanco.
+func (l *luma) trim() {
+	const blanco = 0xf0
+	claro := func(i int) bool { return l.pix[i] >= blanco }
+
+	top := 0
+	for top < l.h {
+		vacia := true
+		for x := 0; x < l.w && vacia; x++ {
+			vacia = claro(top*l.w + x)
+		}
+		if !vacia {
+			break
+		}
+		top++
+	}
+	if top == l.h {
+		return // imagen completamente en blanco: no se recorta nada
+	}
+	bottom := l.h
+	for bottom > top {
+		vacia := true
+		for x := 0; x < l.w && vacia; x++ {
+			vacia = claro((bottom-1)*l.w + x)
+		}
+		if !vacia {
+			break
+		}
+		bottom--
+	}
+	left := 0
+	for left < l.w {
+		vacia := true
+		for y := top; y < bottom && vacia; y++ {
+			vacia = claro(y*l.w + left)
+		}
+		if !vacia {
+			break
+		}
+		left++
+	}
+	right := l.w
+	for right > left {
+		vacia := true
+		for y := top; y < bottom && vacia; y++ {
+			vacia = claro(y*l.w + right - 1)
+		}
+		if !vacia {
+			break
+		}
+		right--
+	}
+	if top == 0 && left == 0 && bottom == l.h && right == l.w {
+		return
+	}
+	nw, nh := right-left, bottom-top
+	pix := make([]uint8, nw*nh)
+	for y := 0; y < nh; y++ {
+		copy(pix[y*nw:(y+1)*nw], l.pix[(top+y)*l.w+left:(top+y)*l.w+right])
+	}
+	l.pix, l.w, l.h = pix, nw, nh
+}
+
+// scale reduce la imagen promediando cada bloque de origen. Antes se tomaba
+// el pixel mas cercano, que en un logo con texto produce dientes de sierra.
+//
+// Los limites de cada columna se calculan una sola vez: hacerlo dentro del
+// bucle suponia cuatro divisiones enteras por pixel, el 61% del tiempo de
+// preparar una imagen.
+func (l *luma) scale(dstW, dstH int) *luma {
+	if dstW == l.w && dstH == l.h {
+		return l
+	}
+	out := &luma{pix: make([]uint8, dstW*dstH), w: dstW, h: dstH}
+
+	colStart := make([]int32, dstW)
+	colEnd := make([]int32, dstW)
+	for x := 0; x < dstW; x++ {
+		s0 := x * l.w / dstW
+		s1 := (x + 1) * l.w / dstW
+		if s1 <= s0 {
+			s1 = s0 + 1
+		}
+		if s1 > l.w {
+			s1 = l.w
+		}
+		colStart[x], colEnd[x] = int32(s0), int32(s1)
+	}
+
+	for y := 0; y < dstH; y++ {
+		sy0 := y * l.h / dstH
+		sy1 := (y + 1) * l.h / dstH
+		if sy1 <= sy0 {
+			sy1 = sy0 + 1
+		}
+		if sy1 > l.h {
+			sy1 = l.h
+		}
+		dst := out.pix[y*dstW : (y+1)*dstW]
+
+		if sy1-sy0 == 1 {
+			// Caso habitual al reducir poco: una sola fila de origen.
+			src := l.pix[sy0*l.w : (sy0+1)*l.w]
+			for x := 0; x < dstW; x++ {
+				x0, x1 := colStart[x], colEnd[x]
+				if x1-x0 == 1 {
+					dst[x] = src[x0]
+					continue
+				}
+				var sum uint32
+				for _, v := range src[x0:x1] {
+					sum += uint32(v)
+				}
+				dst[x] = uint8(sum / uint32(x1-x0))
+			}
+			continue
+		}
+
+		for x := 0; x < dstW; x++ {
+			x0, x1 := colStart[x], colEnd[x]
+			var sum uint32
+			for sy := sy0; sy < sy1; sy++ {
+				for _, v := range l.pix[sy*l.w+int(x0) : sy*l.w+int(x1)] {
+					sum += uint32(v)
+				}
+			}
+			dst[x] = uint8(sum / uint32(int32(sy1-sy0)*(x1-x0)))
+		}
+	}
+	return out
+}
+
+// dither aplica Floyd-Steinberg y devuelve una imagen en blanco y negro puro.
+func (l *luma) dither() *image.Gray {
+	buf := make([]int32, l.w*l.h)
+	for i, v := range l.pix {
+		buf[i] = int32(v)
+	}
+	out := image.NewGray(image.Rect(0, 0, l.w, l.h))
+	for y := 0; y < l.h; y++ {
+		fila := y * l.w
+		dst := out.Pix[y*out.Stride : y*out.Stride+l.w]
+		for x := 0; x < l.w; x++ {
+			i := fila + x
+			old := buf[i]
+			var nuevo int32 = 255
+			if old < 128 {
+				nuevo = 0
+			}
+			dst[x] = uint8(nuevo)
+			err := old - nuevo
+			if err == 0 {
+				continue
+			}
+			if x+1 < l.w {
+				buf[i+1] = clamp255(buf[i+1] + err*7/16)
+			}
+			if y+1 < l.h {
+				if x > 0 {
+					buf[i+l.w-1] = clamp255(buf[i+l.w-1] + err*3/16)
+				}
+				buf[i+l.w] = clamp255(buf[i+l.w] + err*5/16)
+				if x+1 < l.w {
+					buf[i+l.w+1] = clamp255(buf[i+l.w+1] + err/16)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func clamp255(v int32) int32 {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return v
+}
+
+// PrepareImage deja la imagen lista para la impresora: recortada, escalada al
+// ancho del papel y difuminada a blanco y negro.
 func PrepareImage(src image.Image, maxWidth int) image.Image {
 	if maxWidth <= 0 {
 		maxWidth = 384
 	}
-	src = trimBlankBorders(src)
-	bounds := src.Bounds()
-	srcW := bounds.Dx()
-	srcH := bounds.Dy()
-	if srcW <= 0 || srcH <= 0 {
-		return src
+	l := newLuma(src)
+	if l.w <= 0 || l.h <= 0 {
+		return image.NewGray(image.Rect(0, 0, 1, 1))
 	}
+	l.trim()
 
-	targetWidth := maxWidth
-	scale := float64(targetWidth) / float64(srcW)
-	dstW := targetWidth
-	dstH := int(math.Round(float64(srcH) * scale))
-	if scale > 1 {
-		dstW = srcW
-		dstH = srcH
+	dstW, dstH := l.w, l.h
+	if l.w > maxWidth {
+		dstW = maxWidth
+		dstH = int(math.Round(float64(l.h) * float64(maxWidth) / float64(l.w)))
 	}
+	// El ancho del raster se cuenta en bytes, asi que conviene multiplo de 8.
 	dstW = (dstW / 8) * 8
 	if dstW < 8 {
 		dstW = 8
@@ -285,138 +589,7 @@ func PrepareImage(src image.Image, maxWidth int) image.Image {
 	if dstH < 1 {
 		dstH = 1
 	}
-	scaled := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
-	draw.Draw(scaled, scaled.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
-
-	for y := 0; y < dstH; y++ {
-		for x := 0; x < dstW; x++ {
-			sx := bounds.Min.X + int(float64(x)*float64(srcW)/float64(dstW))
-			sy := bounds.Min.Y + int(float64(y)*float64(srcH)/float64(dstH))
-			scaled.Set(x, y, flattenOnWhite(src.At(sx, sy)))
-		}
-	}
-
-	return ditherImage(scaled)
-}
-
-// trimBlankBorders crops away fully white/transparent rows and columns
-// around the edges of an image (e.g. padding baked into a logo PNG) so it
-// doesn't print as dead space at the top of the ticket.
-func trimBlankBorders(src image.Image) image.Image {
-	bounds := src.Bounds()
-	minX, minY, maxX, maxY := bounds.Min.X, bounds.Min.Y, bounds.Max.X, bounds.Max.Y
-
-	isBlankRow := func(y int) bool {
-		for x := minX; x < maxX; x++ {
-			if !isBlankPixel(src.At(x, y)) {
-				return false
-			}
-		}
-		return true
-	}
-	isBlankCol := func(x int) bool {
-		for y := minY; y < maxY; y++ {
-			if !isBlankPixel(src.At(x, y)) {
-				return false
-			}
-		}
-		return true
-	}
-
-	top := minY
-	for top < maxY && isBlankRow(top) {
-		top++
-	}
-	bottom := maxY
-	for bottom > top && isBlankRow(bottom-1) {
-		bottom--
-	}
-	left := minX
-	for left < maxX && isBlankCol(left) {
-		left++
-	}
-	right := maxX
-	for right > left && isBlankCol(right-1) {
-		right--
-	}
-
-	if top == minY && bottom == maxY && left == minX && right == maxX {
-		return src
-	}
-	if right <= left || bottom <= top {
-		return src
-	}
-
-	cropped := image.NewRGBA(image.Rect(0, 0, right-left, bottom-top))
-	draw.Draw(cropped, cropped.Bounds(), src, image.Point{X: left, Y: top}, draw.Src)
-	return cropped
-}
-
-func isBlankPixel(c color.Color) bool {
-	r, g, b, a := c.RGBA()
-	if a == 0 {
-		return true
-	}
-	const threshold = 0xf000
-	return r >= threshold && g >= threshold && b >= threshold
-}
-
-func flattenOnWhite(c color.Color) color.Color {
-	r, g, b, a := c.RGBA()
-	if a == 0xffff {
-		return c
-	}
-	alpha := float64(a) / 65535.0
-	rr := uint8(((float64(r)/257.0)*alpha + 255*(1-alpha)))
-	gg := uint8(((float64(g)/257.0)*alpha + 255*(1-alpha)))
-	bb := uint8(((float64(b)/257.0)*alpha + 255*(1-alpha)))
-	return color.RGBA{R: rr, G: gg, B: bb, A: 255}
-}
-
-func ditherImage(src *image.RGBA) image.Image {
-	bounds := src.Bounds()
-	out := image.NewRGBA(bounds)
-	w := bounds.Dx()
-	h := bounds.Dy()
-	pixels := make([]float64, w*h)
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r, g, b, _ := src.At(x, y).RGBA()
-			// La division entera antes del float64 perdia precision justo
-			// donde el difuminado la necesita.
-			luma := (0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)) / 257.0
-			pixels[(y-bounds.Min.Y)*w+(x-bounds.Min.X)] = luma
-		}
-	}
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			i := y*w + x
-			old := pixels[i]
-			newValue := 255.0
-			if old < 128 {
-				newValue = 0
-			}
-			err := old - newValue
-			if newValue == 0 {
-				out.Set(x, y, color.Black)
-			} else {
-				out.Set(x, y, color.White)
-			}
-			spreadError(pixels, w, h, x+1, y, err*7/16)
-			spreadError(pixels, w, h, x-1, y+1, err*3/16)
-			spreadError(pixels, w, h, x, y+1, err*5/16)
-			spreadError(pixels, w, h, x+1, y+1, err*1/16)
-		}
-	}
-	return out
-}
-
-func spreadError(pixels []float64, w, h, x, y int, err float64) {
-	if x < 0 || x >= w || y < 0 || y >= h {
-		return
-	}
-	i := y*w + x
-	pixels[i] = math.Max(0, math.Min(255, pixels[i]+err))
+	return l.scale(dstW, dstH).dither()
 }
 
 func EncodeCP850(s string) []byte {

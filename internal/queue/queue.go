@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"collatech-agent/internal/logs"
-	"collatech-agent/internal/printers"
 )
 
 type Status string
@@ -55,7 +54,7 @@ type Job struct {
 }
 
 type Manager struct {
-	printers   *printers.Manager
+	printers   Printer
 	logger     *logs.Logger
 	jobs       map[string]*Job
 	queue      chan *Job
@@ -77,11 +76,18 @@ type Manager struct {
 	seq   int
 }
 
+// Printer es lo unico que la cola necesita de la capa de impresoras.
+// Depender de una interfaz minima en vez del tipo concreto desacopla los dos
+// paquetes y permite probar la cola sin hardware.
+type Printer interface {
+	Print(name string, payload []byte) error
+}
+
 // Options agrupa la configuracion de la cola. Como struct en vez de una lista
 // de parametros posicionales: ya eran cinco y la carpeta de estado tenia que
 // dejar de estar escrita a mano.
 type Options struct {
-	Printers   *printers.Manager
+	Printers   Printer
 	Logger     *logs.Logger
 	Workers    int
 	MaxRetries int

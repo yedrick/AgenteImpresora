@@ -103,3 +103,109 @@ func TestLaImagenSeTroceaEnBandas(t *testing.T) {
 		t.Fatalf("las bandas suman %d filas, la imagen tiene 400", total)
 	}
 }
+
+func rellenar(img *image.RGBA, c color.Color) *image.RGBA {
+	b := img.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			img.Set(x, y, c)
+		}
+	}
+	return img
+}
+
+func densidad(g *image.Gray) float64 {
+	var negros int
+	b := g.Bounds()
+	for y := 0; y < b.Dy(); y++ {
+		for x := 0; x < b.Dx(); x++ {
+			if g.Pix[y*g.Stride+x] < 128 {
+				negros++
+			}
+		}
+	}
+	return float64(negros) / float64(b.Dx()*b.Dy())
+}
+
+func TestPrepareImageDensidad(t *testing.T) {
+	cases := []struct {
+		nombre   string
+		c        color.Color
+		min, max float64
+	}{
+		{"negro", color.RGBA{0, 0, 0, 255}, 0.99, 1.0},
+		{"blanco", color.RGBA{255, 255, 255, 255}, 0.0, 0.01},
+		{"gris medio", color.RGBA{128, 128, 128, 255}, 0.35, 0.65},
+		{"transparente", color.RGBA{0, 0, 0, 0}, 0.0, 0.01}, // se aplana sobre papel blanco
+	}
+	for _, c := range cases {
+		img := rellenar(image.NewRGBA(image.Rect(0, 0, 64, 64)), c.c)
+		g, ok := PrepareImage(img, 64).(*image.Gray)
+		if !ok {
+			t.Fatalf("%s: PrepareImage deberia devolver *image.Gray", c.nombre)
+		}
+		if d := densidad(g); d < c.min || d > c.max {
+			t.Fatalf("%s: densidad de tinta %.3f, esperaba entre %.2f y %.2f", c.nombre, d, c.min, c.max)
+		}
+	}
+}
+
+// Un blanco puro solo debe producir bytes a cero, y un negro puro, a 0xFF.
+func TestRasterDeColoresPlanos(t *testing.T) {
+	negro := PrepareImage(rellenar(image.NewRGBA(image.Rect(0, 0, 32, 8)), color.Black), 32)
+	out := New().Image(negro).Bytes()
+	datos := out[8:] // tras la cabecera GS v 0
+	for i, b := range datos {
+		if b != 0xff {
+			t.Fatalf("byte %d del raster negro es %#x, esperaba 0xff", i, b)
+		}
+	}
+
+	blanco := PrepareImage(rellenar(image.NewRGBA(image.Rect(0, 0, 32, 8)), color.White), 32)
+	out = New().Image(blanco).Bytes()
+	for i, b := range out[8:] {
+		if b != 0x00 {
+			t.Fatalf("byte %d del raster blanco es %#x, esperaba 0x00", i, b)
+		}
+	}
+}
+
+func TestPrepareImageRespetaLaProporcion(t *testing.T) {
+	img := rellenar(image.NewRGBA(image.Rect(0, 0, 800, 400)), color.Black)
+	g := PrepareImage(img, 576).(*image.Gray)
+	w, h := g.Bounds().Dx(), g.Bounds().Dy()
+	if w != 576 {
+		t.Fatalf("ancho %d, esperaba 576", w)
+	}
+	// 800x400 escalado a 576 deberia dar unos 288 de alto.
+	if h < 280 || h > 296 {
+		t.Fatalf("alto %d, esperaba ~288 (proporcion no respetada)", h)
+	}
+	if w%8 != 0 {
+		t.Fatalf("el ancho %d deberia ser multiplo de 8", w)
+	}
+}
+
+// Una imagen mas estrecha que el papel no se amplia: ampliarla solo
+// emborronaria el logo.
+func TestPrepareImageNoAmplia(t *testing.T) {
+	img := rellenar(image.NewRGBA(image.Rect(0, 0, 100, 50)), color.Black)
+	g := PrepareImage(img, 576).(*image.Gray)
+	if w := g.Bounds().Dx(); w > 100 {
+		t.Fatalf("ancho %d: no deberia ampliarse por encima de 100", w)
+	}
+}
+
+// El relleno blanco del borde se recorta para no imprimir papel vacio.
+func TestPrepareImageRecortaElBorde(t *testing.T) {
+	img := rellenar(image.NewRGBA(image.Rect(0, 0, 200, 200)), color.White)
+	for y := 80; y < 120; y++ {
+		for x := 80; x < 120; x++ {
+			img.Set(x, y, color.Black)
+		}
+	}
+	g := PrepareImage(img, 200).(*image.Gray)
+	if w, h := g.Bounds().Dx(), g.Bounds().Dy(); w > 56 || h > 56 {
+		t.Fatalf("raster %dx%d: el borde blanco no se recorto (el contenido son 40x40)", w, h)
+	}
+}

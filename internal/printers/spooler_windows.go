@@ -4,20 +4,22 @@ package printers
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-type WindowsPrinter struct {
+// En Windows el spooler del sistema es winspool.drv.
+type winspoolPrinter struct {
 	name string
 }
 
-func NewWindowsPrinter(name string) *WindowsPrinter { return &WindowsPrinter{name: name} }
+func newSpoolerPrinter(name string) Printer { return &winspoolPrinter{name: name} }
 
-func (p *WindowsPrinter) Connect() error    { return nil }
-func (p *WindowsPrinter) Disconnect() error { return nil }
+func (p *winspoolPrinter) Connect() error    { return nil }
+func (p *winspoolPrinter) Disconnect() error { return nil }
 
 // Se usa NewLazySystemDLL (no NewLazyDLL) para que winspool.drv se resuelva
 // siempre desde System32: el agente corre como servicio con privilegios altos
@@ -73,7 +75,7 @@ type docInfo1W struct {
 	pDataType   *uint16
 }
 
-func enumWindowsPrinters() []Info {
+func enumSpoolerPrinters() []Info {
 	flags := uintptr(printerEnumLocal | printerEnumConnections)
 
 	var needed, returned uint32
@@ -104,7 +106,7 @@ func enumWindowsPrinters() []Info {
 			continue
 		}
 		online, detail := printerStatus(name)
-		out = append(out, Info{Name: name, Type: "windows", Online: online, Status: detail})
+		out = append(out, Info{Name: name, Type: "winspool", Online: online, Status: detail})
 	}
 	// Los punteros de la lista apuntan dentro de buf; hay que mantenerlo vivo
 	// hasta terminar de leerlos.
@@ -172,7 +174,7 @@ func describeStatus(status uint32) string {
 }
 
 // Print manda los bytes ESC/POS al spooler de Windows como trabajo RAW.
-func (p *WindowsPrinter) Print(data []byte) error {
+func (p *winspoolPrinter) Print(data []byte) error {
 	if len(data) == 0 {
 		return fmt.Errorf("no hay datos que enviar a %q", p.name)
 	}
@@ -230,9 +232,27 @@ func (p *WindowsPrinter) Print(data []byte) error {
 	return nil
 }
 
-func (p *WindowsPrinter) Status() error {
+func (p *winspoolPrinter) Status() error {
 	if online, detail := printerStatus(p.name); !online {
 		return fmt.Errorf("impresora %q no disponible: %s", p.name, detail)
 	}
 	return nil
+}
+
+// detectDevices busca puertos serie. Abrirlos es la unica forma de saber si
+// existen en Windows, asi que el resultado se cachea en Manager.List para no
+// molestar a una impresora serie que este imprimiendo.
+func detectDevices() []Info {
+	var out []Info
+	for i := 1; i <= 32; i++ {
+		name := fmt.Sprintf("COM%d", i)
+		path := devicePath(name)
+		f, err := os.OpenFile(path, os.O_RDWR, 0)
+		if err != nil {
+			continue
+		}
+		_ = f.Close()
+		out = append(out, Info{Name: name, Type: "serial", Address: path, Online: true, Status: "disponible"})
+	}
+	return out
 }

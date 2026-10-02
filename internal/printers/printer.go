@@ -1,9 +1,19 @@
+// Package printers resuelve un destino de impresion y le envia bytes ESC/POS.
+//
+// Hay tres tipos de destino, y funcionan en todos los sistemas salvo donde se
+// indica:
+//
+//	spooler  El sistema de impresion del SO: winspool en Windows, CUPS en
+//	         Linux y macOS. Es el destino por defecto.
+//	tcp      Impresora de red por el puerto RAW (9100 por defecto).
+//	device   Un dispositivo de caracteres: puerto serie o impresora USB.
 package printers
 
 import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -14,16 +24,25 @@ import (
 	"collatech-agent/internal/logs"
 )
 
-// DefaultRawPort es el puerto estandar de impresion RAW sobre TCP. Antes
-// habia que escribirlo siempre a mano: "192.168.1.50" sin puerto no llegaba
-// a la rama TCP y "tcp://192.168.1.50" fallaba con "missing port".
-const DefaultRawPort = 9100
+const (
+	// DefaultRawPort es el puerto estandar de impresion RAW sobre TCP.
+	DefaultRawPort = 9100
 
-// writeTimeout acota la escritura hacia la impresora. Sin el, una impresora
-// que acepta la conexion y deja de leer (papel atascado, buffer lleno)
-// bloqueaba al worker para siempre y congelaba toda la cola.
-const writeTimeout = 15 * time.Second
+	// dialTimeout acota el establecimiento de la conexion TCP.
+	dialTimeout = 5 * time.Second
 
+	// writeTimeout acota la escritura hacia la impresora. Sin el, una
+	// impresora que acepta la conexion y deja de leer (papel atascado, buffer
+	// lleno) bloquea al worker para siempre.
+	writeTimeout = 15 * time.Second
+
+	// listCacheTTL evita reconsultar el sistema de impresion en cada
+	// GET /api/printers: enumerar cuesta una llamada por impresora, y
+	// detectar puertos serie los abre momentaneamente.
+	listCacheTTL = 15 * time.Second
+)
+
+// Printer es un destino ya resuelto, listo para recibir bytes.
 type Printer interface {
 	Connect() error
 	Disconnect() error
@@ -31,6 +50,7 @@ type Printer interface {
 	Status() error
 }
 
+// Info describe una impresora detectada en el sistema.
 type Info struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
@@ -42,69 +62,122 @@ type Info struct {
 type Manager struct {
 	logger *logs.Logger
 
-	serialMu   sync.Mutex
-	serialAt   time.Time
-	serialList []Info
+	listMu   sync.Mutex
+	listAt   time.Time
+	listCopy []Info
 }
 
 func NewManager(logger *logs.Logger) *Manager {
 	return &Manager{logger: logger}
 }
 
+// List enumera las impresoras disponibles, con el resultado cacheado.
 func (m *Manager) List() []Info {
-	var out []Info
-	if runtime.GOOS == "windows" {
-		out = append(out, enumWindowsPrinters()...)
+	m.listMu.Lock()
+	defer m.listMu.Unlock()
+	if m.listCopy != nil && time.Since(m.listAt) < listCacheTTL {
+		return m.listCopy
 	}
-	out = append(out, m.detectSerialPorts()...)
+	out := append(enumSpoolerPrinters(), detectDevices()...)
+	if out == nil {
+		out = []Info{}
+	}
+	m.listCopy, m.listAt = out, time.Now()
 	return out
 }
 
-// comPortRe solo acepta COM seguido de digitos. Antes bastaba el prefijo
-// "com", asi que una impresora llamada "COMANDA" o "Comanda Cocina" acababa
-// enrutada al puerto serie "\\.\COMANDA COCINA".
+// Invalidate olvida la lista cacheada. Se usa tras un fallo de impresion, por
+// si la impresora se desconecto.
+func (m *Manager) Invalidate() {
+	m.listMu.Lock()
+	m.listCopy = nil
+	m.listMu.Unlock()
+}
+
 var (
+	// comPortRe solo acepta COM seguido de digitos: con el prefijo "com" a
+	// secas, una impresora llamada "COMANDA" acababa enrutada al puerto serie.
 	comPortRe = regexp.MustCompile(`(?i)^com\d+$`)
 	usbPortRe = regexp.MustCompile(`(?i)^usb\d+$`)
 )
 
-// Get resuelve el destino. Los prefijos explicitos (tcp://, com://,
-// printer://) mandan sobre cualquier heuristica, para poder nombrar una
-// impresora de Windows que se parezca a un puerto.
+// Get resuelve el destino a partir del nombre. Los prefijos explicitos mandan
+// sobre cualquier heuristica, para poder nombrar una impresora del sistema que
+// se parezca a un puerto.
+//
+//	tcp://192.168.1.50:9100   red (puerto 9100 si se omite)
+//	printer://EPSON Caja      spooler del sistema, forzado
+//	com://COM3                puerto serie, forzado
+//	device:///dev/usb/lp0     dispositivo, forzado
+//	COM3  /dev/ttyUSB0        puerto serie
+//	EPSON Caja                spooler del sistema (por defecto)
 func (m *Manager) Get(name string) (Printer, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, fmt.Errorf("printer is required")
+		return nil, fmt.Errorf("falta el nombre de la impresora")
 	}
 	lower := strings.ToLower(name)
 
 	switch {
 	case strings.HasPrefix(lower, "tcp://"):
-		return NewTCPPrinter(withDefaultPort(name[len("tcp://"):]), 5*time.Second), nil
-	case strings.HasPrefix(lower, "com://"):
-		return NewFilePrinter(devicePath(name[len("com://"):]), "COM"), nil
+		return newTCPPrinter(withDefaultPort(name[len("tcp://"):])), nil
 	case strings.HasPrefix(lower, "printer://"):
-		return NewWindowsPrinter(name[len("printer://"):]), nil
+		return newSpoolerPrinter(name[len("printer://"):]), nil
+	case strings.HasPrefix(lower, "com://"):
+		return newDevicePrinter(devicePath(name[len("com://"):]), "com"), nil
+	case strings.HasPrefix(lower, "device://"):
+		return newDevicePrinter(name[len("device://"):], "device"), nil
 	case comPortRe.MatchString(name):
-		return NewFilePrinter(devicePath(name), "COM"), nil
+		return newDevicePrinter(devicePath(name), "com"), nil
+	case strings.HasPrefix(name, "/dev/"):
+		return newDevicePrinter(name, "device"), nil
 	case usbPortRe.MatchString(name):
-		// "USB001" es el nombre de un puerto del spooler, no una ruta de
-		// dispositivo: abrirlo como archivo nunca funciono. Se indica la via
-		// que si funciona en lugar de fallar con "file not found".
-		return nil, fmt.Errorf("%q es un puerto del spooler, no un destino directo: usa el nombre de la impresora en Windows (o printer://NOMBRE)", name)
+		// "USB001" es el nombre de un puerto del spooler de Windows, no una
+		// ruta de dispositivo: abrirlo como archivo nunca funciono.
+		return nil, fmt.Errorf("%q es un puerto del spooler, no un destino: usa el nombre de la impresora (o printer://NOMBRE)", name)
 	case looksLikeHostPort(name):
-		return NewTCPPrinter(name, 5*time.Second), nil
+		return newTCPPrinter(name), nil
 	default:
-		return NewWindowsPrinter(name), nil
+		return newSpoolerPrinter(name), nil
 	}
 }
 
+// Print resuelve el destino, le envia los bytes y cierra.
+func (m *Manager) Print(name string, payload []byte) error {
+	// Un trabajo sin bytes no es un exito: devolver nil haria que la cola lo
+	// marcara como Completed sin que la impresora recibiera nada.
+	if len(payload) == 0 {
+		return fmt.Errorf("trabajo vacio: no hay nada que enviar a %q", name)
+	}
+	p, err := m.Get(name)
+	if err != nil {
+		return err
+	}
+	if err := p.Connect(); err != nil {
+		m.Invalidate()
+		return err
+	}
+	defer p.Disconnect()
+	if err := p.Print(payload); err != nil {
+		m.Invalidate()
+		return err
+	}
+	if m.logger != nil {
+		m.logger.Info("print_sent", map[string]any{"printer": name, "bytes": len(payload)})
+	}
+	return nil
+}
+
+// devicePath convierte un nombre de puerto en la ruta del dispositivo.
 func devicePath(port string) string {
 	port = strings.TrimSpace(port)
-	if strings.HasPrefix(port, `\\.\`) {
+	if strings.HasPrefix(port, `\\.\`) || strings.HasPrefix(port, "/dev/") {
 		return port
 	}
-	return `\\.\` + strings.ToUpper(port)
+	if runtime.GOOS == "windows" {
+		return `\\.\` + strings.ToUpper(port)
+	}
+	return filepath.Join("/dev", port)
 }
 
 func withDefaultPort(addr string) string {
@@ -118,9 +191,8 @@ func withDefaultPort(addr string) string {
 	return net.JoinHostPort(addr, strconv.Itoa(DefaultRawPort))
 }
 
-// looksLikeHostPort exige un puerto numerico valido. Antes bastaba con que el
-// nombre contuviera ":", asi que una impresora llamada "HP LaserJet: Caja" se
-// enrutaba a TCP.
+// looksLikeHostPort exige un puerto numerico valido: con solo comprobar si
+// contiene ":", una impresora llamada "HP LaserJet: Caja" se enrutaba a TCP.
 func looksLikeHostPort(s string) bool {
 	if strings.ContainsAny(s, ` \`) {
 		return false
@@ -133,74 +205,21 @@ func looksLikeHostPort(s string) bool {
 	return err == nil && n > 0 && n <= 65535
 }
 
-func (m *Manager) Print(name string, payload []byte) error {
-	// Un trabajo sin bytes no es un exito: devolver nil aqui hacia que la cola
-	// lo marcara como Completed sin que la impresora recibiera nada.
-	if len(payload) == 0 {
-		return fmt.Errorf("trabajo vacio: no hay nada que enviar a %q", name)
-	}
-	p, err := m.Get(name)
-	if err != nil {
-		return err
-	}
-	if err := p.Connect(); err != nil {
-		return err
-	}
-	defer p.Disconnect()
-	if err := p.Print(payload); err != nil {
-		return err
-	}
-	if m.logger != nil {
-		m.logger.Info("print_sent", map[string]any{"printer": name, "bytes": len(payload)})
-	}
-	return nil
+// --- TCP -------------------------------------------------------------------
+
+type tcpPrinter struct {
+	addr string
+	conn net.Conn
 }
 
-// detectSerialPorts abre COM1..COM32 para ver cuales existen. Como eso toma
-// el puerto momentaneamente, el resultado se cachea: antes cada
-// GET /api/printers hacia 32 aperturas y podia molestar a una impresora serie
-// que estuviera imprimiendo.
-const serialCacheTTL = 30 * time.Second
+func newTCPPrinter(addr string) *tcpPrinter { return &tcpPrinter{addr: addr} }
 
-func (m *Manager) detectSerialPorts() []Info {
-	if runtime.GOOS != "windows" {
-		return nil
-	}
-	m.serialMu.Lock()
-	defer m.serialMu.Unlock()
-	if time.Since(m.serialAt) < serialCacheTTL && m.serialList != nil {
-		return m.serialList
-	}
-	var out []Info
-	for i := 1; i <= 32; i++ {
-		name := fmt.Sprintf("COM%d", i)
-		path := devicePath(name)
-		f, err := os.OpenFile(path, os.O_RDWR, 0)
-		if err == nil {
-			_ = f.Close()
-			out = append(out, Info{Name: name, Type: "com", Address: path, Online: true, Status: "disponible"})
-		}
-	}
-	m.serialList, m.serialAt = out, time.Now()
-	return out
-}
-
-type TCPPrinter struct {
-	addr    string
-	timeout time.Duration
-	conn    net.Conn
-}
-
-func NewTCPPrinter(addr string, timeout time.Duration) *TCPPrinter {
-	return &TCPPrinter{addr: addr, timeout: timeout}
-}
-
-func (p *TCPPrinter) Connect() error {
+func (p *tcpPrinter) Connect() error {
 	if p.conn != nil {
 		_ = p.conn.Close()
 		p.conn = nil
 	}
-	conn, err := net.DialTimeout("tcp", p.addr, p.timeout)
+	conn, err := net.DialTimeout("tcp", p.addr, dialTimeout)
 	if err != nil {
 		return err
 	}
@@ -208,7 +227,7 @@ func (p *TCPPrinter) Connect() error {
 	return nil
 }
 
-func (p *TCPPrinter) Disconnect() error {
+func (p *tcpPrinter) Disconnect() error {
 	if p.conn == nil {
 		return nil
 	}
@@ -217,9 +236,9 @@ func (p *TCPPrinter) Disconnect() error {
 	return err
 }
 
-func (p *TCPPrinter) Print(data []byte) error {
+func (p *tcpPrinter) Print(data []byte) error {
 	if p.conn == nil {
-		return fmt.Errorf("tcp printer is not connected")
+		return fmt.Errorf("la impresora de red %s no esta conectada", p.addr)
 	}
 	if err := p.conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
 		return err
@@ -228,25 +247,27 @@ func (p *TCPPrinter) Print(data []byte) error {
 	return err
 }
 
-func (p *TCPPrinter) Status() error {
-	conn, err := net.DialTimeout("tcp", p.addr, p.timeout)
+func (p *tcpPrinter) Status() error {
+	conn, err := net.DialTimeout("tcp", p.addr, dialTimeout)
 	if err != nil {
 		return err
 	}
 	return conn.Close()
 }
 
-type FilePrinter struct {
+// --- Dispositivo de caracteres (serie, USB) --------------------------------
+
+type devicePrinter struct {
 	path string
 	typ  string
 	file *os.File
 }
 
-func NewFilePrinter(path, typ string) *FilePrinter {
-	return &FilePrinter{path: path, typ: typ}
+func newDevicePrinter(path, typ string) *devicePrinter {
+	return &devicePrinter{path: path, typ: typ}
 }
 
-func (p *FilePrinter) Connect() error {
+func (p *devicePrinter) Connect() error {
 	f, err := os.OpenFile(p.path, os.O_WRONLY, 0)
 	if err != nil {
 		return err
@@ -255,7 +276,7 @@ func (p *FilePrinter) Connect() error {
 	return nil
 }
 
-func (p *FilePrinter) Disconnect() error {
+func (p *devicePrinter) Disconnect() error {
 	if p.file == nil {
 		return nil
 	}
@@ -264,19 +285,18 @@ func (p *FilePrinter) Disconnect() error {
 	return err
 }
 
-func (p *FilePrinter) Print(data []byte) error {
+func (p *devicePrinter) Print(data []byte) error {
 	if p.file == nil {
-		return fmt.Errorf("%s printer is not connected", p.typ)
+		return fmt.Errorf("el dispositivo %s no esta abierto", p.path)
 	}
-	if err := p.file.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		// Los dispositivos serie no siempre soportan deadline; no es fatal.
-		_ = err
-	}
+	// Los dispositivos de caracteres no siempre admiten deadline; que falle
+	// aqui no es motivo para abortar la impresion.
+	_ = p.file.SetWriteDeadline(time.Now().Add(writeTimeout))
 	_, err := p.file.Write(data)
 	return err
 }
 
-func (p *FilePrinter) Status() error {
+func (p *devicePrinter) Status() error {
 	f, err := os.OpenFile(p.path, os.O_WRONLY, 0)
 	if err != nil {
 		return err

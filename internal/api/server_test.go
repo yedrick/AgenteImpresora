@@ -40,11 +40,12 @@ func newTestServer(t *testing.T, tune func(*config.Config)) http.Handler {
 	t.Cleanup(func() { logger.Close() })
 
 	pm := printers.NewManager(logger)
-	qm := queue.NewManager(pm, logger, 1, 1)
+	paths := config.DefaultPaths(dir)
+	qm := queue.New(queue.Options{Printers: pm, Logger: logger, Workers: 1, MaxRetries: 1, StorageDir: paths.Storage})
 	qm.Start()
 	t.Cleanup(qm.Stop)
 
-	return NewServer(cfg, pm, qm, logger).Routes()
+	return NewServer(cfg, paths, pm, qm, logger).Routes()
 }
 
 func post(t *testing.T, h http.Handler, path, body, remote string) *httptest.ResponseRecorder {
@@ -108,7 +109,7 @@ func TestTablaConCeldasDeMasNoRevienta(t *testing.T) {
 
 // Si algo vuelve a reventar, debe salir un 500 con JSON y no un socket cortado.
 func TestElPanicDevuelveJSON(t *testing.T) {
-	s := &Server{cfg: config.Default()}
+	s := &Server{cfg: config.Default(), paths: config.DefaultPaths(t.TempDir())}
 	h := s.recoverPanics(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("boom")
 	}))
@@ -333,4 +334,50 @@ func TestLaPlantillaRespetaElAncho(t *testing.T) {
 	if len(ancho) <= len(estrecho) {
 		t.Fatalf("un papel de 80 mm deberia producir lineas mas largas (%d vs %d bytes)", len(ancho), len(estrecho))
 	}
+}
+
+// Las tres lineas del recuadro tienen que medir lo mismo: la de contenido
+// salia un caracter mas ancha que los bordes.
+func TestElRecuadroCuadra(t *testing.T) {
+	for _, texto := range []string{"T", "TOTAL", "TOTAL: Bs 21.50", strings.Repeat("X", 60)} {
+		for _, cols := range []int{32, 42, 48} {
+			b := escpos.New()
+			drawBoxLine(b, ticketLine{Text: texto, Align: "center"}, []rune(texto), cols, false)
+			// Se cuenta en BYTES: la salida ya esta en CP850, donde cada
+			// caracter ocupa uno. Contar runas interpretaria los bytes como
+			// UTF-8 y, por ejemplo, 0xC4 0xBF se juntarian en una sola.
+			var anchos []int
+			for _, linea := range strings.Split(string(b.Bytes()), "\n") {
+				if l := len(decodeBoxLine(linea)); l > 0 {
+					anchos = append(anchos, l)
+				}
+			}
+			if len(anchos) != 3 {
+				t.Fatalf("cols=%d %q: esperaba 3 lineas, obtuve %d", cols, texto, len(anchos))
+			}
+			if anchos[0] != anchos[1] || anchos[1] != anchos[2] {
+				t.Fatalf("cols=%d %q: lineas descuadradas %v", cols, texto, anchos)
+			}
+			if anchos[0] > cols {
+				t.Fatalf("cols=%d %q: el recuadro mide %d, se sale del papel", cols, texto, anchos[0])
+			}
+		}
+	}
+}
+
+// decodeBoxLine quita los comandos ESC/POS y deja los bytes CP850, que en una
+// linea de marco equivalen uno a uno con los caracteres impresos.
+func decodeBoxLine(s string) string {
+	var out []byte
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == 0x1b && i+2 < len(s):
+			i += 2
+		case s[i] == 0x1d && i+2 < len(s):
+			i += 2
+		default:
+			out = append(out, s[i])
+		}
+	}
+	return string(out)
 }

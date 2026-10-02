@@ -42,9 +42,18 @@ var webFS embed.FS
 
 type Server struct {
 	cfg      config.Config
+	paths    config.Paths
 	printers *printers.Manager
 	queue    *queue.Manager
 	logger   *logs.Logger
+
+	// Los ajustes se leian del disco en CADA impresion, para resolver los
+	// alias. Ahora se cachean y solo se releen si cambia el archivo.
+	settingsMu   sync.Mutex
+	settingsVal  settings.Settings
+	settingsStat time.Time
+	settingsSize int64
+	settingsOK   bool
 }
 
 type response struct {
@@ -54,8 +63,44 @@ type response struct {
 	Error   string `json:"error,omitempty"`
 }
 
-func NewServer(cfg config.Config, pm *printers.Manager, qm *queue.Manager, logger *logs.Logger) *Server {
-	return &Server{cfg: cfg, printers: pm, queue: qm, logger: logger}
+func NewServer(cfg config.Config, paths config.Paths, pm *printers.Manager, qm *queue.Manager, logger *logs.Logger) *Server {
+	return &Server{cfg: cfg, paths: paths, printers: pm, queue: qm, logger: logger}
+}
+
+// loadSettings devuelve los ajustes, releyendo el archivo solo si cambio su
+// tamano o su fecha de modificacion.
+func (s *Server) loadSettings() (settings.Settings, error) {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	if info, err := os.Stat(s.paths.Settings); err == nil && s.settingsOK {
+		if info.ModTime().Equal(s.settingsStat) && info.Size() == s.settingsSize {
+			return s.settingsVal, nil
+		}
+	}
+	cfg, err := settings.Load(s.paths.Settings)
+	if err != nil {
+		return cfg, err
+	}
+	s.settingsVal, s.settingsOK = cfg, true
+	if info, statErr := os.Stat(s.paths.Settings); statErr == nil {
+		s.settingsStat, s.settingsSize = info.ModTime(), info.Size()
+	}
+	return cfg, nil
+}
+
+// saveSettingsFile escribe los ajustes y refresca la cache.
+func (s *Server) saveSettingsFile(cfg settings.Settings) (settings.Settings, error) {
+	saved, err := settings.Save(s.paths.Settings, cfg)
+	if err != nil {
+		return saved, err
+	}
+	s.settingsMu.Lock()
+	s.settingsVal, s.settingsOK = saved, true
+	if info, statErr := os.Stat(s.paths.Settings); statErr == nil {
+		s.settingsStat, s.settingsSize = info.ModTime(), info.Size()
+	}
+	s.settingsMu.Unlock()
+	return saved, nil
 }
 
 func (s *Server) Routes() http.Handler {
@@ -277,7 +322,7 @@ func (s *Server) diagnosticReport(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	configRaw := readTextFile("configs/config.json", 64*1024)
+	configRaw := readTextFile(s.paths.Config, 64*1024)
 	report := map[string]any{
 		"generated_at": time.Now().Format(time.RFC3339),
 		"service":      "CollaTech Agent",
@@ -305,7 +350,7 @@ func (s *Server) diagnosticReport(w http.ResponseWriter, r *http.Request) {
 		},
 		"firewall": firewallDiagnostics(port, exe),
 		"config": map[string]any{
-			"path":   filepath.Join(cwd, "configs", "config.json"),
+			"path":   s.paths.Config,
 			"active": redactConfig(s.cfg),
 			"raw":    redactRawConfig(configRaw),
 		},
@@ -354,7 +399,7 @@ func (s *Server) readLogs(w http.ResponseWriter, r *http.Request) {
 			limit = parsed
 		}
 	}
-	lines, err := tailLogLines("logs", limit)
+	lines, err := tailLogLines(s.paths.Logs, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
 		return
@@ -373,7 +418,7 @@ func (s *Server) readToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	cfg, err := settings.Load("storage/settings.json")
+	cfg, err := s.loadSettings()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
 		return
@@ -387,12 +432,12 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cfg.Aliases == nil {
-		current, err := settings.Load("storage/settings.json")
+		current, err := s.loadSettings()
 		if err == nil {
 			cfg.Aliases = current.Aliases
 		}
 	}
-	saved, err := settings.Save("storage/settings.json", cfg)
+	saved, err := s.saveSettingsFile(cfg)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
 		return
@@ -401,7 +446,7 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getPrinterAliases(w http.ResponseWriter, r *http.Request) {
-	cfg, err := settings.Load("storage/settings.json")
+	cfg, err := s.loadSettings()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
 		return
@@ -414,13 +459,13 @@ func (s *Server) savePrinterAliases(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &aliases) {
 		return
 	}
-	cfg, err := settings.Load("storage/settings.json")
+	cfg, err := s.loadSettings()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
 		return
 	}
 	cfg.Aliases = normalizeAliases(aliases)
-	saved, err := settings.Save("storage/settings.json", cfg)
+	saved, err := s.saveSettingsFile(cfg)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
 		return
@@ -452,7 +497,7 @@ func (s *Server) resolvePrinters(name string) ([]string, string) {
 	if requested == "" {
 		return nil, ""
 	}
-	cfg, err := settings.Load("storage/settings.json")
+	cfg, err := s.loadSettings()
 	if err != nil {
 		s.logger.Error("printer_alias", map[string]any{"error": err.Error(), "requested_printer": requested})
 		return splitPrinterTargets(requested), ""
@@ -800,13 +845,13 @@ func (s *Server) printLogo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Info("print_logo", map[string]any{"printer": req.Printer, "width": req.Width, "cut": req.Cut})
-	img, err := loadLogoImage()
+	raster, err := logoRaster(s.paths.Logo, imageWidth(req.Width, req.Scale))
 	if err != nil {
-		s.logger.Error("print_logo", map[string]any{"error": "could not decode LOGO.png", "printer": req.Printer})
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "could not decode LOGO.png"})
+		s.logger.Error("print_logo", map[string]any{"error": err.Error(), "printer": req.Printer})
+		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: "no se pudo leer el logo"})
 		return
 	}
-	b := escpos.New().Initialize().AlignCenter().ImageFit(img, imageWidth(req.Width, req.Scale)).Line()
+	b := escpos.New().Initialize().RawBytes(raster)
 	if req.Cut {
 		b.Feed(escpos.CutFeedLines).Cut()
 	}
@@ -814,16 +859,18 @@ func (s *Server) printLogo(w http.ResponseWriter, r *http.Request) {
 }
 
 var (
-	logoOnce sync.Once
-	logoImg  image.Image
-	logoErr  error
+	logoOnce  sync.Once
+	logoImg   image.Image
+	logoErr   error
+	logoRawMu sync.Mutex
+	logoRaw   = map[int][]byte{}
 )
 
-// loadLogoImage memoriza el logo: antes se abria y descodificaba el PNG del
-// disco en cada POST /api/print/logo.
-func loadLogoImage() (image.Image, error) {
+// loadLogoImage memoriza el logo descodificado: antes se abria y
+// descodificaba el PNG del disco en cada POST /api/print/logo.
+func loadLogoImage(path string) (image.Image, error) {
 	logoOnce.Do(func() {
-		if f, err := os.Open("LOGO.png"); err == nil {
+		if f, err := os.Open(path); err == nil {
 			defer f.Close()
 			logoImg, _, logoErr = image.Decode(f)
 			return
@@ -836,6 +883,24 @@ func loadLogoImage() (image.Image, error) {
 		logoImg, _, logoErr = image.Decode(bytes.NewReader(data))
 	})
 	return logoImg, logoErr
+}
+
+// logoRaster devuelve el logo ya escalado y difuminado para un ancho dado.
+// Convertir la imagen es lo caro (difuminado Floyd-Steinberg sobre cientos de
+// miles de pixeles) y el logo no cambia, asi que se hace una vez por ancho.
+func logoRaster(path string, width int) ([]byte, error) {
+	logoRawMu.Lock()
+	defer logoRawMu.Unlock()
+	if cached, ok := logoRaw[width]; ok {
+		return cached, nil
+	}
+	img, err := loadLogoImage(path)
+	if err != nil {
+		return nil, err
+	}
+	raster := escpos.New().AlignCenter().ImageFit(img, width).Line().Bytes()
+	logoRaw[width] = raster
+	return raster, nil
 }
 
 type rawRequest struct {
@@ -1294,12 +1359,17 @@ func drawBoxLine(b *escpos.Builder, line ticketLine, r []rune, cols int, border 
 	if wall < len(r)+2 {
 		wall = len(r) + 2
 	}
+	// El relleno se reparte a los dos lados para que el texto quede centrado
+	// dentro del recuadro, y suma exactamente el ancho del marco: antes la
+	// linea de contenido salia un caracter mas ancha que los bordes.
 	pad := wall - len(r) - 2
 	if pad < 0 {
 		pad = 0
 	}
+	left := pad / 2
+	right := pad - left
 	topLine := "┌" + strings.Repeat("─", wall) + "┐"
-	ctLine := "│  " + string(r) + strings.Repeat(" ", pad) + " │"
+	ctLine := "│ " + strings.Repeat(" ", left) + string(r) + strings.Repeat(" ", right) + " │"
 	botLine := "└" + strings.Repeat("─", wall) + "┘"
 
 	b.FontSize("normal").Bold(line.Bold)

@@ -469,3 +469,10 @@ var cp850 = map[rune]byte{
 	'§': 0xf5, '÷': 0xf6, '¸': 0xf7, '°': 0xf8, '¨': 0xf9, '·': 0xfa, '¹': 0xfb, '³': 0xfc,
 	'²': 0xfd, '■': 0xfe,
 }
+
+// RawBytes anade bytes ya construidos. Lo usa el agente para reutilizar un
+// raster cacheado sin volver a convertir la imagen.
+func (b *Builder) RawBytes(data []byte) *Builder {
+	b.buf.Write(data)
+	return b
+}

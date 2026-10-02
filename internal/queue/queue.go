@@ -77,23 +77,37 @@ type Manager struct {
 	seq   int
 }
 
-func NewManager(pm *printers.Manager, logger *logs.Logger, workers, maxRetries int) *Manager {
-	if workers <= 0 {
-		workers = 1
+// Options agrupa la configuracion de la cola. Como struct en vez de una lista
+// de parametros posicionales: ya eran cinco y la carpeta de estado tenia que
+// dejar de estar escrita a mano.
+type Options struct {
+	Printers   *printers.Manager
+	Logger     *logs.Logger
+	Workers    int
+	MaxRetries int
+	StorageDir string
+}
+
+func New(opts Options) *Manager {
+	if opts.Workers <= 0 {
+		opts.Workers = 1
 	}
-	if maxRetries <= 0 {
-		maxRetries = 1
+	if opts.MaxRetries <= 0 {
+		opts.MaxRetries = 1
+	}
+	if opts.StorageDir == "" {
+		opts.StorageDir = "storage"
 	}
 	return &Manager{
-		printers:   pm,
-		logger:     logger,
+		printers:   opts.Printers,
+		logger:     opts.Logger,
 		jobs:       map[string]*Job{},
 		queue:      make(chan *Job, queueCapacity),
 		stop:       make(chan struct{}),
 		dirty:      make(chan struct{}, 1),
-		workers:    workers,
-		maxRetries: maxRetries,
-		persistDir: "storage",
+		workers:    opts.Workers,
+		maxRetries: opts.MaxRetries,
+		persistDir: opts.StorageDir,
 		locks:      map[string]*sync.Mutex{},
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,7 +40,6 @@ type Server struct {
 	cfg      config.Config
 	printers *printers.Manager
 	queue    *queue.Manager
-	renderer *render.Renderer
 	logger   *logs.Logger
 }
 
@@ -50,8 +50,8 @@ type response struct {
 	Error   string `json:"error,omitempty"`
 }
 
-func NewServer(cfg config.Config, pm *printers.Manager, qm *queue.Manager, renderer *render.Renderer, logger *logs.Logger) *Server {
-	return &Server{cfg: cfg, printers: pm, queue: qm, renderer: renderer, logger: logger}
+func NewServer(cfg config.Config, pm *printers.Manager, qm *queue.Manager, logger *logs.Logger) *Server {
+	return &Server{cfg: cfg, printers: pm, queue: qm, logger: logger}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -79,9 +79,32 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/print/image", s.printImage)
 	mux.HandleFunc("POST /api/print/raw", s.printRaw)
 	if s.cfg.AllowRemote {
-		return s.cors(mux)
+		return s.recoverPanics(s.cors(mux))
 	}
-	return s.localhostOnly(s.cors(mux))
+	return s.recoverPanics(s.localhostOnly(s.cors(mux)))
+}
+
+// recoverPanics evita que un payload malformado tumbe la conexion sin dejar
+// rastro: sin esto, net/http aborta el socket y el cliente solo ve un EOF.
+func (s *Server) recoverPanics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			rec := recover()
+			if rec == nil {
+				return
+			}
+			if s.logger != nil {
+				s.logger.Error("panic_recovered", map[string]any{
+					"error":  fmt.Sprint(rec),
+					"method": r.Method,
+					"path":   r.URL.Path,
+					"stack":  string(debug.Stack()),
+				})
+			}
+			writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: "internal error"})
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) panel(w http.ResponseWriter, r *http.Request) {
@@ -913,8 +936,14 @@ func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml
 
 	buildRow := func(cells []string, isHeader bool) {
 		var line string
-		for i, cell := range cells {
-			txt := cell
+		// Se recorren las columnas declaradas, no las celdas: una fila con mas
+		// celdas que columnas desbordaba colWidths, y una con menos dejaba la
+		// linea corta.
+		for i := 0; i < colCount; i++ {
+			txt := ""
+			if i < len(cells) {
+				txt = cells[i]
+			}
 			r := []rune(txt)
 			w := colWidths[i]
 			if len(r) > w {
@@ -1116,13 +1145,6 @@ func drawBoxLine(b *escpos.Builder, line ticketLine, r []rune, cols int, border 
 	if border {
 		inner = cols - 2
 	}
-	maxText := inner - 4
-	if maxText < 1 {
-		maxText = 1
-	}
-	if len(r) > maxText {
-		r = r[:maxText]
-	}
 	ml := line.ML
 	mr := line.MR
 	if ml < 0 {
@@ -1131,6 +1153,18 @@ func drawBoxLine(b *escpos.Builder, line ticketLine, r []rune, cols int, border 
 	if mr < 0 {
 		mr = 0
 	}
+	// El texto comparte el ancho interior con los margenes y con el marco
+	// ("│  " + " │" = 4 caracteres), asi que se trunca contando ya los
+	// margenes. Truncar antes de sumarlos dejaba la linea mas ancha que la
+	// caja y hacia que el relleno de abajo saliera negativo.
+	maxText := inner - 4 - ml - mr
+	if maxText < 1 {
+		maxText = 1
+		ml, mr = 0, 0
+	}
+	if len(r) > maxText {
+		r = r[:maxText]
+	}
 	if ml+mr > 0 {
 		r = append([]rune(strings.Repeat(" ", ml)), r...)
 		r = append(r, []rune(strings.Repeat(" ", mr))...)
@@ -1138,12 +1172,16 @@ func drawBoxLine(b *escpos.Builder, line ticketLine, r []rune, cols int, border 
 	wall := len(r) + 4
 	if wall+2 > inner {
 		wall = inner - 2
-		if wall < 4 {
-			wall = 4
-		}
+	}
+	if wall < len(r)+2 {
+		wall = len(r) + 2
+	}
+	pad := wall - len(r) - 2
+	if pad < 0 {
+		pad = 0
 	}
 	topLine := "┌" + strings.Repeat("─", wall) + "┐"
-	ctLine := "│  " + string(r) + strings.Repeat(" ", wall-len(r)-2) + " │"
+	ctLine := "│  " + string(r) + strings.Repeat(" ", pad) + " │"
 	botLine := "└" + strings.Repeat("─", wall) + "┘"
 
 	b.FontSize("normal").Bold(line.Bold)

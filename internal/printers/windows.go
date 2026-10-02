@@ -1,57 +1,78 @@
+//go:build windows
+
 package printers
 
 import (
 	"fmt"
 	"runtime"
-	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 type WindowsPrinter struct {
 	name string
 }
 
-func NewWindowsPrinter(name string) *WindowsPrinter {
-	return &WindowsPrinter{name: name}
-}
+func NewWindowsPrinter(name string) *WindowsPrinter { return &WindowsPrinter{name: name} }
 
-func (p *WindowsPrinter) Connect() error {
-	if runtime.GOOS != "windows" {
-		return fmt.Errorf("windows printer backend requires Windows")
-	}
-	return nil
-}
-
+func (p *WindowsPrinter) Connect() error    { return nil }
 func (p *WindowsPrinter) Disconnect() error { return nil }
 
+// Se usa NewLazySystemDLL (no NewLazyDLL) para que winspool.drv se resuelva
+// siempre desde System32: el agente corre como servicio con privilegios altos
+// y NewLazyDLL busca primero junto al ejecutable, lo que permite secuestrar la
+// DLL dejando un archivo con ese nombre al lado del .exe.
 var (
-	winspool             = syscall.NewLazyDLL("winspool.drv")
-	procOpenPrinter      = winspool.NewProc("OpenPrinterA")
+	winspool             = windows.NewLazySystemDLL("winspool.drv")
+	procOpenPrinter      = winspool.NewProc("OpenPrinterW")
 	procClosePrinter     = winspool.NewProc("ClosePrinter")
-	procStartDocPrinter  = winspool.NewProc("StartDocPrinterA")
+	procGetPrinter       = winspool.NewProc("GetPrinterW")
+	procStartDocPrinter  = winspool.NewProc("StartDocPrinterW")
 	procEndDocPrinter    = winspool.NewProc("EndDocPrinter")
 	procStartPagePrinter = winspool.NewProc("StartPagePrinter")
 	procEndPagePrinter   = winspool.NewProc("EndPagePrinter")
 	procWritePrinter     = winspool.NewProc("WritePrinter")
-	procEnumPrinters     = winspool.NewProc("EnumPrintersA")
+	procEnumPrinters     = winspool.NewProc("EnumPrintersW")
 )
 
 const (
 	printerEnumLocal       = 0x00000002
 	printerEnumConnections = 0x00000004
+
+	statusPaused            = 0x00000001
+	statusError             = 0x00000002
+	statusPaperJam          = 0x00000008
+	statusPaperOut          = 0x00000010
+	statusPaperProblem      = 0x00000040
+	statusOffline           = 0x00000080
+	statusOutOfMemory       = 0x00000200
+	statusNotAvailable      = 0x00001000
+	statusUserIntervention  = 0x00100000
+	statusDoorOpen          = 0x00400000
+	statusNoToner           = 0x00040000
+	statusOutOfPaperOrError = statusError | statusPaperJam | statusPaperOut |
+		statusPaperProblem | statusOffline | statusNotAvailable |
+		statusDoorOpen | statusUserIntervention | statusOutOfMemory
 )
 
-// printerInfo4A mirrors the Win32 PRINTER_INFO_4A struct: the lightweight
-// enumeration level that lists printer names without querying each driver.
-type printerInfo4A struct {
-	pPrinterName *byte
-	pServerName  *byte
+// printerInfo4W refleja PRINTER_INFO_4W: el nivel ligero que lista nombres sin
+// consultar cada driver. Se usa la variante W (UTF-16) porque la ANSI recibia
+// los nombres en UTF-8 y las impresoras con acentos ("Impresion Caja",
+// "Deposito") no se encontraban ni se listaban bien.
+type printerInfo4W struct {
+	pPrinterName *uint16
+	pServerName  *uint16
 	flags        uint32
 }
 
-// enumWindowsPrinters lists installed/connected printers via EnumPrinters in
-// winspool.drv. This replaces shelling out to "powershell Get-Printer",
-// which spawned a whole PowerShell process just to read the printer list.
+// docInfo1W refleja DOC_INFO_1W, usado por StartDocPrinterW.
+type docInfo1W struct {
+	pDocName    *uint16
+	pOutputFile *uint16
+	pDataType   *uint16
+}
+
 func enumWindowsPrinters() []Info {
 	flags := uintptr(printerEnumLocal | printerEnumConnections)
 
@@ -71,94 +92,147 @@ func enumWindowsPrinters() []Info {
 		return nil
 	}
 
-	entrySize := int(unsafe.Sizeof(printerInfo4A{}))
+	entrySize := int(unsafe.Sizeof(printerInfo4W{}))
 	out := make([]Info, 0, returned)
 	for i := 0; i < int(returned); i++ {
-		entry := (*printerInfo4A)(unsafe.Pointer(&buf[i*entrySize]))
-		name := bytePtrToString(entry.pPrinterName)
+		if (i+1)*entrySize > len(buf) {
+			break
+		}
+		entry := (*printerInfo4W)(unsafe.Pointer(&buf[i*entrySize]))
+		name := windows.UTF16PtrToString(entry.pPrinterName)
 		if name == "" {
 			continue
 		}
-		out = append(out, Info{Name: name, Type: "windows", Online: true})
+		online, detail := printerStatus(name)
+		out = append(out, Info{Name: name, Type: "windows", Online: online, Status: detail})
 	}
+	// Los punteros de la lista apuntan dentro de buf; hay que mantenerlo vivo
+	// hasta terminar de leerlos.
+	runtime.KeepAlive(buf)
 	return out
 }
 
-func bytePtrToString(p *byte) string {
-	if p == nil {
-		return ""
-	}
-	n := 0
-	for *(*byte)(unsafe.Pointer(uintptr(unsafe.Pointer(p)) + uintptr(n))) != 0 {
-		n++
-	}
-	return string(unsafe.Slice(p, n))
-}
-
-// docInfo1A mirrors the Win32 DOC_INFO_1A struct used by StartDocPrinterA.
-type docInfo1A struct {
-	pDocName    *byte
-	pOutputFile *byte
-	pDataType   *byte
-}
-
-// Print sends raw ESC/POS bytes straight to the Windows print spooler via
-// winspool.drv. This talks to the OS API directly instead of shelling out to
-// PowerShell + Add-Type (which recompiled a C# helper on every single print
-// job and cost 1-3+ seconds per ticket).
-func (p *WindowsPrinter) Print(data []byte) error {
-	if runtime.GOOS != "windows" {
-		return fmt.Errorf("windows printer backend requires Windows")
-	}
-	if len(data) == 0 {
-		return nil
-	}
-
-	printerName, err := syscall.BytePtrFromString(p.name)
+// printerStatus consulta GetPrinterW nivel 6 (solo el DWORD de estado). Antes
+// se devolvia Online: true a secas, asi que el panel daba por buena una
+// impresora apagada o sin papel.
+func printerStatus(name string) (bool, string) {
+	ptr, err := windows.UTF16PtrFromString(name)
 	if err != nil {
-		return fmt.Errorf("invalid printer name %q: %w", p.name, err)
+		return false, "nombre no valido"
 	}
-	docName, _ := syscall.BytePtrFromString("CollaTech ESC/POS")
-	dataType, _ := syscall.BytePtrFromString("RAW")
+	var h windows.Handle
+	r, _, _ := procOpenPrinter.Call(uintptr(unsafe.Pointer(ptr)), uintptr(unsafe.Pointer(&h)), 0)
+	if r == 0 {
+		return false, "no se pudo abrir"
+	}
+	defer procClosePrinter.Call(uintptr(h))
 
-	var hPrinter syscall.Handle
+	var status uint32
+	var needed uint32
+	r, _, _ = procGetPrinter.Call(uintptr(h), 6,
+		uintptr(unsafe.Pointer(&status)), unsafe.Sizeof(status),
+		uintptr(unsafe.Pointer(&needed)))
+	if r == 0 {
+		// Sin estado disponible: se informa como disponible pero sin detalle,
+		// que es lo unico honesto que se puede decir.
+		return true, ""
+	}
+	return status&statusOutOfPaperOrError == 0, describeStatus(status)
+}
+
+func describeStatus(status uint32) string {
+	switch {
+	case status == 0:
+		return "lista"
+	case status&statusOffline != 0:
+		return "sin conexion"
+	case status&statusPaperOut != 0:
+		return "sin papel"
+	case status&statusPaperJam != 0:
+		return "papel atascado"
+	case status&statusDoorOpen != 0:
+		return "tapa abierta"
+	case status&statusPaperProblem != 0:
+		return "problema de papel"
+	case status&statusNoToner != 0:
+		return "sin tinta"
+	case status&statusUserIntervention != 0:
+		return "requiere atencion"
+	case status&statusNotAvailable != 0:
+		return "no disponible"
+	case status&statusOutOfMemory != 0:
+		return "sin memoria"
+	case status&statusError != 0:
+		return "error"
+	case status&statusPaused != 0:
+		return "en pausa"
+	default:
+		return "ocupada"
+	}
+}
+
+// Print manda los bytes ESC/POS al spooler de Windows como trabajo RAW.
+func (p *WindowsPrinter) Print(data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("no hay datos que enviar a %q", p.name)
+	}
+
+	printerName, err := windows.UTF16PtrFromString(p.name)
+	if err != nil {
+		return fmt.Errorf("nombre de impresora no valido %q: %w", p.name, err)
+	}
+	docName, _ := windows.UTF16PtrFromString("CollaTech ESC/POS")
+	dataType, _ := windows.UTF16PtrFromString("RAW")
+
+	var hPrinter windows.Handle
 	r, _, errno := procOpenPrinter.Call(
 		uintptr(unsafe.Pointer(printerName)),
 		uintptr(unsafe.Pointer(&hPrinter)),
 		0,
 	)
 	if r == 0 {
-		return fmt.Errorf("OpenPrinter failed for %q: %w", p.name, errno)
+		return fmt.Errorf("OpenPrinter fallo para %q: %w", p.name, errno)
 	}
 	defer procClosePrinter.Call(uintptr(hPrinter))
 
-	di := docInfo1A{pDocName: docName, pDataType: dataType}
+	di := docInfo1W{pDocName: docName, pDataType: dataType}
 	r, _, errno = procStartDocPrinter.Call(uintptr(hPrinter), 1, uintptr(unsafe.Pointer(&di)))
 	if r == 0 {
-		return fmt.Errorf("StartDocPrinter failed for %q: %w", p.name, errno)
+		return fmt.Errorf("StartDocPrinter fallo para %q: %w", p.name, errno)
 	}
 	defer procEndDocPrinter.Call(uintptr(hPrinter))
 
 	r, _, errno = procStartPagePrinter.Call(uintptr(hPrinter))
 	if r == 0 {
-		return fmt.Errorf("StartPagePrinter failed for %q: %w", p.name, errno)
+		return fmt.Errorf("StartPagePrinter fallo para %q: %w", p.name, errno)
 	}
 	defer procEndPagePrinter.Call(uintptr(hPrinter))
 
-	var written uint32
-	r, _, errno = procWritePrinter.Call(
-		uintptr(hPrinter),
-		uintptr(unsafe.Pointer(&data[0])),
-		uintptr(len(data)),
-		uintptr(unsafe.Pointer(&written)),
-	)
-	if r == 0 {
-		return fmt.Errorf("WritePrinter failed for %q: %w", p.name, errno)
-	}
-	if int(written) != len(data) {
-		return fmt.Errorf("WritePrinter incomplete for %q: wrote %d of %d bytes", p.name, written, len(data))
+	// El spooler puede aceptar menos bytes de los pedidos. Antes eso se
+	// trataba como error y la cola reintentaba el trabajo entero, imprimiendo
+	// el ticket dos veces.
+	for sent := 0; sent < len(data); {
+		var written uint32
+		r, _, errno = procWritePrinter.Call(
+			uintptr(hPrinter),
+			uintptr(unsafe.Pointer(&data[sent])),
+			uintptr(len(data)-sent),
+			uintptr(unsafe.Pointer(&written)),
+		)
+		if r == 0 {
+			return fmt.Errorf("WritePrinter fallo para %q tras %d de %d bytes: %w", p.name, sent, len(data), errno)
+		}
+		if written == 0 {
+			return fmt.Errorf("WritePrinter no avanzo para %q tras %d de %d bytes", p.name, sent, len(data))
+		}
+		sent += int(written)
 	}
 	return nil
 }
 
-func (p *WindowsPrinter) Status() error { return nil }
+func (p *WindowsPrinter) Status() error {
+	if online, detail := printerStatus(p.name); !online {
+		return fmt.Errorf("impresora %q no disponible: %s", p.name, detail)
+	}
+	return nil
+}

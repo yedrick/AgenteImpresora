@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,15 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sys/windows/svc"
-
 	"collatech-agent/internal/api"
 	"collatech-agent/internal/config"
 	"collatech-agent/internal/logs"
 	"collatech-agent/internal/printers"
-	"collatech-agent/internal/profiles"
 	"collatech-agent/internal/queue"
-	"collatech-agent/internal/render"
 )
 
 const serviceName = "CollaTechAgent"
@@ -29,16 +27,12 @@ func main() {
 	runtime.GOMAXPROCS(1) // minimo uso de CPU
 	chdirToExecutableDir()
 
-	isService, err := svc.IsWindowsService()
-	if err != nil {
-		log.Fatalf("no se pudo determinar el modo de ejecucion: %v", err)
-	}
-	if isService {
-		// Started by the Windows Service Control Manager (auto-start at
-		// boot, before any user logs in). Blocks until the SCM stops us.
-		if err := svc.Run(serviceName, &agentService{}); err != nil {
-			log.Fatalf("service run: %v", err)
-		}
+	// En Windows, runService detecta si nos arranco el Service Control
+	// Manager y en ese caso bloquea hasta que nos paren. En otros sistemas
+	// devuelve false y seguimos en modo interactivo.
+	if handled, err := runService(); err != nil {
+		log.Fatalf("service run: %v", err)
+	} else if handled {
 		return
 	}
 	runInteractive()
@@ -60,105 +54,91 @@ func chdirToExecutableDir() {
 }
 
 func runInteractive() {
-	server, logger, queueManager, err := startServer()
+	agent, err := startServer()
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
-	defer queueManager.Stop()
-	defer logger.Close()
+	defer agent.queue.Stop()
+	defer agent.logger.Close()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
-	shutdownServer(server, logger)
+	agent.shutdown()
 }
 
-func startServer() (*http.Server, *logs.Logger, *queue.Manager, error) {
+// agent agrupa lo que hay que parar al apagar.
+type agent struct {
+	server *http.Server
+	logger *logs.Logger
+	queue  *queue.Manager
+}
+
+func startServer() (*agent, error) {
 	cfg, err := config.Load("configs/config.json")
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("load config: %w", err)
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 
 	logger, err := logs.NewJSONLogger("logs")
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create logger: %w", err)
+		return nil, fmt.Errorf("create logger: %w", err)
 	}
 
-	profileStore, err := profiles.LoadDir("profiles")
-	if err != nil {
-		logger.Error("profiles_load_failed", map[string]any{"error": err.Error()})
-	}
-
-	manager := printers.NewManager(logger, profileStore)
-	renderer := render.NewRenderer()
+	manager := printers.NewManager(logger)
 	queueManager := queue.NewManager(manager, logger, cfg.Queue.Workers, cfg.Queue.MaxRetries)
 	queueManager.Start()
 
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	server := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
-		Handler:           api.NewServer(cfg, manager, queueManager, renderer, logger).Routes(),
+		Addr:              addr,
+		Handler:           api.NewServer(cfg, manager, queueManager, logger).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       20 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
-	go func() {
-		logger.Info("server_started", map[string]any{"addr": server.Addr, "tls": cfg.TLS.Enabled})
-		var serveErr error
-		if cfg.TLS.Enabled && cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
-			log.Printf("Iniciando con HTTPS en %s", server.Addr)
-			serveErr = server.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
-		} else {
-			log.Printf("Iniciando con HTTP en %s (sin TLS)", server.Addr)
-			serveErr = server.ListenAndServe()
+	// Se abre el socket aqui, de forma sincrona. Antes el Listen ocurria
+	// dentro de la goroutine, asi que un puerto ocupado solo dejaba una linea
+	// en el log mientras el servicio le informaba "Running" al SCM.
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		queueManager.Stop()
+		logger.Error("server_failed", map[string]any{"error": err.Error(), "addr": addr})
+		logger.Close()
+		return nil, fmt.Errorf("no se pudo escuchar en %s: %w", addr, err)
+	}
+	if cfg.TLS.Enabled {
+		cert, certErr := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if certErr != nil {
+			ln.Close()
+			queueManager.Stop()
+			logger.Error("server_failed", map[string]any{"error": certErr.Error(), "cert": cfg.TLS.CertFile})
+			logger.Close()
+			return nil, fmt.Errorf("no se pudo cargar el certificado TLS: %w", certErr)
 		}
-		if serveErr != nil && serveErr != http.ErrServerClosed {
+		server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+		ln = tls.NewListener(ln, server.TLSConfig)
+		log.Printf("Iniciando con HTTPS en %s", addr)
+	} else {
+		log.Printf("Iniciando con HTTP en %s (sin TLS)", addr)
+	}
+
+	logger.Info("server_started", map[string]any{"addr": addr, "tls": cfg.TLS.Enabled})
+	go func() {
+		if serveErr := server.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
 			logger.Error("server_failed", map[string]any{"error": serveErr.Error()})
 		}
 	}()
 
-	return server, logger, queueManager, nil
+	return &agent{server: server, logger: logger, queue: queueManager}, nil
 }
 
-func shutdownServer(server *http.Server, logger *logs.Logger) {
+func (a *agent) shutdown() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = server.Shutdown(ctx)
-	logger.Info("server_stopped", nil)
-}
-
-// agentService implements svc.Handler so the agent registers properly with
-// the Windows Service Control Manager: reports Running once the HTTP server
-// is up, and shuts down cleanly on Stop/Shutdown requests.
-type agentService struct{}
-
-func (a *agentService) Execute(_ []string, r <-chan svc.ChangeRequest, s chan<- svc.Status) (bool, uint32) {
-	const accepted = svc.AcceptStop | svc.AcceptShutdown
-
-	s <- svc.Status{State: svc.StartPending}
-
-	server, logger, queueManager, err := startServer()
-	if err != nil {
-		s <- svc.Status{State: svc.Stopped}
-		return true, 1
-	}
-	defer queueManager.Stop()
-	defer logger.Close()
-
-	s <- svc.Status{State: svc.Running, Accepts: accepted}
-
-	for req := range r {
-		switch req.Cmd {
-		case svc.Interrogate:
-			s <- req.CurrentStatus
-		case svc.Stop, svc.Shutdown:
-			s <- svc.Status{State: svc.StopPending}
-			shutdownServer(server, logger)
-			s <- svc.Status{State: svc.Stopped}
-			return false, 0
-		}
-	}
-	return false, 0
+	_ = a.server.Shutdown(ctx)
+	a.logger.Info("server_stopped", nil)
 }

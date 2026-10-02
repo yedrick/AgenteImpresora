@@ -2,7 +2,6 @@ package escpos
 
 import (
 	"bytes"
-	"encoding/binary"
 	"image"
 	"image/color"
 	"image/draw"
@@ -15,6 +14,21 @@ type Builder struct {
 }
 
 func New() *Builder { return &Builder{} }
+
+const (
+	// CutFeedLines es el avance antes del corte. La cuchilla esta varias
+	// lineas por encima del cabezal, asi que avanzar solo 1 cortaba la ultima
+	// linea del ticket.
+	CutFeedLines = 4
+
+	// MaxBarcodeLen es el limite del byte de longitud de "GS k".
+	MaxBarcodeLen = 255
+	// MaxQRLen es la capacidad maxima de un QR modelo 2 en modo byte.
+	MaxQRLen = 2953
+	// rasterBandRows trocea la imagen: muchas termicas desbordan el buffer si
+	// se les manda un unico "GS v 0" muy alto.
+	rasterBandRows = 128
+)
 
 func (b *Builder) Initialize() *Builder {
 	b.buf.Write([]byte{0x1b, 0x40})
@@ -109,6 +123,9 @@ func (b *Builder) DrawerKick() *Builder {
 
 func (b *Builder) QR(data string) *Builder {
 	payload := []byte(data)
+	if len(payload) == 0 || len(payload) > MaxQRLen {
+		return b
+	}
 	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00})
 	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x06})
 	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31})
@@ -140,13 +157,18 @@ func (b *Builder) BarcodeWithType(kind BarcodeType, data string) *Builder {
 	if kind == BarcodePDF417 {
 		return b.PDF417(data)
 	}
-	b.buf.Write([]byte{0x1d, 0x48, 0x02})
-	b.buf.Write([]byte{0x1d, 0x68, 0x64})
-	b.buf.Write([]byte{0x1d, 0x77, 0x02})
 	payload := []byte(data)
 	if kind == BarcodeCode128 && len(payload) > 0 && payload[0] != '{' {
 		payload = append([]byte("{B"), payload...)
 	}
+	// byte(len(payload)) daba la vuelta con 256 bytes o mas: la impresora leia
+	// unos pocos bytes y ejecutaba el resto del codigo como comandos.
+	if len(payload) == 0 || len(payload) > MaxBarcodeLen {
+		return b
+	}
+	b.buf.Write([]byte{0x1d, 0x48, 0x02})
+	b.buf.Write([]byte{0x1d, 0x68, 0x64})
+	b.buf.Write([]byte{0x1d, 0x77, 0x02})
 	b.buf.Write([]byte{0x1d, 0x6b, byte(kind), byte(len(payload))})
 	b.buf.Write(payload)
 	return b
@@ -154,6 +176,9 @@ func (b *Builder) BarcodeWithType(kind BarcodeType, data string) *Builder {
 
 func (b *Builder) PDF417(data string) *Builder {
 	payload := []byte(data)
+	if len(payload) == 0 || len(payload) > MaxQRLen {
+		return b
+	}
 	pLen := len(payload) + 3
 	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x03, 0x00, 0x30, 0x41, 0x00})
 	b.buf.Write([]byte{0x1d, 0x28, 0x6b, byte(pLen % 256), byte(pLen / 256), 0x30, 0x50, 0x30})
@@ -169,26 +194,36 @@ func (b *Builder) Image(img image.Image) *Builder {
 	bounds := img.Bounds()
 	width := bounds.Dx()
 	height := bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return b
+	}
 	widthBytes := (width + 7) / 8
 	xL := byte(widthBytes % 256)
 	xH := byte(widthBytes / 256)
-	yL := byte(height % 256)
-	yH := byte(height / 256)
 
-	b.buf.Write([]byte{0x1d, 0x76, 0x30, 0x00, xL, xH, yL, yH})
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for xb := 0; xb < widthBytes; xb++ {
-			var packed byte
-			for bit := 0; bit < 8; bit++ {
-				x := bounds.Min.X + xb*8 + bit
-				if x >= bounds.Max.X {
-					continue
+	// Se emite una banda por cada rasterBandRows filas en vez de un unico
+	// "GS v 0" con toda la imagen: las termicas con poco buffer cortaban o se
+	// colgaban con logos altos.
+	for y0 := 0; y0 < height; y0 += rasterBandRows {
+		rows := rasterBandRows
+		if y0+rows > height {
+			rows = height - y0
+		}
+		b.buf.Write([]byte{0x1d, 0x76, 0x30, 0x00, xL, xH, byte(rows % 256), byte(rows / 256)})
+		for y := y0; y < y0+rows; y++ {
+			for xb := 0; xb < widthBytes; xb++ {
+				var packed byte
+				for bit := 0; bit < 8; bit++ {
+					x := xb*8 + bit
+					if x >= width {
+						continue
+					}
+					if isDark(img.At(bounds.Min.X+x, bounds.Min.Y+y)) {
+						packed |= 0x80 >> bit
+					}
 				}
-				if isDark(img.At(x, y)) {
-					packed |= 0x80 >> bit
-				}
+				b.buf.WriteByte(packed)
 			}
-			b.buf.WriteByte(packed)
 		}
 	}
 	return b
@@ -199,11 +234,6 @@ func (b *Builder) ImageFit(img image.Image, maxWidth int) *Builder {
 		return b
 	}
 	return b.Image(PrepareImage(img, maxWidth))
-}
-
-func (b *Builder) Raw(data []byte) *Builder {
-	b.buf.Write(data)
-	return b
 }
 
 func (b *Builder) Bytes() []byte {
@@ -352,7 +382,9 @@ func ditherImage(src *image.RGBA) image.Image {
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b, _ := src.At(x, y).RGBA()
-			luma := float64((299*r + 587*g + 114*b) / 1000 / 257)
+			// La division entera antes del float64 perdia precision justo
+			// donde el difuminado la necesita.
+			luma := (0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)) / 257.0
 			pixels[(y-bounds.Min.Y)*w+(x-bounds.Min.X)] = luma
 		}
 	}
@@ -361,7 +393,7 @@ func ditherImage(src *image.RGBA) image.Image {
 			i := y*w + x
 			old := pixels[i]
 			newValue := 255.0
-			if old < 172 {
+			if old < 128 {
 				newValue = 0
 			}
 			err := old - newValue
@@ -400,9 +432,22 @@ func EncodeCP850(s string) []byte {
 			out = append(out, b)
 			continue
 		}
+		if alt, ok := cp850Fallback[r]; ok {
+			out = append(out, alt...)
+			continue
+		}
 		out = append(out, '?')
 	}
 	return out
+}
+
+// cp850Fallback cubre caracteres tipograficos habituales que CP850 no tiene,
+// para que no salgan como '?' en el ticket.
+var cp850Fallback = map[rune]string{
+	'\u2022': "*", '\u2026': "...", '\u2013': "-", '\u2014': "-",
+	'\u2018': "'", '\u2019': "'", '\u201c': "\"", '\u201d': "\"",
+	'\u20ac': "EUR", '\u2122': "(TM)", '\u2192': "->", '\u2713': "v",
+	'\u00a0': " ",
 }
 
 var cp850 = map[rune]byte{
@@ -423,10 +468,4 @@ var cp850 = map[rune]byte{
 	'Ý': 0xed, '¯': 0xee, '´': 0xef, '­': 0xf0, '±': 0xf1, '‗': 0xf2, '¾': 0xf3, '¶': 0xf4,
 	'§': 0xf5, '÷': 0xf6, '¸': 0xf7, '°': 0xf8, '¨': 0xf9, '·': 0xfa, '¹': 0xfb, '³': 0xfc,
 	'²': 0xfd, '■': 0xfe,
-}
-
-func Uint16LE(v uint16) []byte {
-	out := make([]byte, 2)
-	binary.LittleEndian.PutUint16(out, v)
-	return out
 }

@@ -1,29 +1,49 @@
 package render
 
 import (
-	"collatech-agent/internal/escpos"
+	"html"
 	"regexp"
-	"strconv"
 	"strings"
-	"unicode"
+
+	"collatech-agent/internal/escpos"
 )
 
+// segment es un trozo de texto de la linea en curso junto con el estilo que
+// tenia activo cuando se leyo. Acumular segmentos en vez de emitir cada nodo
+// de texto por separado es lo que permite que "<p>Total: <b>12</b></p>" salga
+// en una sola linea.
+type segment struct {
+	text      string
+	bold      bool
+	underline bool
+	size      string
+}
+
 type HTMLToESCPOS struct {
-	builder     *escpos.Builder
-	cols        int
-	hasContent  bool
-	// Table state
-	inTable     bool
-	tableRows   [][]string
-	tableRow    []string
-	tableCell   strings.Builder
-	tableCols   []int
+	builder    *escpos.Builder
+	cols       int
+	hasContent bool
+
+	// Linea en curso
+	segs      []segment
+	boldDepth int
+	undDepth  int
+	size      string
+	align     string
+
+	// Estado de tabla
+	inTable   bool
+	tableRows [][]string
+	tableRow  []string
+	tableCell strings.Builder
 }
 
 func NewHTMLToESCPOS() *HTMLToESCPOS {
 	return &HTMLToESCPOS{
 		builder: escpos.New(),
 		cols:    32,
+		size:    "normal",
+		align:   "left",
 	}
 }
 
@@ -36,7 +56,7 @@ func (h *HTMLToESCPOS) SetColumns(cols int) {
 func (h *HTMLToESCPOS) Render(html string) []byte {
 	h.builder.Initialize()
 	h.processHTML(html)
-	h.builder.Feed(1).Cut()
+	h.builder.Feed(escpos.CutFeedLines).Cut()
 	return h.builder.Bytes()
 }
 
@@ -54,105 +74,142 @@ type htmlToken struct {
 	isSelf bool
 }
 
-func (h *HTMLToESCPOS) processHTML(html string) {
-	html = strings.TrimSpace(html)
-	if html == "" {
+func (h *HTMLToESCPOS) processHTML(markup string) {
+	markup = strings.TrimSpace(markup)
+	if markup == "" {
 		return
 	}
 
-	tokens := tokenizeHTML(html)
-
-	for _, tok := range tokens {
+	for _, tok := range tokenizeHTML(markup) {
 		if tok.text != "" {
-			text := decodeHTMLEntities(tok.text)
-			text = strings.TrimSpace(text)
-			if text != "" {
-				if h.inTable {
-					if h.tableCell.Len() > 0 {
-						h.tableCell.WriteString(" ")
-					}
-					h.tableCell.WriteString(text)
-				} else {
-					lines := strings.Split(text, "\n")
-					for _, line := range lines {
-						line = strings.TrimSpace(line)
-						if line != "" {
-							h.builder.TextLine(line)
-							h.hasContent = true
-						}
-					}
-				}
-			}
+			h.appendText(html.UnescapeString(tok.text))
 			continue
 		}
 
 		tag := strings.ToLower(tok.tag)
-
 		if tok.isSelf {
-			switch tag {
-			case "br":
-				if h.hasContent {
-					h.builder.Line()
-				}
-			case "hr":
-				if h.hasContent {
-					h.builder.Line()
-				}
-				h.builder.TextLine(strings.Repeat("-", h.cols))
-				h.hasContent = true
-				if h.hasContent {
-					h.builder.Line()
-				}
-			}
+			h.handleOpenTag(tag, tok.attrs)
 			continue
 		}
-
 		if tok.isOpen {
 			h.handleOpenTag(tag, tok.attrs)
 		} else {
 			h.handleCloseTag(tag)
 		}
 	}
+	h.flushLine()
+}
+
+// appendText acumula un nodo de texto en la linea en curso colapsando los
+// espacios como hace HTML: los saltos de linea del fuente no son saltos de
+// linea del ticket.
+func (h *HTMLToESCPOS) appendText(text string) {
+	text = collapseWS(text)
+	if text == "" {
+		return
+	}
+	if h.inTable {
+		if h.tableCell.Len() > 0 && !strings.HasSuffix(h.tableCell.String(), " ") {
+			h.tableCell.WriteString(" ")
+		}
+		h.tableCell.WriteString(strings.TrimSpace(text))
+		return
+	}
+	if len(h.segs) == 0 {
+		text = strings.TrimLeft(text, " ")
+		if text == "" {
+			return
+		}
+	}
+	h.segs = append(h.segs, segment{
+		text:      text,
+		bold:      h.boldDepth > 0,
+		underline: h.undDepth > 0,
+		size:      h.size,
+	})
+}
+
+// flushLine vuelca la linea acumulada con su alineacion y sus estilos.
+func (h *HTMLToESCPOS) flushLine() {
+	if len(h.segs) == 0 {
+		return
+	}
+	// Quitar el espacio sobrante del final de la linea.
+	last := len(h.segs) - 1
+	h.segs[last].text = strings.TrimRight(h.segs[last].text, " ")
+	if h.segs[last].text == "" {
+		h.segs = h.segs[:last]
+	}
+	if len(h.segs) == 0 {
+		return
+	}
+
+	h.applyAlign(h.align)
+	for _, sg := range h.segs {
+		size := sg.size
+		if size == "" {
+			size = "normal"
+		}
+		h.builder.FontSize(size).Bold(sg.bold).Underline(sg.underline).Text(sg.text)
+	}
+	h.builder.FontSize("normal").Bold(false).Underline(false).Line()
+	h.segs = nil
+	h.hasContent = true
+}
+
+func (h *HTMLToESCPOS) blankLine() {
+	if h.hasContent {
+		h.builder.Line()
+	}
 }
 
 func (h *HTMLToESCPOS) handleOpenTag(tag, attrs string) {
 	switch tag {
 	case "br":
-		if h.hasContent {
-			h.builder.Line()
+		if len(h.segs) > 0 {
+			h.flushLine()
+		} else {
+			h.blankLine()
 		}
 	case "hr":
-		if h.hasContent {
-			h.builder.Line()
-		}
-		h.builder.TextLine(strings.Repeat("-", h.cols))
+		h.flushLine()
+		h.builder.AlignLeft().TextLine(strings.Repeat("-", h.cols))
 		h.hasContent = true
-		if h.hasContent {
-			h.builder.Line()
-		}
 	case "b", "strong":
-		h.builder.Bold(true)
-	case "i", "em":
-		h.builder.Underline(true)
-	case "u":
-		h.builder.Underline(true)
+		h.boldDepth++
+	case "i", "em", "u":
+		h.undDepth++
 	case "h1", "h2", "h3":
-		h.builder.AlignCenter().Bold(true).DoubleSize(true)
+		h.flushLine()
+		h.align = "center"
+		h.boldDepth++
+		h.size = "double"
 	case "h4", "h5", "h6":
-		h.builder.AlignCenter().Bold(true)
+		h.flushLine()
+		h.align = "center"
+		h.boldDepth++
 	case "p", "div":
-		align := extractAlign(attrs)
-		h.applyAlign(align)
+		h.flushLine()
+		if a := extractAlign(attrs); a != "" {
+			h.align = a
+		} else {
+			h.align = "left"
+		}
 	case "center":
-		h.builder.AlignCenter()
-	case "table":
-		h.inTable = true
-		h.tableRows = nil
-		h.tableRow = nil
-		h.tableCell.Reset()
+		h.flushLine()
+		h.align = "center"
+	case "li":
+		h.flushLine()
+		h.appendText("- ")
 	case "tr":
 		h.tableRow = nil
 	case "td", "th":
+		h.tableCell.Reset()
+	case "table":
+		h.flushLine()
+		h.inTable = true
+		h.tableRows = nil
+		h.tableRow = nil
 		h.tableCell.Reset()
 	}
 }
@@ -160,94 +217,134 @@ func (h *HTMLToESCPOS) handleOpenTag(tag, attrs string) {
 func (h *HTMLToESCPOS) handleCloseTag(tag string) {
 	switch tag {
 	case "b", "strong":
-		h.builder.Bold(false)
-	case "i", "em":
-		h.builder.Underline(false)
-	case "u":
-		h.builder.Underline(false)
+		h.boldDepth = dec(h.boldDepth)
+	case "i", "em", "u":
+		h.undDepth = dec(h.undDepth)
 	case "h1", "h2", "h3":
-		h.builder.DoubleSize(false).Bold(false).AlignLeft()
+		h.flushLine()
+		h.size = "normal"
+		h.boldDepth = dec(h.boldDepth)
+		h.align = "left"
 	case "h4", "h5", "h6":
-		h.builder.Bold(false).AlignLeft()
+		h.flushLine()
+		h.boldDepth = dec(h.boldDepth)
+		h.align = "left"
 	case "p", "div":
-		if h.hasContent {
-			h.builder.Line()
-		}
-		h.builder.AlignLeft()
+		h.flushLine()
+		h.blankLine()
+		h.align = "left"
 	case "center":
-		h.builder.AlignLeft()
+		h.flushLine()
+		h.align = "left"
+	case "li":
+		h.flushLine()
 	case "td", "th":
-		cellText := strings.TrimSpace(h.tableCell.String())
-		h.tableRow = append(h.tableRow, cellText)
+		h.tableRow = append(h.tableRow, strings.TrimSpace(h.tableCell.String()))
 		h.tableCell.Reset()
 	case "tr":
 		if len(h.tableRow) > 0 {
 			h.tableRows = append(h.tableRows, h.tableRow)
 		}
+		h.tableRow = nil
 	case "table":
 		h.inTable = false
 		h.renderTable()
 	}
 }
 
-func tokenizeHTML(html string) []htmlToken {
+func dec(n int) int {
+	if n > 0 {
+		return n - 1
+	}
+	return 0
+}
+
+var wsRe = regexp.MustCompile(`[\s\p{Zs}]+`)
+
+func collapseWS(s string) string {
+	return wsRe.ReplaceAllString(s, " ")
+}
+
+// rawTextTags son elementos cuyo contenido NO es texto para imprimir. Sin esto,
+// el CSS de cualquier HTML real salia impreso en el ticket.
+var rawTextTags = map[string]bool{"style": true, "script": true, "title": true, "head": true}
+
+func tokenizeHTML(markup string) []htmlToken {
 	var tokens []htmlToken
 	i := 0
-	n := len(html)
+	n := len(markup)
 
 	for i < n {
-		if html[i] == '<' {
-			if i+1 < n && html[i+1] == '!' {
-				end := strings.Index(html[i:], "-->")
-				if end == -1 {
-					end = n - i
-				}
-				i += end + 3
-				continue
-			}
-
-			end := strings.Index(html[i:], ">")
+		if markup[i] != '<' {
+			end := strings.Index(markup[i:], "<")
 			if end == -1 {
-				text := html[i:]
-				if text != "" {
-					tokens = append(tokens, htmlToken{text: text})
-				}
+				tokens = append(tokens, htmlToken{text: markup[i:]})
 				break
 			}
-
-			tagContent := html[i+1 : i+end]
-			i += end + 1
-
-			if len(tagContent) > 0 && tagContent[0] == '/' {
-				tagContent = tagContent[1:]
-				tag, attrs := parseTag(tagContent)
-				tokens = append(tokens, htmlToken{tag: tag, attrs: attrs, isOpen: false})
-			} else if len(tagContent) > 0 && tagContent[len(tagContent)-1] == '/' {
-				tagContent = tagContent[:len(tagContent)-1]
-				tag, attrs := parseTag(tagContent)
-				tokens = append(tokens, htmlToken{tag: tag, attrs: attrs, isSelf: true})
-			} else {
-				tag, attrs := parseTag(tagContent)
-				tokens = append(tokens, htmlToken{tag: tag, attrs: attrs, isOpen: true})
-			}
-		} else {
-			end := strings.Index(html[i:], "<")
-			if end == -1 {
-				text := html[i:]
-				if text != "" {
-					tokens = append(tokens, htmlToken{text: text})
-				}
-				break
-			}
-			text := html[i : i+end]
-			if text != "" {
-				tokens = append(tokens, htmlToken{text: text})
+			if end > 0 {
+				tokens = append(tokens, htmlToken{text: markup[i : i+end]})
 			}
 			i += end
+			continue
+		}
+
+		if i+1 < n && markup[i+1] == '!' {
+			// Comentario: consumir hasta "-->".
+			if strings.HasPrefix(markup[i:], "<!--") {
+				end := strings.Index(markup[i+4:], "-->")
+				if end == -1 {
+					break
+				}
+				i += 4 + end + 3
+				continue
+			}
+			// Declaracion tipo <!DOCTYPE html>: consumir solo hasta el '>'.
+			// Tratarla como comentario descartaba el documento entero.
+			end := strings.Index(markup[i:], ">")
+			if end == -1 {
+				break
+			}
+			i += end + 1
+			continue
+		}
+
+		end := strings.Index(markup[i:], ">")
+		if end == -1 {
+			tokens = append(tokens, htmlToken{text: markup[i:]})
+			break
+		}
+		tagContent := markup[i+1 : i+end]
+		i += end + 1
+
+		switch {
+		case strings.HasPrefix(tagContent, "/"):
+			tag, attrs := parseTag(tagContent[1:])
+			tokens = append(tokens, htmlToken{tag: tag, attrs: attrs, isOpen: false})
+		case strings.HasSuffix(tagContent, "/"):
+			tag, attrs := parseTag(tagContent[:len(tagContent)-1])
+			tokens = append(tokens, htmlToken{tag: tag, attrs: attrs, isSelf: true})
+		default:
+			tag, attrs := parseTag(tagContent)
+			tokens = append(tokens, htmlToken{tag: tag, attrs: attrs, isOpen: true})
+			if rawTextTags[tag] {
+				if skip := indexCloseTag(markup[i:], tag); skip >= 0 {
+					i += skip
+				} else {
+					i = n
+				}
+			}
 		}
 	}
 
 	return tokens
+}
+
+// indexCloseTag devuelve el desplazamiento del "</tag" mas cercano, sin
+// distinguir mayusculas.
+func indexCloseTag(s, tag string) int {
+	needle := "</" + tag
+	lower := strings.ToLower(s)
+	return strings.Index(lower, needle)
 }
 
 func parseTag(s string) (string, string) {
@@ -255,7 +352,6 @@ func parseTag(s string) (string, string) {
 	if s == "" {
 		return "", ""
 	}
-
 	parts := strings.Fields(s)
 	tag := strings.ToLower(parts[0])
 	attrs := ""
@@ -265,10 +361,10 @@ func parseTag(s string) (string, string) {
 	return tag, attrs
 }
 
+var alignRe = regexp.MustCompile(`(?i)text-align\s*:\s*(\w+)`)
+
 func extractAlign(attrs string) string {
-	re := regexp.MustCompile(`(?i)text-align\s*:\s*(\w+)`)
-	m := re.FindStringSubmatch(attrs)
-	if len(m) >= 2 {
+	if m := alignRe.FindStringSubmatch(attrs); len(m) >= 2 {
 		return strings.ToLower(m[1])
 	}
 	return ""
@@ -285,25 +381,14 @@ func (h *HTMLToESCPOS) applyAlign(align string) {
 	}
 }
 
-func stripAllTags(s string) string {
-	re := regexp.MustCompile(`<[^>]*>`)
-	s = re.ReplaceAllString(s, "\n")
-	reSpace := regexp.MustCompile(`[ \t]+`)
-	s = reSpace.ReplaceAllString(s, " ")
-	reNL := regexp.MustCompile(`\n\s+`)
-	s = reNL.ReplaceAllString(s, "\n")
-	reMultiNL := regexp.MustCompile(`\n{3,}`)
-	s = reMultiNL.ReplaceAllString(s, "\n\n")
-	return strings.TrimSpace(s)
-}
-
 func (h *HTMLToESCPOS) renderTable() {
-	if len(h.tableRows) == 0 {
+	rows := h.tableRows
+	h.tableRows = nil
+	if len(rows) == 0 {
 		return
 	}
-	// Determinar numero de columnas
 	numCols := 0
-	for _, row := range h.tableRows {
+	for _, row := range rows {
 		if len(row) > numCols {
 			numCols = len(row)
 		}
@@ -311,159 +396,96 @@ func (h *HTMLToESCPOS) renderTable() {
 	if numCols == 0 {
 		return
 	}
-	// Calcular ancho maximo por columna
+
+	// El marco gasta "|" por cada columna mas uno al cierre, y un espacio de
+	// relleno a cada lado de la celda.
+	overhead := numCols*3 + 1
+	border := overhead+numCols*3 <= h.cols
+	avail := h.cols
+	if border {
+		avail = h.cols - overhead
+	} else {
+		avail = h.cols - (numCols - 1)
+	}
+	if avail < numCols {
+		avail = numCols
+	}
+
 	colWidths := make([]int, numCols)
-	// Ancho minimo 5 por columna
 	for i := range colWidths {
-		colWidths[i] = 5
+		colWidths[i] = 1
 	}
-	for _, row := range h.tableRows {
+	for _, row := range rows {
 		for i, cell := range row {
-			cl := len([]rune(cell))
-			if cl > colWidths[i] {
-				colWidths[i] = cl
+			if w := len([]rune(cell)); w > colWidths[i] {
+				colWidths[i] = w
 			}
 		}
 	}
-	// Ajustar al ancho total disponible
-	totalW := 0
+	total := 0
 	for _, w := range colWidths {
-		totalW += w
+		total += w
 	}
-	if totalW > h.cols {
-		ratio := float64(h.cols) / float64(totalW)
+	if total > avail {
+		scale := float64(avail) / float64(total)
+		total = 0
 		for i := range colWidths {
-			w := int(float64(colWidths[i]) * ratio)
-			if w < 3 { w = 3 }
+			w := int(float64(colWidths[i]) * scale)
+			if w < 1 {
+				w = 1
+			}
 			colWidths[i] = w
+			total += w
 		}
-		// Rellenar
-		adj := h.cols
-		for _, w := range colWidths {
-			adj -= w
-		}
-		for adj > 0 {
-			for i := range colWidths {
-				if adj <= 0 { break }
-				colWidths[i]++
-				adj--
-			}
-		}
+	}
+	// Repartir lo que sobre en la ultima columna, para que el marco cuadre.
+	if total < avail {
+		colWidths[numCols-1] += avail - total
 	}
 
-	border := !h.hasContent // si no hay contenido previo, usar borde
+	h.builder.AlignLeft()
 	if border {
-		// Borde superior
-		var top string
-		for i, w := range colWidths {
-			top += "┌" + strings.Repeat("─", w)
-			if i < numCols-1 { top += "┬" } else { top += "┐" }
-		}
-		h.builder.TextLine(top)
+		h.builder.TextLine(tableRule(colWidths, "┌", "┬", "┐"))
 	}
-	for ri, row := range h.tableRows {
-		var line string
-		for ci := 0; ci < numCols; ci++ {
+	for ri, row := range rows {
+		cells := make([]string, numCols)
+		for i := 0; i < numCols; i++ {
 			txt := ""
-			if ci < len(row) {
-				txt = row[ci]
+			if i < len(row) {
+				txt = row[i]
 			}
-			r := []rune(txt)
-			w := colWidths[ci]
-			if len(r) > w { r = r[:w] }
-			txt = string(r) + strings.Repeat(" ", w-len(r))
-			if border {
-				if ci == 0 { line += "│ " + txt + " │" } else { line = line[:len(line)-1] + txt + " │" }
-			} else {
-				if ci > 0 { line += "  " }
-				line += txt
-			}
+			cells[i] = fitCell(txt, colWidths[i])
 		}
-		h.builder.TextLine(line)
+		if border {
+			h.builder.TextLine("│ " + strings.Join(cells, " │ ") + " │")
+		} else {
+			h.builder.TextLine(strings.Join(cells, " "))
+		}
 		h.hasContent = true
-		if border && ri == 0 && len(h.tableRows) > 1 {
-			var mid string
-			for i, w := range colWidths {
-				mid += "├" + strings.Repeat("─", w)
-				if i < numCols-1 { mid += "┼" } else { mid += "┤" }
-			}
-			h.builder.TextLine(mid)
+		if border && ri == 0 && len(rows) > 1 {
+			h.builder.TextLine(tableRule(colWidths, "├", "┼", "┤"))
 		}
 	}
 	if border {
-		var bot string
-		for i, w := range colWidths {
-			bot += "└" + strings.Repeat("─", w)
-			if i < numCols-1 { bot += "┴" } else { bot += "┘" }
-		}
-		h.builder.TextLine(bot)
+		h.builder.TextLine(tableRule(colWidths, "└", "┴", "┘"))
 	}
 }
 
-func decodeHTMLEntities(s string) string {
-	entities := map[string]string{
-		"&amp;":    "&",
-		"&lt;":     "<",
-		"&gt;":     ">",
-		"&quot;":   "\"",
-		"&apos;":   "'",
-		"&nbsp;":   " ",
-		"&#39;":    "'",
-		"&eacute;": "é",
-		"&Eacute;": "É",
-		"&aacute;": "á",
-		"&Aacute;": "Á",
-		"&oacute;": "ó",
-		"&Oacute;": "Ó",
-		"&uacute;": "ú",
-		"&Uacute;": "Ú",
-		"&ntilde;": "ñ",
-		"&Ntilde;": "Ñ",
-		"&iacute;": "í",
-		"&Iacute;": "Í",
-		"&uuml;":   "u",
-		"&Uuml;":   "U",
-		"&auml;":   "a",
-		"&Auml;":   "A",
-		"&ouml;":   "o",
-		"&Ouml;":   "O",
-		"&mdash;":  "-",
-		"&ndash;":  "-",
-		"&rsquo;":  "'",
-		"&lsquo;":  "'",
-		"&rdquo;":  "\"",
-		"&ldquo;":  "\"",
-		"&bull;":   "*",
-		"&hellip;": "...",
-		"&copy;":   "(C)",
-		"&reg;":    "(R)",
-		"&deg;":    "o",
-		"&plusmn;": "+/-",
-		"&times;":  "x",
-		"&divide;": "/",
+// tableRule construye una linea de marco. Se arma con strings.Join sobre runas
+// completas: la version anterior recortaba un byte de un caracter de caja de 3
+// bytes y producia UTF-8 invalido.
+func tableRule(colWidths []int, left, mid, right string) string {
+	parts := make([]string, len(colWidths))
+	for i, w := range colWidths {
+		parts[i] = strings.Repeat("─", w+2)
 	}
-	for entity, char := range entities {
-		s = strings.ReplaceAll(s, entity, char)
-	}
-	numRe := regexp.MustCompile(`&#(\d+);`)
-	s = numRe.ReplaceAllStringFunc(s, func(m string) string {
-		numStr := m[2 : len(m)-1]
-		if n, err := strconv.Atoi(numStr); err == nil && n >= 32 {
-			return string(rune(n))
-		}
-		return "?"
-	})
-	hexRe := regexp.MustCompile(`&#x([0-9a-fA-F]+);`)
-	s = hexRe.ReplaceAllStringFunc(s, func(m string) string {
-		hexStr := m[3 : len(m)-1]
-		if n, err := strconv.ParseInt(hexStr, 16, 32); err == nil && n >= 32 {
-			return string(rune(n))
-		}
-		return "?"
-	})
-	return s
+	return left + strings.Join(parts, mid) + right
 }
 
-func init() {
-	_ = unicode.Digit
+func fitCell(text string, width int) string {
+	r := []rune(text)
+	if len(r) > width {
+		r = r[:width]
+	}
+	return string(r) + strings.Repeat(" ", width-len(r))
 }

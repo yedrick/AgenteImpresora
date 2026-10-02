@@ -82,14 +82,6 @@ func (m *Manager) Stop() {
 	m.wg.Wait()
 }
 
-func (m *Manager) Enqueue(printer string, payload []byte) *Job {
-	jobs := m.EnqueueMany([]string{printer}, payload)
-	if len(jobs) == 0 {
-		return nil
-	}
-	return jobs[0]
-}
-
 func (m *Manager) EnqueueMany(printers []string, payload []byte) []*Job {
 	now := time.Now().UTC()
 	jobs := make([]*Job, 0, len(printers))
@@ -218,7 +210,15 @@ func (m *Manager) persistToDisk() {
 	m.mu.RLock()
 	out := make([]Job, 0, len(m.jobs))
 	for _, job := range m.jobs {
-		out = append(out, *cloneJob(job))
+		cp := *job
+		// Solo los trabajos sin terminar conservan el payload: es lo unico que
+		// permite reanudarlos tras un reinicio. Antes se persistian clones sin
+		// payload, asi que al arrancar se reencolaban vacios y se marcaban
+		// Completed sin haber impreso nada.
+		if cp.Status != Pending && cp.Status != Printing {
+			cp.Payload = nil
+		}
+		out = append(out, cp)
 	}
 	m.mu.RUnlock()
 	if len(out) == 0 {
@@ -255,7 +255,16 @@ func (m *Manager) loadFromDisk() {
 		job := saved[i]
 		m.jobs[job.ID] = &job
 		if job.Status == Pending {
-			job.Status = Pending
+			if len(job.Payload) == 0 {
+				// Trabajo guardado por una version anterior, que no persistia
+				// el payload: no se puede reimprimir, se marca como fallido en
+				// vez de fingir que se imprimio.
+				job.Status = Failed
+				job.Error = "sin contenido guardado: no se pudo reanudar"
+				job.UpdatedAt = time.Now().UTC()
+				m.jobs[job.ID] = &job
+				continue
+			}
 			resume = append(resume, &job)
 		} else if job.Status == Printing {
 			job.Status = Failed

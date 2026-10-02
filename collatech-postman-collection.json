@@ -12,6 +12,11 @@
     {
       "key": "printer",
       "value": "Impresora1"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "description": "Token de acceso. Solo hace falta si llamas al agente desde OTRA PC. Lo muestra el panel del agente en la pestana Estado."
     }
   ],
   "item": [
@@ -21,7 +26,16 @@
         "method": "GET",
         "url": "{{baseUrl}}/health",
         "header": [
-          { "key": "Accept", "value": "application/json" }
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true,
+            "description": "Activalo si llamas al agente desde otra PC"
+          }
         ]
       },
       "response": []
@@ -32,7 +46,16 @@
         "method": "GET",
         "url": "{{baseUrl}}/api/status",
         "header": [
-          { "key": "Accept", "value": "application/json" }
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true,
+            "description": "Activalo si llamas al agente desde otra PC"
+          }
         ]
       },
       "response": []
@@ -43,7 +66,16 @@
         "method": "GET",
         "url": "{{baseUrl}}/api/printers",
         "header": [
-          { "key": "Accept", "value": "application/json" }
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true,
+            "description": "Activalo si llamas al agente desde otra PC"
+          }
         ]
       },
       "response": []
@@ -54,7 +86,16 @@
         "method": "GET",
         "url": "{{baseUrl}}/api/templates",
         "header": [
-          { "key": "Accept", "value": "application/json" }
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true,
+            "description": "Activalo si llamas al agente desde otra PC"
+          }
         ]
       },
       "response": []
@@ -65,7 +106,16 @@
         "method": "GET",
         "url": "{{baseUrl}}/api/settings",
         "header": [
-          { "key": "Accept", "value": "application/json" }
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true,
+            "description": "Activalo si llamas al agente desde otra PC"
+          }
         ]
       },
       "response": []
@@ -76,8 +126,20 @@
         "method": "POST",
         "url": "{{baseUrl}}/api/settings",
         "header": [
-          { "key": "Content-Type", "value": "application/json" },
-          { "key": "Accept", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true,
+            "description": "Activalo si llamas al agente desde otra PC"
+          }
         ],
         "body": {
           "mode": "raw",
@@ -92,14 +154,31 @@
         "method": "GET",
         "url": {
           "raw": "{{baseUrl}}/api/logs?limit=10",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "logs"],
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "logs"
+          ],
           "query": [
-            { "key": "limit", "value": "10" }
+            {
+              "key": "limit",
+              "value": "10"
+            }
           ]
         },
         "header": [
-          { "key": "Accept", "value": "application/json" }
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true,
+            "description": "Activalo si llamas al agente desde otra PC"
+          }
         ]
       },
       "response": []
@@ -113,8 +192,20 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/text",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -129,12 +220,24 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/ticket",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"printer\": \"{{printer}}\",\n  \"title\": \"MI TIENDA C.A.\",\n  \"lines\": [\n    { \"text\": \"Factura #001234\", \"align\": \"center\", \"bold\": true },\n    { \"text\": \"Fecha: 2026-05-29 14:30\", \"align\": \"left\" },\n    { \"text\": \"--------------------------------\", \"align\": \"left\" },\n    { \"text\": \"Cafe ............ Bs 5.00\", \"align\": \"left\" },\n    { \"text\": \"Te .............. Bs 3.00\", \"align\": \"left\" },\n    { \"text\": \"Jugo ............ Bs 4.00\", \"align\": \"left\" },\n    { \"text\": \"--------------------------------\", \"align\": \"left\" },\n    { \"text\": \"TOTAL: Bs 12.00\", \"align\": \"right\", \"bold\": true, \"underline\": true }\n  ],\n  \"qr\": \"https://pagos.example.com/factura/001234\",\n  \"width\": 48,\n  \"cut\": true\n}"
+              "raw": "{\n  \"printer\": \"{{printer}}\",\n  \"title\": \"MI TIENDA C.A.\",\n  \"lines\": [\n    { \"text\": \"Factura #001234\", \"align\": \"center\", \"bold\": true },\n    { \"text\": \"Fecha: 2026-05-29 14:30\", \"align\": \"left\" },\n    { \"text\": \"--------------------------------\", \"align\": \"left\" },\n    { \"text\": \"Cafe ............ Bs 5.00\", \"align\": \"left\" },\n    { \"text\": \"Te .............. Bs 3.00\", \"align\": \"left\" },\n    { \"text\": \"Jugo ............ Bs 4.00\", \"align\": \"left\" },\n    { \"text\": \"--------------------------------\", \"align\": \"left\" },\n    { \"text\": \"TOTAL: Bs 12.00\", \"align\": \"right\", \"bold\": true, \"underline\": true }\n  ],\n  \"qr\": \"https://pagos.example.com/factura/001234\",\n  \"width\": 576,\n  \"cut\": true\n}"
             }
           },
           "response": []
@@ -145,12 +248,24 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/ticket",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"printer\": \"{{printer}}\",\n  \"title\": \"RESTAURANT EL BUEN SABOR\",\n  \"lines\": [\n    { \"text\": \"Mesa #5 - Juan Perez\", \"align\": \"center\" },\n    { \"text\": \"--------------------------------\", \"align\": \"left\" },\n    { \"text\": \"2x Hamburguesa .... Bs 20.00\", \"align\": \"left\" },\n    { \"text\": \"1x Papa Frita ..... Bs  8.00\", \"align\": \"left\" },\n    { \"text\": \"2x Malteada ....... Bs 12.00\", \"align\": \"left\" },\n    { \"text\": \"--------------------------------\", \"align\": \"left\" },\n    { \"text\": \"TOTAL: Bs 60.00\", \"align\": \"right\", \"bold\": true }\n  ],\n  \"qr\": \"https://restaurante.com/mesa/5\",\n  \"width\": 48,\n  \"cut\": true,\n  \"drawer\": false\n}"
+              "raw": "{\n  \"printer\": \"{{printer}}\",\n  \"title\": \"RESTAURANT EL BUEN SABOR\",\n  \"lines\": [\n    { \"text\": \"Mesa #5 - Juan Perez\", \"align\": \"center\" },\n    { \"text\": \"--------------------------------\", \"align\": \"left\" },\n    { \"text\": \"2x Hamburguesa .... Bs 20.00\", \"align\": \"left\" },\n    { \"text\": \"1x Papa Frita ..... Bs  8.00\", \"align\": \"left\" },\n    { \"text\": \"2x Malteada ....... Bs 12.00\", \"align\": \"left\" },\n    { \"text\": \"--------------------------------\", \"align\": \"left\" },\n    { \"text\": \"TOTAL: Bs 60.00\", \"align\": \"right\", \"bold\": true }\n  ],\n  \"qr\": \"https://restaurante.com/mesa/5\",\n  \"width\": 576,\n  \"cut\": true,\n  \"drawer\": false\n}"
             }
           },
           "response": []
@@ -161,8 +276,20 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/template",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -177,8 +304,20 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/template",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -193,8 +332,20 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/template",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -209,8 +360,20 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/template",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -225,8 +388,20 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/template",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -241,8 +416,20 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/template",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -257,12 +444,24 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/html",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"printer\": \"{{printer}}\",\n  \"html\": \"<div style='font-family:monospace;width:300px;padding:10px'>\\n  <h2 style='text-align:center;margin:0;font-size:18px'>MI EMPRESA C.A.</h2>\\n  <p style='text-align:center;margin:2px'>RIF: J-12345678-9</p>\\n  <hr style='border:1px dashed #000'>\\n  <p><b>FACTURA #001234</b></p>\\n  <p>Fecha: 2026-05-29 14:30</p>\\n  <p>Cliente: Maria Lopez</p>\\n  <hr style='border:1px dashed #000'>\\n  <table style='width:100%;font-size:12px'>\\n    <tr><td>Cafe x2</td><td style='text-align:right'>Bs 10.00</td></tr>\\n    <tr><td>Te x1</td><td style='text-align:right'>Bs 3.00</td></tr>\\n    <tr><td>Jugo x3</td><td style='text-align:right'>Bs 12.00</td></tr>\\n  </table>\\n  <hr style='border:1px dashed #000'>\\n  <p style='text-align:right;font-size:14px'><b>TOTAL: Bs 25.00</b></p>\\n  <hr style='border:1px dashed #000'>\\n  <p style='text-align:center;font-size:10px'>Gracias por su compra!</p>\\n</div>\",\n  \"width\": 48,\n  \"cut\": true\n}"
+              "raw": "{\n  \"printer\": \"{{printer}}\",\n  \"html\": \"<div style='font-family:monospace;width:300px;padding:10px'>\\n  <h2 style='text-align:center;margin:0;font-size:18px'>MI EMPRESA C.A.</h2>\\n  <p style='text-align:center;margin:2px'>RIF: J-12345678-9</p>\\n  <hr style='border:1px dashed #000'>\\n  <p><b>FACTURA #001234</b></p>\\n  <p>Fecha: 2026-05-29 14:30</p>\\n  <p>Cliente: Maria Lopez</p>\\n  <hr style='border:1px dashed #000'>\\n  <table style='width:100%;font-size:12px'>\\n    <tr><td>Cafe x2</td><td style='text-align:right'>Bs 10.00</td></tr>\\n    <tr><td>Te x1</td><td style='text-align:right'>Bs 3.00</td></tr>\\n    <tr><td>Jugo x3</td><td style='text-align:right'>Bs 12.00</td></tr>\\n  </table>\\n  <hr style='border:1px dashed #000'>\\n  <p style='text-align:right;font-size:14px'><b>TOTAL: Bs 25.00</b></p>\\n  <hr style='border:1px dashed #000'>\\n  <p style='text-align:center;font-size:10px'>Gracias por su compra!</p>\\n</div>\",\n  \"width\": 576,\n  \"cut\": true\n}"
             }
           },
           "response": []
@@ -273,8 +472,20 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/html",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -289,12 +500,24 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/logo",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"printer\": \"{{printer}}\",\n  \"width\": 48,\n  \"cut\": true\n}"
+              "raw": "{\n  \"printer\": \"{{printer}}\",\n  \"width\": 576,\n  \"cut\": true\n}"
             }
           },
           "response": []
@@ -305,8 +528,20 @@
             "method": "POST",
             "url": "{{baseUrl}}/api/print/raw",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "disabled": true,
+                "description": "Activalo si llamas al agente desde otra PC"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -316,6 +551,102 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Network",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/network",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "network"
+          ]
+        },
+        "description": "Hostname, IPs y URLs del panel."
+      }
+    },
+    {
+      "name": "Diagnostico",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/diagnostico",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "diagnostico"
+          ]
+        },
+        "description": "Informe para soporte. Solo responde desde la PC del agente."
+      }
+    },
+    {
+      "name": "Token",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/token",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "token"
+          ]
+        },
+        "description": "Token de acceso. Solo responde desde la PC del agente."
+      }
+    },
+    {
+      "name": "Printer aliases (GET)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/printer-aliases",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "printer-aliases"
+          ]
+        },
+        "description": "Alias de estacion configurados."
+      }
     }
   ]
 }

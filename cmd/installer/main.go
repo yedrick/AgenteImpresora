@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	_ "embed"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -21,9 +20,6 @@ import (
 	"strings"
 	"time"
 )
-
-//go:embed CollaTechAgent.bin
-var agentBinary []byte
 
 const appTitle = "CollaTech Agent - Instalador"
 
@@ -191,7 +187,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powers
 
 	// Copy extra dirs from source if available (dev builds run from the repo).
 	if _, err := os.Stat("go.mod"); err == nil {
-		for _, dir := range []string{"storage", "templates"} {
+		for _, dir := range []string{"storage"} {
 			if info, err := os.Stat(dir); err == nil && info.IsDir() {
 				copyDir(dir, filepath.Join(tmpDir, dir))
 			}

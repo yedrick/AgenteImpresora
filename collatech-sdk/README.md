@@ -29,7 +29,7 @@ import { CollaTech } from "collatech-sdk";
 const printer = new CollaTech();
 
 // Verificar conexión
-await printer.health();
+await printer.health(); // no devuelve datos: lanza si el agente no responde
 
 // Imprimir texto
 await printer.printText({
@@ -45,7 +45,31 @@ const printer = new CollaTech({
   baseUrl: "http://localhost:18743", // default
   timeout: 15000,                    // 15 segundos
   debug: false,                      // true para ver requests en consola
+  token: "",                         // ver abajo
 });
+```
+
+### Token de acceso
+
+Cuando el agente escucha en la red (`allow_remote: true`, que es como lo deja
+el instalador), exige un token en todo `/api/*` a las peticiones que **no**
+vienen de su propia PC. Si tu aplicacion corre en la misma PC que el agente,
+no necesitas token.
+
+```ts
+const printer = new CollaTech({
+  baseUrl: "http://192.168.1.50:18743",
+  token: "el-token-del-agente",
+});
+```
+
+El token lo muestra el instalador al terminar, y el panel del agente en la
+pestana *Estado*. Si falta o no coincide, el SDK lanza `UnauthorizedError`.
+
+Tambien se puede inyectar desde el HTML sin recompilar:
+
+```html
+<script>window.__COLLATECH_TOKEN__ = "el-token-del-agente";</script>
 ```
 
 ## Uso por framework
@@ -298,7 +322,7 @@ const base64 = await fileToBase64(fileInput.files[0]);
 await printer.printImage({
   printer: "Impresora1",
   image: base64,
-  width: 48,
+  width: 576, // PUNTOS, no columnas: 384=58mm, 512=72mm, 576=80mm
   cut: true,
 });
 ```
@@ -319,14 +343,32 @@ await printer.printRaw({
 await printer
   .createJob("Impresora1")
   .title("Mi Tienda")
-  .boldLine("Producto A")
-  .line("Bs 100.00", { align: "right" })
-  .line("─".repeat(32))
-  .boldLine("TOTAL: Bs 100.00", { align: "right" })
+  .line("Cliente: Ana Peña")
+  .table({
+    header: true,
+    border: true,
+    columns: [
+      { text: "Producto", width: 20 },
+      { text: "Bs", width: 8, align: "right" },
+    ],
+    rows: [
+      ["Producto", "Bs"],
+      ["Café con leche", "12.00"],
+      ["Empanada", "9.50"],
+    ],
+  })
+  .box("TOTAL: Bs 21.50", { align: "center" })
   .qr("https://example.com/pago/123")
+  .width(576)
   .cut(true)
   .print();
 ```
+
+Metodos del builder: `title`, `line`, `boldLine`, `box`, `blank`, `table`,
+`qr`, `barcode`, `logo`, `width`, `scale`, `cut`, `drawer` y `print`.
+
+`qr()` y `barcode()` validan la longitud en local y lanzan `ValidationError`
+antes de llegar al agente (limites: 2953 y 253 caracteres).
 
 ## Manejo de errores
 
@@ -334,8 +376,11 @@ await printer
 import {
   CollaTech,
   ConnectionError,
-  ApiError,
+  UnauthorizedError,
   ForbiddenError,
+  QueueFullError,
+  ValidationError,
+  ApiError,
 } from "collatech-sdk";
 
 const printer = new CollaTech();
@@ -344,14 +389,47 @@ try {
   await printer.printText({ printer: "Impresora1", text: "Test" });
 } catch (err) {
   if (err instanceof ConnectionError) {
-    console.error("El agente no está corriendo");
+    console.error("El agente no esta corriendo o no responde");
+  } else if (err instanceof UnauthorizedError) {
+    console.error("Falta el token de acceso, o no coincide");
   } else if (err instanceof ForbiddenError) {
-    console.error("Acceso denegado – solo localhost");
+    console.error("Ese endpoint solo responde desde la PC del agente");
+  } else if (err instanceof QueueFullError) {
+    console.error("La cola esta llena: revisa si la impresora responde");
+  } else if (err instanceof ValidationError) {
+    console.error(`Dato invalido en ${err.field}: ${err.message}`);
   } else if (err instanceof ApiError) {
     console.error(`Error ${err.status}: ${err.apiMessage}`);
   }
 }
 ```
+
+## Varias PCs: `CollaTechPool`
+
+Registro de varios agentes (uno por PC de la red) para imprimir en varias
+estaciones sin montar un cliente a mano para cada host.
+
+```ts
+import { CollaTechPool } from "collatech-sdk";
+
+const pool = new CollaTechPool({
+  caja:   { baseUrl: "http://192.168.1.10:18743", token: "...", label: "Caja 1" },
+  cocina: { baseUrl: "http://192.168.1.11:18743", token: "...", label: "Cocina" },
+});
+
+// A una sola estacion
+await pool.printTextTo("cocina", { printer: "EPSON Cocina", text: "Comanda #12" });
+
+// A todas a la vez
+const res = await pool.broadcastTicket({ printer: "default", title: "Aviso", lines: [] });
+// -> [{ name: "caja", label: "Caja 1", ok: true, result: {...} }, ...]
+
+// Cuales responden ahora mismo
+console.log(await pool.healthAll());
+```
+
+Los metodos de difusion no lanzan si una estacion falla: devuelven un
+resultado por agente con `ok` y `error`.
 
 ## Utilidades
 

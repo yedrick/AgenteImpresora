@@ -6,6 +6,7 @@ Ya existe un servicio listo para copiar:
 
 ```text
 examples/angular/collatech-print.service.ts
+(en la carpeta de entrega al cliente: ENTREGA_CLIENTE/angular/collatech-print.service.ts)
 ```
 
 Copialo a tu proyecto Angular:
@@ -146,8 +147,13 @@ export class PrinterService {
     return this.client.printTicket(data);
   }
 
-  async printHTML(printer: string, html: string) {
-    return this.client.printHTML({ printer, html, cut: true });
+  async printHTML(data: {
+    printer: string;
+    html: string;
+    width?: number;
+    cut?: boolean;
+  }) {
+    return this.client.printHTML(data);
   }
 
   async printTemplate(data: {
@@ -259,7 +265,11 @@ export class PosComponent implements OnInit {
         .map(i => `<tr><td>${i.nombre}</td><td style="text-align:right">${i.precio}</td></tr>`)
         .join('\n');
 
-      await this.printer.printHTML(this.selectedPrinter, `
+      await this.printer.printHTML({
+        printer: this.selectedPrinter,
+        width: 576,
+        cut: true,
+        html: `
         <center><b>${this.empresa}</b></center>
         <hr>
         <p>Cliente: ${this.cliente}</p>
@@ -271,7 +281,8 @@ export class PosComponent implements OnInit {
         <p style="text-align:right"><b>TOTAL: ${this.total}</b></p>
         <hr>
         <center>Gracias por su compra!</center>
-      `);
+      `,
+      });
       this.status = 'Enviado a impresora!';
     } catch (e: any) {
       this.status = 'Error: ' + (e.message || e.error || 'Desconocido');
@@ -531,7 +542,7 @@ export class MiComponent {
   constructor(private printer: PrinterService) {}
 
   async imprimir() {
-    await this printer.printTicket({
+    await this.printer.printTicket({
       printer: 'Impresora1',
       title: 'MI TIENDA',
       lines: [

@@ -6,6 +6,7 @@ Usa este archivo como base:
 
 ```text
 examples/angular/collatech-print.service.ts
+(en la carpeta de entrega al cliente: ENTREGA_CLIENTE/angular/collatech-print.service.ts)
 ```
 
 Copialo a:
@@ -49,29 +50,32 @@ ng new mi-tienda
 cd mi-tienda
 ```
 
-## Paso 2: Copiar el SDK
+## Paso 2: Instalar el SDK
 
-Copia la carpeta `collatech-sdk/` dentro de tu proyecto Angular:
-
-```
-mi-tienda/
-├── src/
-├── collatech-sdk/    <-- COPIAR AQUI
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── tsconfig.cjs.json
-│   ├── src/
-│   └── dist/
-└── ...
-```
-
-## Paso 3: Instalar el SDK como dependencia local
+Lo mas simple es instalar el paquete empaquetado que viene en la entrega:
 
 ```bash
+npm install ./collatech-sdk-1.2.0.tgz
+```
+
+Esta en `ENTREGA_CLIENTE/angular/collatech-sdk-1.2.0.tgz`. Copialo a la raiz
+de tu proyecto Angular antes de ejecutar el comando.
+
+### Alternativa: instalar desde el codigo fuente
+
+Si copias la carpeta `collatech-sdk/` dentro de tu proyecto, **hay que
+compilarla primero**: `npm install ./collatech-sdk` instala lo que haya en
+`dist/`, que no se versiona y puede estar vacio o desactualizado.
+
+```bash
+cd collatech-sdk
+npm install
+npm run build
+cd ..
 npm install ./collatech-sdk
 ```
 
-## Paso 4: Crear el servicio de impresion
+## Paso 3: Crear el servicio de impresion
 
 ```bash
 ng generate service services/printer
@@ -93,6 +97,9 @@ export class PrinterService {
     this.client = new CollaTech({
       baseUrl: 'http://localhost:18743',
       timeout: 10000,
+      // Solo si tu app corre en OTRA PC distinta a la del agente. El token lo
+      // muestra el instalador al terminar y el panel del agente (Estado).
+      // token: 'el-token-del-agente',
     });
   }
 
@@ -153,7 +160,7 @@ export class PrinterService {
 }
 ```
 
-## Paso 5: Crear modulo de impresion (opcional)
+## Paso 4: Crear modulo de impresion (opcional)
 
 ```bash
 ng generate module printing
@@ -374,7 +381,7 @@ Edita `src/app/printing/print-panel/print-panel.component.css`:
 }
 ```
 
-## Paso 6: Importar modulo en app.module.ts
+## Paso 5: Importar modulo en app.module.ts
 
 ```typescript
 import { NgModule } from '@angular/core';
@@ -399,7 +406,7 @@ import { PrintingModule } from './printing/printing.module';
 export class AppModule { }
 ```
 
-## Paso 7: Usar el componente
+## Paso 6: Usar el componente
 
 Edita `src/app/app.component.html`:
 
@@ -407,7 +414,7 @@ Edita `src/app/app.component.html`:
 <app-print-panel></app-print-panel>
 ```
 
-## Paso 8: Configurar proxy (CORS)
+## Paso 7: Configurar proxy (CORS)
 
 Crea `proxy.conf.json` en la raiz del proyecto:
 
@@ -440,7 +447,7 @@ this.client = new CollaTech({
 });
 ```
 
-## Paso 9: Ejecutar
+## Paso 8: Ejecutar
 
 ```bash
 ng serve
@@ -466,7 +473,7 @@ export class AppComponent {
   constructor(private printer: PrinterService) {}
 
   async imprimir() {
-    await this printer.printTicket({
+    await this.printer.printTicket({
       printer: 'Impresora1',
       title: 'MI TIENDA',
       lines: [

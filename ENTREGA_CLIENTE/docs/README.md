@@ -1,127 +1,154 @@
 # CollaTech Agent
 
-CollaTech Agent es un agente local de impresion ESC/POS para Windows x64. Expone una API REST solo en `localhost:18743` y convierte trabajos POS a bytes ESC/POS para impresoras termicas Windows, TCP/IP, COM y adaptadores USB tipo archivo.
+CollaTech Agent es un agente local de impresión ESC/POS para Windows x64.
+Expone una API REST y convierte trabajos POS a bytes ESC/POS para impresoras
+térmicas Windows, TCP/IP, COM y alias de estación.
+
+Por defecto escucha solo en `127.0.0.1:18743`. El instalador lo configura para
+la red local (`0.0.0.0`) y, en ese caso, **genera un token de acceso** que las
+peticiones desde otras PCs deben enviar.
 
 ## Requisitos
 
-- Go 1.22 o superior
-- Windows x64 para uso en produccion con impresoras locales
-- Impresora termica compatible ESC/POS
+- Windows x64 para uso en producción con impresoras locales
+- Impresora térmica compatible ESC/POS
+- Go 1.22 o superior solo para compilar
 
-## Instalacion
+## Instalación en el cliente
 
-### Cliente final
-
-Entrega solo este archivo:
+Entrega un único archivo:
 
 ```text
 INSTALADOR.exe
 ```
 
-El cliente debe ejecutarlo con clic derecho:
+El cliente lo ejecuta con clic derecho → **Ejecutar como administrador**.
+Si no se ejecuta elevado, el instalador lo indica y se detiene.
 
-```text
-Ejecutar como administrador
-```
+El instalador:
 
-El instalador hace todo:
-
-- instala `CollaTechAgent.exe`
+- instala `CollaTechAgent.exe` en `%ProgramFiles%\CollaTech Agent`
+- lo registra como servicio de Windows con auto-arranque y reinicio ante fallo
 - configura acceso LAN en `0.0.0.0:18743`
-- abre el puerto `18743/TCP` en Firewall de Windows
-- crea auto-arranque al iniciar Windows
-- crea accesos directos
+- **genera un token de acceso y lo muestra al terminar**
+- abre el puerto `18743/TCP` en el Firewall, en los perfiles Privado y Dominio
+- crea accesos directos y entrada de desinstalación
 - muestra la ruta local y la ruta de red por nombre de PC/IP
 
-Si no se ejecuta como administrador, el instalador muestra el requisito y se detiene.
-
-```powershell
-go mod tidy
-go run ./cmd/server
-```
-
-El servidor escucha en:
+## Panel
 
 ```text
-http://localhost:18743
+http://localhost:18743/panel        Panel de pruebas y configuración
+http://localhost:18743/designer     Diseñador visual de tickets
+http://localhost:18743/diagnostico  Informe para soporte
 ```
 
-Panel HTML de pruebas:
+Desde otra PC de la red, sustituye `localhost` por el nombre o la IP del
+equipo. El panel pedirá el token la primera vez.
 
-```text
-http://localhost:18743/panel
-```
+## Seguridad
 
-Acceso desde otra PC de la red:
+- **Modo local** (por defecto): el agente se enlaza a `127.0.0.1` y rechaza
+  cualquier conexión que no venga de la propia PC.
+- **Modo LAN** (`host: "0.0.0.0"`, `allow_remote: true`): se exige un token en
+  todo `/api/*` a las peticiones que llegan desde la red. Si no hay token
+  configurado, el agente genera uno al arrancar y lo guarda en
+  `configs/config.json`. Lo consultas en el panel local, pestaña *Estado*, o
+  en `GET /api/token`.
+- **Siempre solo desde la propia PC**, aunque `allow_remote` esté activo:
+  `/api/diagnostico`, `/api/logs`, `/api/token` y los `POST` de configuración.
+- CORS con lista de orígenes exactos en `configs/config.json`. Evita `"*"`:
+  con comodín, cualquier web que abra el cajero puede imprimir y abrir el
+  cajón de dinero.
+- Payload máximo configurable con `max_print_size`.
+- TLS opcional. Para usarlo en red, genera el certificado con
+  `GENERAR_CERTIFICADO.bat`, que incluye SAN.
 
-```text
-http://IP-DE-ESTA-PC:18743/panel
-```
-
-Ejemplo:
-
-```text
-http://192.168.1.50:18743/panel
-```
-
-La configuracion LAN esta en `configs/config.json`:
+## Configuración — `configs/config.json`
 
 ```json
 {
   "host": "0.0.0.0",
+  "port": 18743,
   "allow_remote": true,
-  "queue": { "workers": 1 }
+  "auth_token": "",
+  "allowed_cors": ["http://localhost:18743"],
+  "max_print_size": 2097152,
+  "queue": { "workers": 4, "max_retries": 2 },
+  "tls": { "enabled": false, "cert_file": "certs/cert.pem", "key_file": "certs/key.pem" }
 }
 ```
 
-Con `workers: 1`, las impresiones salen en cola: una termina y luego empieza la siguiente.
+Los trabajos hacia **una misma impresora** siempre salen en orden, uno detrás
+de otro, sea cual sea el número de `workers`; los `workers` solo permiten
+imprimir en paralelo en impresoras distintas.
 
-Disenador visual:
+`max_retries` es el número **total de intentos**, no de reintentos: con `2`,
+el agente prueba una vez, espera 1 segundo y prueba una segunda vez.
 
-```text
-http://localhost:18743/designer
-```
-
-## Compilacion Windows x64
+## Desarrollo
 
 ```powershell
-$env:GOOS="windows"
-$env:GOARCH="amd64"
-go build -o CollaTechAgent.exe ./cmd/server
+go mod tidy
+go run ./cmd/server
+go test ./...
 ```
+
+El agente completo solo se ejecuta en Windows (usa el spooler y el Service
+Control Manager), pero compila y pasa los tests en Linux y macOS, donde la
+impresión por el spooler devuelve error y sigue funcionando `tcp://`.
+
+### Compilación Windows x64
+
+```powershell
+$env:GOOS="windows"; $env:GOARCH="amd64"
+go build -ldflags "-H windowsgui -s -w" -o CollaTechAgent.exe ./cmd/server
+```
+
+Para regenerar el instalador hay que compilar **primero** el agente: usa
+`BUILD_SERVER.bat` y después `BUILD_INSTALLER.bat`, que embebe el binario.
 
 ## Estructura
 
 ```text
 collatech-agent/
-  cmd/server/main.go
-  internal/api
-  internal/escpos
-  internal/printers
-  internal/render
-  internal/queue
-  internal/profiles
-  internal/logs
-  internal/updater
-  templates
-  configs
-  storage
-  docs
+  cmd/server      agente y servicio de Windows
+  cmd/installer   instalador con el agente embebido
+  internal/api    API REST y panel web embebido
+  internal/escpos encoder ESC/POS (CP850, QR, barcode, raster)
+  internal/render conversor HTML -> ESC/POS
+  internal/printers spooler de Windows, TCP y COM
+  internal/queue  cola con reintentos y persistencia
+  collatech-sdk   SDK TypeScript
+  configs storage logs docs
 ```
 
 ## Endpoints
 
-- `GET /api/printers`
-- `GET /api/printer-aliases`
-- `POST /api/printer-aliases`
-- `POST /api/print/text`
-- `POST /api/print/ticket`
-- `POST /api/print/template`
-- `POST /api/print/html`
-- `POST /api/print/image`
-- `POST /api/print/raw`
-- `GET /api/status`
-- `GET /health`
+Impresión (todos `POST`, responden **202 Accepted**):
+
+```text
+/api/print/text      /api/print/ticket    /api/print/template
+/api/print/html      /api/print/image     /api/print/logo
+/api/print/raw
+```
+
+Consulta (`GET`):
+
+```text
+/health  /api/status  /api/printers  /api/templates  /api/network
+/api/settings  /api/printer-aliases
+```
+
+Configuración (`POST`) y administración (`GET`), **solo desde la propia PC**:
+
+```text
+POST /api/settings   POST /api/printer-aliases
+GET  /api/diagnostico  GET /api/logs  GET /api/token
+```
+
+El contrato completo, campo a campo, está en
+[JSON-REFERENCIA.md](JSON-REFERENCIA.md) y [docs/API.md](docs/API.md).
 
 ## Ejemplos curl
 
@@ -133,7 +160,7 @@ curl -X POST http://localhost:18743/api/print/text \
   -d '{"printer":"EPSON","text":"COLLATECH\nGracias por su compra","cut":true}'
 ```
 
-Ticket con QR y barcode:
+Ticket con QR y código de barras:
 
 ```bash
 curl -X POST http://localhost:18743/api/print/ticket \
@@ -146,26 +173,28 @@ HTML:
 ```bash
 curl -X POST http://localhost:18743/api/print/html \
   -H "Content-Type: application/json" \
-  -d '{"printer":"EPSON","html":"<html><body><h1>CollaTech</h1><p>Total: Bs 120</p></body></html>","width":576,"cut":true}'
+  -d '{"printer":"EPSON","html":"<h1>CollaTech</h1><p>Total: <b>Bs 120</b></p>","width":576,"cut":true}'
 ```
 
-Raw ESC/POS en base64:
+Desde otra PC de la red, añade el token:
 
 ```bash
-curl -X POST http://localhost:18743/api/print/raw \
+curl -X POST http://192.168.1.50:18743/api/print/text \
+  -H "Authorization: Bearer TU_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"printer":"EPSON","data":"G0BDT0xMQVRFQ0gKHVYA","base64":true}'
+  -d '{"printer":"EPSON","text":"Hola","cut":true}'
 ```
 
-Alias de impresora por estacion:
+Alias de impresora por estación:
 
 ```bash
 curl -X POST http://localhost:18743/api/printer-aliases \
   -H "Content-Type: application/json" \
-  -d '[{"name":"cocina","printer":"EPSON Cocina,EPSON Barra","description":"Pedidos a cocina y barra"},{"name":"facturas","printer":"EPSON Caja","description":"Facturacion"}]'
+  -d '[{"name":"cocina","printer":"EPSON Cocina,EPSON Barra","description":"Pedidos a cocina y barra"}]'
 ```
 
-Luego tu sistema puede imprimir usando el alias. Si el alias tiene varias impresoras separadas por coma, se encola una copia para cada impresora:
+Después basta con imprimir usando el alias; si apunta a varias impresoras, se
+encola una copia para cada una:
 
 ```bash
 curl -X POST http://localhost:18743/api/print/text \
@@ -173,48 +202,50 @@ curl -X POST http://localhost:18743/api/print/text \
   -d '{"printer":"cocina","text":"Pedido #1001\nMesa 4","cut":true}'
 ```
 
-## Flujo HTML a impresion
+## Destinos de impresión
+
+Valores aceptados en `printer`:
+
+| Valor | Destino |
+|---|---|
+| `"EPSON TM-T20"` | Impresora instalada en Windows |
+| `"printer://EPSON TM-T20"` | Lo mismo, forzado |
+| `"tcp://192.168.1.50:9100"` o `"192.168.1.50:9100"` | Red (puerto 9100 por defecto) |
+| `"COM3"` o `"com://COM3"` | Puerto serie |
+| `"cocina"` | Alias de estación |
+
+Las impresoras USB se direccionan por **su nombre en Windows**, no por el
+puerto: `USB001` no es un destino válido.
+
+## Cómo se imprime HTML
 
 ```text
-HTML -> Render -> Imagen -> Raster ESC/POS -> Impresora
+HTML -> tokenizador propio -> comandos ESC/POS nativos -> impresora
 ```
 
-El modulo `internal/render` incluye un renderizador interno liviano para convertir HTML simple a imagen raster ESC/POS sin dependencias externas. En produccion se puede sustituir por Chromium/WebView2 headless manteniendo la misma interfaz.
-
-## Impresoras
-
-Formatos aceptados en `printer`:
-
-- Nombre de impresora Windows: `"EPSON TM-T20"`
-- TCP/IP: `"tcp://192.168.1.50:9100"` o `"192.168.1.50:9100"`
-- COM: `"COM3"`
-- USB/adaptador archivo: `"USB001"`
-
-## Seguridad
-
-- En modo local, el servidor se enlaza a `127.0.0.1` y rechaza conexiones no locales
-- En modo LAN, `configs/config.json` usa `host: "0.0.0.0"` y `allow_remote: true`
-- CORS configurable en `configs/config.json`
-- Payload maximo configurable con `max_print_size`
-- JSON validado por endpoint
+El HTML se convierte directamente en comandos de texto ESC/POS, no en una
+imagen: el ticket sale como texto real, nítido y rápido. Eso también marca el
+límite: se soportan los bloques y el formato básico (encabezados, párrafos,
+negrita, subrayado, listas, reglas y tablas) y, del CSS, solo `text-align`.
+Para un diseño con control fino, usa `/api/print/ticket` o
+`/api/print/image`.
 
 ## Logs
 
-Los eventos se guardan en `logs/YYYY-MM-DD.jsonl` en formato JSON Lines:
+Se guardan en `logs/YYYY-MM-DD.jsonl`, con rotación diaria y 30 días de
+retención:
 
-- impresiones encoladas
-- cambios de estado
-- errores
-- reintentos
-- impresora utilizada
+```json
+{"time":"2026-10-02T12:07:29.35-04:00","level":"info","event":"print_ticket","details":{"printer":"POS1","lines":3}}
+```
+
+Se registra la **forma** de cada trabajo (impresora, número de líneas,
+tamaños, estados, reintentos y errores), nunca el contenido impreso: los
+nombres de clientes y los importes no quedan en el log.
 
 ## Cola
 
-Los trabajos pasan por:
-
-- `Pending`
-- `Printing`
-- `Completed`
-- `Failed`
-
-La cola usa reintentos automaticos con backoff exponencial.
+Los trabajos pasan por `Pending` → `Printing` → `Completed` / `Failed`, con
+reintentos automáticos y espera creciente entre intentos. Se conservan los
+500 más recientes. Si la cola se llena —normalmente porque una impresora dejó
+de responder—, la API devuelve `503` en vez de quedarse esperando.

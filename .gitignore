@@ -1,7 +1,6 @@
 # Binarios compilados
 *.exe
 *.bin
-cmd/installer/CollaTechAgent.bin
 
 # Dependencias y artefactos de build
 node_modules/

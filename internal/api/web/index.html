@@ -307,6 +307,15 @@
         text-align: left;
       }
     }
+      .tabla-impresoras { overflow-x: auto; }
+    #printerTable { width: 100%; border-collapse: collapse; font-size: 12px; }
+    #printerTable th { text-align: left; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--text2); white-space: nowrap; }
+    #printerTable td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    #printerTable input[type=text] { width: 100%; min-width: 90px; margin: 0; padding: 6px 8px; font-size: 12px; }
+    #printerTable select { width: auto; min-width: 86px; margin: 0; padding: 6px 8px; font-size: 12px; }
+    #printerTable .quitar { background: none; border: 1px solid var(--line); color: var(--text2); padding: 4px 9px; font-size: 13px; line-height: 1; border-radius: 6px; cursor: pointer; }
+    #printerTable .quitar:hover { border-color: #dc2626; color: #dc2626; }
+    #printerTable .vacio td { color: var(--text2); text-align: center; padding: 18px 8px; }
   </style>
 </head>
 <body>
@@ -409,13 +418,36 @@
     <section class="tab-panel" data-tab-panel="stations">
       <div class="section-head">
         <div>
-          <h2>Estaciones de impresion</h2>
-          <p class="hint">Usa alias como cocina, recepcion, facturas o pagos. Para imprimir en varias al mismo tiempo, separa impresoras con coma: cocina=EPSON Cocina,EPSON Barra.</p>
+          <h2>Impresoras</h2>
+          <p class="hint">Cada impresora tiene su propio ancho de papel, modo de corte y giro, asi que puedes tener una de 58 mm en cocina y una de 80 mm en caja sin indicarlo en cada impresion.</p>
         </div>
         <span class="badge">Multi impresora</span>
       </div>
-      <label for="aliasConfig">Alias por linea</label>
-      <textarea id="aliasConfig" placeholder="cocina=EPSON Cocina,EPSON Barra|Pedidos de cocina y barra&#10;facturas=EPSON Caja|Facturacion"></textarea>
+      <div class="tabla-impresoras">
+        <table id="printerTable">
+          <thead>
+            <tr>
+              <th>Nombre</th><th>Destino</th><th>Papel</th><th>Corte</th>
+              <th title="Imprimir girado 180 grados">Girar</th><th>Fuente</th><th>Descripcion</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="printerRows"></tbody>
+        </table>
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button id="addPrinter" class="secondary" type="button">+ Anadir impresora</button>
+      </div>
+      <details style="margin-top:12px">
+        <summary class="hint">Que puedo poner en Destino</summary>
+        <ul class="hint" style="margin:8px 0 0 18px">
+          <li><code>EPSON TM-T20</code> &mdash; nombre de la impresora en el sistema</li>
+          <li><code>tcp://192.168.1.50:9100</code> &mdash; impresora de red (el puerto 9100 se asume)</li>
+          <li><code>COM3</code> o <code>/dev/ttyUSB0</code> &mdash; puerto serie</li>
+          <li><code>bt://COM5</code> o <code>bt://rfcomm0</code> &mdash; Bluetooth ya emparejada</li>
+          <li><code>device:///dev/usb/lp0</code> &mdash; impresora USB directa en Linux</li>
+          <li>Varias separadas por coma: sale una copia en cada una</li>
+        </ul>
+      </details>
       <div class="grid" style="margin-top:14px">
         <div>
           <label for="stationTest">Estacion para prueba</label>
@@ -429,8 +461,8 @@
         </div>
       </div>
       <div class="actions">
-        <button id="refreshAliases" class="secondary">Cargar estaciones</button>
-        <button id="saveAliases" class="secondary">Guardar estaciones</button>
+        <button id="refreshAliases" class="secondary">Recargar</button>
+        <button id="saveAliases" class="secondary">Guardar impresoras</button>
         <button id="testStation">Probar estacion</button>
       </div>
     </section>
@@ -487,6 +519,7 @@ Gracias por usar CollaTech</textarea>
       </div>
       <div class="actions">
         <button id="refreshLogs" class="secondary">Actualizar logs</button>
+        <button id="supportBundle" class="secondary">Descargar paquete de soporte</button>
         <button id="clearView" class="secondary">Limpiar vista</button>
       </div>
       <pre id="logs">Sin logs cargados...</pre>
@@ -500,7 +533,6 @@ Gracias por usar CollaTech</textarea>
     const logs = $("logs");
     const network = $("network");
     const health = $("health");
-    const aliasConfig = $("aliasConfig");
 
     function selectedPrinter() {
       return $("printerManual").value.trim() || $("printerSelect").value;
@@ -695,41 +727,75 @@ Gracias por usar CollaTech</textarea>
       }
     }
 
-    function aliasesToText(aliases) {
-      return (aliases || []).map((alias) => {
-        const line = `${alias.name || ""}=${alias.printer || ""}`;
-        return alias.description ? `${line}|${alias.description}` : line;
-      }).join("\n");
+    // --- Gestion de impresoras -------------------------------------------
+    // Antes era un area de texto con "nombre=destino|descripcion" por linea.
+    // Ahora cada impresora tiene ademas su ancho de papel, corte y giro, que
+    // en un area de texto no se podian editar de forma razonable.
+
+    let impresoras = [];
+
+    const PAPELES = [["", "General"], ["384", "58 mm"], ["512", "72 mm"], ["576", "80 mm"]];
+    const CORTES = [["", "General"], ["partial", "Parcial"], ["full", "Completo"], ["none", "Sin corte"]];
+    const FUENTES = [["", "Normal"], ["a", "A normal"], ["b", "B condensada"]];
+
+    function opciones(lista, actual) {
+      return lista.map(([v, t]) =>
+        `<option value="${v}"${String(actual || "") === v ? " selected" : ""}>${t}</option>`
+      ).join("");
     }
 
-    function textToAliases() {
-      return aliasConfig.value
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          const [left, description = ""] = line.split("|");
-          const [name = "", printer = ""] = left.split("=");
-          return {
-            name: name.trim().toLowerCase(),
-            printer: printer.trim(),
-            description: description.trim()
-          };
-        })
-        .filter((alias) => alias.name && alias.printer);
+    function pintarImpresoras() {
+      const tbody = $("printerRows");
+      if (!impresoras.length) {
+        tbody.innerHTML = `<tr class="vacio"><td colspan="8">Ninguna impresora dada de alta. Puedes imprimir usando el nombre directo, o anadir una aqui para fijarle su papel y su corte.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = impresoras.map((p, i) => `
+        <tr data-i="${i}">
+          <td><input type="text" data-campo="name" value="${esc(p.name)}" placeholder="caja"></td>
+          <td><input type="text" data-campo="target" value="${esc(p.target)}" placeholder="tcp://192.168.1.50:9100"></td>
+          <td><select data-campo="paper_width">${opciones(PAPELES, p.paper_width)}</select></td>
+          <td><select data-campo="cut">${opciones(CORTES, p.cut)}</select></td>
+          <td style="text-align:center"><input type="checkbox" data-campo="upside_down"${p.upside_down ? " checked" : ""}></td>
+          <td><select data-campo="font">${opciones(FUENTES, p.font)}</select></td>
+          <td><input type="text" data-campo="description" value="${esc(p.description)}" placeholder="Caja principal"></td>
+          <td><button class="quitar" type="button" title="Quitar">&times;</button></td>
+        </tr>`).join("");
     }
 
-    function firstAliasName() {
-      const aliases = textToAliases();
-      return aliases.length ? aliases[0].name : "";
+    function esc(v) {
+      return String(v == null ? "" : v).replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    }
+
+    // Se lee la tabla entera al guardar, para no perder lo que el usuario
+    // haya escrito y aun no haya disparado un evento.
+    function leerTabla() {
+      return Array.from($("printerRows").querySelectorAll("tr[data-i]")).map((tr) => {
+        const dato = (campo) => tr.querySelector(`[data-campo="${campo}"]`);
+        return {
+          name: (dato("name").value || "").trim().toLowerCase(),
+          target: (dato("target").value || "").trim(),
+          paper_width: Number(dato("paper_width").value || 0),
+          cut: dato("cut").value || "",
+          upside_down: dato("upside_down").checked,
+          font: dato("font").value || "",
+          description: (dato("description").value || "").trim()
+        };
+      }).filter((p) => p.name && p.target);
+    }
+
+    function primeraImpresora() {
+      return impresoras.length ? impresoras[0].name : "";
     }
 
     async function loadAliases() {
       try {
-        const data = await api("/api/printer-aliases");
-        aliasConfig.value = aliasesToText(data.data || []);
+        const data = await api("/api/printers-config");
+        impresoras = data.data || [];
+        pintarImpresoras();
         if (!$("stationTest").value.trim()) {
-          $("stationTest").value = firstAliasName() || "cocina";
+          $("stationTest").value = primeraImpresora() || "cocina";
         }
       } catch (error) {
         show(error);
@@ -738,17 +804,55 @@ Gracias por usar CollaTech</textarea>
 
     async function saveAliases() {
       try {
-        const data = await api("/api/printer-aliases", {
+        const data = await api("/api/printers-config", {
           method: "POST",
-          body: JSON.stringify(textToAliases())
+          body: JSON.stringify(leerTabla())
         });
-        notify(data, "Estaciones guardadas");
-        aliasConfig.value = aliasesToText(data.data || []);
+        notify(data, "Impresoras guardadas");
+        impresoras = data.data || [];
+        pintarImpresoras();
         if (!$("stationTest").value.trim()) {
-          $("stationTest").value = firstAliasName() || "cocina";
+          $("stationTest").value = primeraImpresora() || "cocina";
         }
       } catch (error) {
-        notifyError(error, "No se pudieron guardar las estaciones");
+        notifyError(error, "No se pudieron guardar las impresoras");
+      }
+    }
+
+    $("addPrinter").addEventListener("click", () => {
+      impresoras = leerTabla();
+      impresoras.push({ name: "", target: "", paper_width: 0, cut: "", upside_down: false, font: "", description: "" });
+      pintarImpresoras();
+      const filas = $("printerRows").querySelectorAll('input[data-campo="name"]');
+      if (filas.length) filas[filas.length - 1].focus();
+    });
+
+    $("printerRows").addEventListener("click", (ev) => {
+      if (!ev.target.classList.contains("quitar")) return;
+      const fila = ev.target.closest("tr");
+      const i = Number(fila.dataset.i);
+      impresoras = leerTabla().filter((_, j) => j !== i);
+      pintarImpresoras();
+    });
+
+    async function descargarSoporte() {
+      try {
+        const token = storedToken();
+        const res = await fetch(API_BASE + "/api/support-bundle", {
+          headers: token ? { Authorization: "Bearer " + token } : {}
+        });
+        if (!res.ok) throw await res.json();
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = (res.headers.get("Content-Disposition") || "").split("filename=")[1]?.replace(/"/g, "")
+          || "collatech-soporte.zip";
+        a.click();
+        URL.revokeObjectURL(url);
+        notify({ ok: true }, "Paquete de soporte descargado");
+      } catch (error) {
+        notifyError(error, "No se pudo generar el paquete de soporte");
       }
     }
 
@@ -789,7 +893,7 @@ Gracias por usar CollaTech</textarea>
     $("saveAliases").addEventListener("click", saveAliases);
     $("testStation").addEventListener("click", async () => {
       try {
-        const printer = $("stationTest").value.trim() || firstAliasName() || selectedPrinter();
+        const printer = $("stationTest").value.trim() || primeraImpresora() || selectedPrinter();
         if (!printer) {
           throw { ok: false, error: "Escribe una estacion o selecciona una impresora." };
         }
@@ -1058,6 +1162,8 @@ Gracias por usar CollaTech</textarea>
         notifyError(e, "No se pudo copiar; seleccionalo a mano");
       }
     });
+
+    $("supportBundle")?.addEventListener("click", descargarSoporte);
 
     checkHealth();
     showLocalToken();

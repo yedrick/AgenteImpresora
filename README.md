@@ -95,6 +95,8 @@ equipo. El panel pedirá el token la primera vez.
   con comodín, cualquier web que abra el cajero puede imprimir y abrir el
   cajón de dinero.
 - Payload máximo configurable con `max_print_size`.
+- Límite de 30 impresiones seguidas por equipo y 10 por segundo después, para
+  que un bucle mal escrito no gaste el rollo entero.
 - TLS opcional. Para usarlo en red, genera el certificado con
   `GENERAR_CERTIFICADO.bat`, que incluye SAN.
 
@@ -206,7 +208,8 @@ GET  /api/diagnostico  GET /api/logs  GET /api/token
 ```
 
 El contrato completo, campo a campo, está en
-[JSON-REFERENCIA.md](JSON-REFERENCIA.md) y [docs/API.md](docs/API.md). Para
+[JSON-REFERENCIA.md](JSON-REFERENCIA.md) y [docs/API.md](docs/API.md). Hay
+tickets de ejemplo listos para enviar en [examples/](examples/), y para
 integrar desde Angular, [ANGULAR.md](ANGULAR.md).
 
 ## Ejemplos curl
@@ -272,14 +275,55 @@ Valores aceptados en `printer`:
 | `"tcp://192.168.1.50:9100"` o `"192.168.1.50:9100"` | Red (puerto 9100 por defecto) |
 | `"COM3"` o `"com://COM3"` | Puerto serie (Windows) |
 | `"/dev/ttyUSB0"` | Puerto serie (Linux / macOS) |
+| `"bt://COM5"` o `"bt://rfcomm0"` | Bluetooth ya emparejada |
 | `"device:///dev/usb/lp0"` | Impresora USB directa (Linux) |
-| `"cocina"` | Alias de estación |
+| `"caja"` | Impresora dada de alta |
 
 En Windows, las impresoras USB se direccionan por **su nombre en el sistema**,
 no por el puerto: `USB001` no es un destino válido. En Linux puedes usar
 directamente `/dev/usb/lp0`.
 
+Para Bluetooth, el emparejado lo hace el sistema: en Windows la impresora
+aparece como un puerto COM saliente (`bt://COM5`); en Linux se empareja con
+`bluetoothctl` y se crea el nodo con `sudo rfcomm bind 0 AA:BB:CC:DD:EE:FF`
+(`bt://rfcomm0`).
+
 `GET /api/printers` lista lo que el agente detecta, con su estado real.
+
+## Varias impresoras
+
+Cada impresora se da de alta una vez con sus ajustes, desde el panel
+(pestaña **Impresoras**) o con `POST /api/printers-config`:
+
+```json
+[
+  { "name": "caja",   "target": "tcp://192.168.1.50:9100", "paper_width": 576, "cut": "partial" },
+  { "name": "cocina", "target": "EPSON Cocina,EPSON Barra", "paper_width": 384, "cut": "none", "font": "b" }
+]
+```
+
+Después basta con `{"printer": "caja", ...}`: el ancho, el corte y el giro
+salen del perfil, así que puedes tener una de 58 mm en cocina y una de 80 mm
+en caja sin repetirlo en cada llamada. Un destino con varias impresoras
+separadas por coma saca una copia en cada una.
+
+## Control de la impresión
+
+Todos los endpoints de impresión aceptan estas opciones:
+
+| Campo | Qué hace |
+|---|---|
+| `width` | 384 (58 mm), 512 (72 mm) o 576 (80 mm) |
+| `cut` | `"partial"`, `"full"` o `"none"` |
+| `compact` | Aprieta el interlineado: ~20% menos papel por ticket |
+| `upside_down` | Imprime girado 180°, para leer el ticket con la cabecera abajo |
+| `feed_top` | Líneas en blanco al principio. **0 por defecto**: el agente no gasta papel arriba |
+| `feed_bottom` | Líneas que se avanzan al cortar (mínimo 4, para que la cuchilla no se coma la última línea) |
+| `font` | `"a"` normal, `"b"` condensada |
+| `margin_dots` | Margen izquierdo en puntos |
+
+El tamaño del QR y del código de barras **se calcula solo** según el ancho
+del papel y lo que ocupe el contenido, y también se puede fijar a mano.
 
 ## Cómo se imprime HTML
 
@@ -287,12 +331,26 @@ directamente `/dev/usb/lp0`.
 HTML -> tokenizador propio -> comandos ESC/POS nativos -> impresora
 ```
 
-El HTML se convierte directamente en comandos de texto ESC/POS, no en una
-imagen: el ticket sale como texto real, nítido y rápido. Eso también marca el
-límite: se soportan los bloques y el formato básico (encabezados, párrafos,
-negrita, subrayado, listas, reglas y tablas) y, del CSS, solo `text-align`.
-Para un diseño con control fino, usa `/api/print/ticket` o
-`/api/print/image`.
+El HTML se convierte directamente en comandos de texto, no en una imagen: el
+ticket sale como texto real, nítido y rápido.
+
+Se entienden encabezados, párrafos, negrita, subrayado, listas (con viñetas y
+numeración), tablas con cabecera, reglas, `<pre>`, imágenes en base64 y las
+etiquetas propias `<qr>`, `<barcode>` y `<feed>`. Del CSS en línea se leen
+`text-align`, `font-weight`, `text-decoration` y `font-size`.
+
+En una tabla, la última columna se alinea sola a la derecha, que en un
+ticket suele ser el importe.
+
+Ejemplos completos en [examples/html/](examples/html/).
+
+## Soporte
+
+Si algo falla, el panel tiene un botón **Descargar paquete de soporte** en la
+pestaña Logs (o `GET /api/support-bundle`). Genera un `.zip` con el
+diagnóstico del equipo, la configuración, las impresoras, la cola y los
+últimos siete días de registro, con el token tapado. Es lo único que hace
+falta enviar.
 
 ## Logs
 

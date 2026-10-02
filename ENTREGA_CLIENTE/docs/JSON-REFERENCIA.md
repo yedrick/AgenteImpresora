@@ -44,6 +44,7 @@ Todos los endpoints responden con el mismo sobre:
 | `401` | Falta el token o no coincide (solo desde la red) |
 | `403` | Endpoint solo disponible desde la PC del agente |
 | `413` | El contenido supera `max_print_size` |
+| `429` | Demasiadas impresiones seguidas desde ese equipo (30 de golpe, luego 10/s) |
 | `503` | La cola está llena (revisa si la impresora responde) |
 
 Encolar devuelve el trabajo, no el resultado de la impresión. Para saber si
@@ -55,19 +56,82 @@ Admite el nombre de la impresora en Windows o un destino explícito:
 
 | Valor | Destino |
 |---|---|
-| `"EPSON TM-T20"` | Impresora instalada en Windows |
+| `"EPSON TM-T20"` | Cola del sistema (winspool en Windows, CUPS en Linux/macOS) |
 | `"printer://EPSON TM-T20"` | Lo mismo, forzado (útil si el nombre parece un puerto) |
 | `"tcp://192.168.1.50:9100"` | Red. Si omites el puerto se usa 9100 |
 | `"192.168.1.50:9100"` | Red (forma corta) |
-| `"COM3"` | Puerto serie |
-| `"com://COM3"` | Puerto serie, forzado |
-| `"cocina"` | Alias configurado en `/api/printer-aliases` |
+| `"COM3"` / `"com://COM3"` | Puerto serie en Windows |
+| `"/dev/ttyUSB0"` | Puerto serie en Linux / macOS |
+| `"bt://COM5"` / `"bt://rfcomm0"` | Bluetooth ya emparejada |
+| `"device:///dev/usb/lp0"` | Impresora USB directa en Linux |
+| `"caja"` | Impresora dada de alta (ver abajo) |
 
-Un alias puede apuntar a varias impresoras separadas por coma: se encola una
-copia para cada una.
+Una impresora dada de alta puede apuntar a varios destinos separados por
+coma: se encola una copia para cada uno.
 
-> Las impresoras USB se direccionan por **su nombre en Windows**, no por el
-> puerto (`USB001` no es un destino válido).
+**Bluetooth:** el emparejado lo hace el sistema operativo, no el agente. En
+Windows, empareja la impresora y mira qué puerto COM saliente le asigna
+(`bt://COM5`). En Linux, empareja con `bluetoothctl` y crea el nodo con
+`sudo rfcomm bind 0 AA:BB:CC:DD:EE:FF` (`bt://rfcomm0`).
+
+**USB:** en Windows se direcciona por el nombre de la impresora en el
+sistema; `USB001` es un puerto del spooler, no un destino. En Linux puedes
+usar `device:///dev/usb/lp0` directamente.
+
+## Impresoras dadas de alta
+
+En vez de repetir el ancho de papel y el modo de corte en cada llamada, das
+de alta cada impresora una vez con sus ajustes. Desde el panel, pestaña
+**Impresoras**, o con `POST /api/printers-config`:
+
+```json
+[
+  {
+    "name": "caja",
+    "target": "tcp://192.168.1.50:9100",
+    "paper_width": 576,
+    "cut": "partial",
+    "description": "Caja principal 80 mm"
+  },
+  {
+    "name": "cocina",
+    "target": "EPSON Cocina,EPSON Barra",
+    "paper_width": 384,
+    "cut": "none",
+    "upside_down": true,
+    "font": "b",
+    "description": "Comandas, sale en las dos"
+  }
+]
+```
+
+Después basta con `{"printer": "caja", ...}` y el ticket sale a 80 mm con
+corte parcial. Lo que mandes en la petición manda sobre el perfil.
+
+Un nombre que no esté dado de alta se usa tal cual, así que no hace falta
+configurar nada para empezar.
+
+## Opciones de documento
+
+Valen para **todos** los endpoints de impresión:
+
+| Campo | Qué hace |
+|---|---|
+| `width` | Ancho del papel en puntos: 384 (58 mm), 512 (72 mm), 576 (80 mm) |
+| `cut` | `"partial"`, `"full"`, `"none"`. También acepta `true`/`false` |
+| `compact` | `true` aprieta el interlineado: ~20% menos papel por ticket |
+| `line_spacing` | Alto de línea exacto en puntos. 0 deja el de la impresora |
+| `upside_down` | `true` imprime el ticket girado 180° |
+| `feed_top` | Líneas en blanco antes del contenido. **0 por defecto** |
+| `feed_bottom` | Líneas que se avanzan al cortar. Mínimo 4 |
+| `margin_dots` | Margen izquierdo en puntos |
+| `font` | `"a"` normal, `"b"` condensada (entra más texto por línea) |
+| `drawer` | `true` abre el cajón de dinero |
+
+> **Espacio arriba:** el agente no emite ni un salto de línea antes del
+> contenido. Si ves papel en blanco al principio, viene de la distancia
+> física entre la cuchilla y el cabezal del ticket anterior; baja
+> `feed_bottom` para reducirla.
 
 ## El campo `width`
 
@@ -134,24 +198,74 @@ Es el endpoint más completo.
 }
 ```
 
-Campos de cada elemento de `lines`:
+### Elementos de `lines`
 
-| Campo | Tipo | Qué hace |
+El campo `type` decide qué se dibuja. Un ticket se describe de arriba abajo
+en un solo array.
+
+| `type` | Campo que usa | Qué dibuja |
 |---|---|---|
-| `type` | `"text"` \| `"table"` | Vacío o `"text"` imprime `text`; `"table"` dibuja `table` |
-| `text` | string | El texto de la línea |
-| `table` | objeto | Ver arriba. Si una fila trae más celdas que columnas, sobran |
-| `align` | `left` \| `center` \| `right` | Alineación |
-| `bold` | bool | Negrita |
-| `underline` | bool | Subrayado |
-| `size` | `normal` \| `double` \| `wide` \| `tall` \| `small` | Tamaño |
-| `gap` | int | Líneas en blanco después |
-| `box` | bool | Enmarca el texto |
-| `ml` / `mr` | int | Margen izquierdo / derecho, en caracteres |
+| vacío o `"text"` | `text` | Una línea de texto |
+| `"table"` | `table` | Una tabla |
+| `"qr"` | `qr` | Un código QR |
+| `"barcode"` | `barcode` | Un código de barras |
+| `"image"` | `image` | Una imagen en base64 |
+| `"rule"` | `rule` | Una línea separadora del ancho del papel |
+| `"feed"` | `feed` | Líneas en blanco |
 
-Límites: `qr` hasta 2953 caracteres, `barcode` hasta 253. Pasarse devuelve
-`400`. `feed_bottom` tiene un mínimo de 4 líneas para que la cuchilla no corte
-la última línea.
+Formato, aplicable a cualquier elemento:
+
+| Campo | Qué hace |
+|---|---|
+| `align` | `left`, `center` o `right` |
+| `bold` / `underline` | Negrita / subrayado |
+| `invert` | Blanco sobre negro |
+| `size` | `normal`, `small`, `double`, `wide`, `tall` |
+| `scale_w` / `scale_h` | Multiplicador exacto de 1 a 8. Manda sobre `size` |
+| `box` | Enmarca el texto en un recuadro |
+| `gap` | Líneas en blanco después |
+| `ml` / `mr` | Margen izquierdo / derecho, en caracteres |
+
+### QR
+
+```json
+{ "type": "qr", "qr": { "data": "https://...", "size": 6, "ec": "M" } }
+```
+
+`size` es el lado de cada punto, de 1 a 16. **Si lo omites se calcula solo**
+según el ancho del papel y lo que ocupe el contenido, de forma que un QR
+largo no se salga del papel. `ec` es la corrección de errores: `L`, `M`
+(por defecto), `Q` o `H` — más corrección significa un QR más grande pero
+legible aunque se manche.
+
+Máximo 2953 caracteres.
+
+### Código de barras
+
+```json
+{ "type": "barcode",
+  "barcode": { "data": "123456789", "type": "code128", "height": 60,
+               "width": 3, "hri": "below" } }
+```
+
+`type`: `code128` (por defecto), `ean13`, `ean8`, `upca`, `upce`, `code39`,
+`code93`, `itf`, `codabar`, `pdf417`. `height` en puntos (1-255). `width` es
+el grosor de la barra fina (2-6); **si lo omites se calcula** para que quepa
+en el papel. `hri` es dónde va el texto legible: `none`, `above`, `below`
+(por defecto) o `both`.
+
+Máximo 253 caracteres.
+
+### Imagen
+
+```json
+{ "type": "image", "image": "data:image/png;base64,iVBORw0KGgo..." }
+```
+
+### Atajos
+
+`qr` y `barcode` a nivel raíz siguen funcionando y equivalen a un elemento
+al final del ticket.
 
 ## 3. Plantilla — `POST /api/print/template`
 
@@ -197,10 +311,51 @@ Cualquier nombre no reconocido imprime `factura`. Para un diseño propio, usa
 }
 ```
 
-Soporta `h1`-`h6`, `p`, `div`, `center`, `b`/`strong`, `i`/`em`/`u`, `br`,
-`hr`, `li` y `table`/`tr`/`td`/`th`. Del CSS solo lee `text-align`. El
-contenido de `<style>`, `<script>`, `<title>` y `<head>` se ignora. Los saltos
-de línea del fuente no son saltos de línea del ticket: usa `<br>` o bloques.
+El agente **no rasteriza la página**: traduce el HTML a comandos de texto de
+la impresora, así que el ticket sale nítido y rápido. Eso marca el límite de
+lo que se entiende, que es el formato que cabe en un ticket.
+
+**Etiquetas**
+
+| Grupo | Etiquetas |
+|---|---|
+| Bloques | `h1`-`h6`, `p`, `div`, `section`, `header`, `footer`, `center`, `pre` |
+| Texto | `b`/`strong`, `i`/`em`/`u`/`ins`, `small`, `big`, `mark` (invertido), `span`, `font` |
+| Listas | `ul`, `ol`, `li` (con viñetas y numeración, anidables) |
+| Tablas | `table`, `tr`, `td`, `th` (cabecera en negrita) |
+| Separadores | `br`, `hr` |
+| Imágenes | `img` con `src="data:image/png;base64,..."` |
+| Propias | `qr`, `barcode`, `feed` |
+
+**CSS en línea** (atributo `style`)
+
+| Propiedad | Se traduce a |
+|---|---|
+| `text-align: left\|center\|right` | Alineación de la línea |
+| `font-weight: bold` | Negrita |
+| `text-decoration: underline` | Subrayado |
+| `font-size` | Escala del texto: `small` → condensada, `large` → 2x, `x-large` → 3x, `xx-large` → 4x. También acepta píxeles |
+
+**Etiquetas propias**
+
+```html
+<qr data="https://kollatek.com" size="6" ec="M"></qr>
+<barcode data="123456789" type="code128" height="60" hri="below"></barcode>
+<feed lines="2">
+<hr char="=">
+```
+
+**Detalles que conviene saber**
+
+- Los saltos de línea del fuente **no** son saltos del ticket: usa `<br>` o
+  bloques. Dentro de `<pre>` sí se respetan.
+- El contenido de `<style>`, `<script>`, `<title>` y `<head>` se ignora.
+- En una tabla, **la última columna se alinea sola a la derecha**: en un
+  ticket suele ser el importe. El atributo `width` de `<td>` fija el ancho
+  de esa columna en caracteres.
+- Una imagen que no se pueda leer se salta sin romper el resto del ticket.
+
+Hay ejemplos completos en [examples/html/](examples/html/).
 
 ## 5. Imagen — `POST /api/print/image`
 
@@ -257,10 +412,12 @@ Estos responden `403` desde la red, aunque mandes el token:
 | Endpoint | Para qué |
 |---|---|
 | `GET /api/diagnostico` | Informe completo para soporte |
+| `GET /api/support-bundle` | **Un .zip con todo lo necesario para soporte**: diagnóstico, configuración, impresoras, cola y los últimos 7 días de registro, con el token tapado |
 | `GET /api/logs?limit=80` | Últimas líneas del log (máximo 500) |
 | `GET /api/token` | Consultar el token de acceso |
 | `POST /api/settings` | Cambiar ancho de papel y escala |
-| `POST /api/printer-aliases` | Cambiar los alias |
+| `GET`+`POST /api/printers-config` | Impresoras dadas de alta y sus ajustes |
+| `POST /api/printer-aliases` | Compatibilidad: solo nombre y destino |
 
 ## Alias de impresora
 

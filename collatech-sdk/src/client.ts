@@ -22,6 +22,13 @@ import type {
   PrintLogoOptions,
   PrintRawOptions,
   LogEntry,
+  PaperWidth,
+  PrinterProfile,
+  CutMode,
+  PrinterFont,
+  QRSpec,
+  BarcodeSpec,
+  DocumentOptions,
   TicketLine,
   TicketTable,
   TextAlign,
@@ -134,6 +141,35 @@ export class CollaTech {
       await delay(intervalMs);
     }
     return false;
+  }
+
+  /** Impresoras dadas de alta, con su papel, corte y giro. */
+  async printerProfiles(): Promise<PrinterProfile[]> {
+    return (await this.get<PrinterProfile[]>("/api/printers-config")) ?? [];
+  }
+
+  /**
+   * Reemplaza la lista de impresoras dadas de alta. Solo responde desde la
+   * propia maquina del agente.
+   */
+  async savePrinterProfiles(list: PrinterProfile[]): Promise<PrinterProfile[]> {
+    return (await this.post<PrinterProfile[]>("/api/printers-config", list)) ?? [];
+  }
+
+  /**
+   * Descarga el paquete de soporte: un zip con el diagnostico, la
+   * configuracion, las impresoras, la cola y el registro reciente, con el
+   * token tapado. Solo responde desde la propia maquina del agente.
+   */
+  async supportBundle(): Promise<Blob> {
+    const res = await this._fetch(`${this.baseUrl}/api/support-bundle`, {
+      method: "GET",
+      headers: this.headers(),
+    });
+    if (!res.ok) {
+      throw new ApiError(res.status, "no se pudo generar el paquete de soporte");
+    }
+    return res.blob();
   }
 
   /** Get agent status including current time and queued print jobs. */
@@ -651,9 +687,14 @@ export class PrintJobBuilder {
   private _qr?: string;
   private _barcode?: string;
   private _logo?: string;
-  private _cut = true;
+  private _cut: CutMode | boolean = true;
   private _drawer = false;
-  private _width?: number;
+  private _compact?: boolean;
+  private _upsideDown?: boolean;
+  private _font?: PrinterFont;
+  private _feedTop?: number;
+  private _feedBottom?: number;
+  private _width?: PaperWidth;
   private _scale?: number;
 
   constructor(client: CollaTech, printer: string) {
@@ -698,6 +739,30 @@ export class PrintJobBuilder {
     return this.line(text, { ...options, bold: true });
   }
 
+  /** QR con tamano y correccion a medida. */
+  qrCode(spec: QRSpec, options?: Pick<LineOptions, "align">): this {
+    if (spec.data.length > MAX_QR_LEN) {
+      throw new ValidationError(
+        `El QR admite ${MAX_QR_LEN} caracteres como maximo, se pasaron ${spec.data.length}`,
+        "qr"
+      );
+    }
+    this._lines.push({ type: "qr", qr: spec, ...options });
+    return this;
+  }
+
+  /** Codigo de barras con tipo, alto y grosor a medida. */
+  barcodeCode(spec: BarcodeSpec, options?: Pick<LineOptions, "align">): this {
+    if (spec.data.length > MAX_BARCODE_LEN) {
+      throw new ValidationError(
+        `El codigo de barras admite ${MAX_BARCODE_LEN} caracteres como maximo, se pasaron ${spec.data.length}`,
+        "barcode"
+      );
+    }
+    this._lines.push({ type: "barcode", barcode: spec, ...options });
+    return this;
+  }
+
   /** Add a QR code. Up to 2953 characters. */
   qr(data: string): this {
     if (data.length > MAX_QR_LEN) {
@@ -728,8 +793,8 @@ export class PrintJobBuilder {
     return this;
   }
 
-  /** Set paper width (384, 512, or 576). */
-  width(px: number): this {
+  /** Ancho del papel en PUNTOS: 384 (58 mm), 512 (72 mm) o 576 (80 mm). */
+  width(px: PaperWidth): this {
     this._width = px;
     return this;
   }
@@ -740,9 +805,46 @@ export class PrintJobBuilder {
     return this;
   }
 
-  /** Whether to cut paper after printing. Default: true. */
-  cut(value: boolean): this {
+  /** Modo de corte: "partial", "full", "none", o true/false. */
+  cut(value: CutMode | boolean): this {
     this._cut = value;
+    return this;
+  }
+
+  /** Aprieta el interlineado: alrededor de un 20% menos de papel. */
+  compact(value = true): this {
+    this._compact = value;
+    return this;
+  }
+
+  /** Imprime el ticket girado 180 grados. */
+  upsideDown(value = true): this {
+    this._upsideDown = value;
+    return this;
+  }
+
+  /** Fuente interna: "a" normal, "b" condensada. */
+  font(value: PrinterFont): this {
+    this._font = value;
+    return this;
+  }
+
+  /** Lineas en blanco al principio (0 por defecto) y antes del corte. */
+  feed(top?: number, bottom?: number): this {
+    if (top !== undefined) this._feedTop = top;
+    if (bottom !== undefined) this._feedBottom = bottom;
+    return this;
+  }
+
+  /** Linea separadora del ancho del papel. */
+  rule(char = "-"): this {
+    this._lines.push({ type: "rule", rule: char });
+    return this;
+  }
+
+  /** Imagen en base64 o data URI. */
+  image(data: string, options?: Pick<LineOptions, "align">): this {
+    this._lines.push({ type: "image", image: data, ...options });
     return this;
   }
 
@@ -765,6 +867,11 @@ export class PrintJobBuilder {
       scale: this._scale,
       cut: this._cut,
       drawer: this._drawer,
+      compact: this._compact,
+      upside_down: this._upsideDown,
+      font: this._font,
+      feed_top: this._feedTop,
+      feed_bottom: this._feedBottom,
     });
   }
 }

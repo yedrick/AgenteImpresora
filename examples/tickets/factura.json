@@ -1,0 +1,50 @@
+{
+  "_comentario": "Factura de 80 mm. POST a /api/print/ticket",
+  "printer": "caja",
+  "width": 576,
+  "compact": true,
+  "cut": "partial",
+
+  "title": "CAFETERIA CENTRAL",
+
+  "lines": [
+    { "text": "Av. Siempre Viva 742", "align": "center", "size": "small" },
+    { "text": "NIT 1234567  ·  Tel 2 123456", "align": "center", "size": "small" },
+    { "type": "rule" },
+
+    { "text": "Factura  #F-000123", "bold": true },
+    { "text": "Fecha    02/10/2026 14:35" },
+    { "text": "Cliente  Ana Pena" },
+    { "type": "rule" },
+
+    {
+      "type": "table",
+      "table": {
+        "header": true,
+        "border": false,
+        "columns": [
+          { "text": "Producto", "width": 26 },
+          { "text": "Cant", "width": 6, "align": "center" },
+          { "text": "Bs", "width": 10, "align": "right" }
+        ],
+        "rows": [
+          ["Producto", "Cant", "Bs"],
+          ["Cafe con leche", "2", "24.00"],
+          ["Empanada de queso", "3", "28.50"],
+          ["Jugo de naranja", "1", "10.00"]
+        ]
+      }
+    },
+
+    { "type": "rule" },
+    { "text": "Subtotal              Bs 62.50", "align": "right" },
+    { "text": "Descuento              Bs 0.00", "align": "right" },
+    { "text": "TOTAL: Bs 62.50", "box": true, "align": "center", "bold": true },
+    { "type": "feed", "feed": 1 },
+
+    { "type": "qr", "qr": { "data": "https://kollatek.com/f/000123", "ec": "M" } },
+    { "text": "Verifica tu factura escaneando el codigo", "align": "center", "size": "small" },
+    { "type": "feed", "feed": 1 },
+    { "text": "Gracias por su compra", "align": "center" }
+  ]
+}

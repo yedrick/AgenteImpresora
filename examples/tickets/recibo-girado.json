@@ -1,0 +1,22 @@
+{
+  "_comentario": "Recibo girado 180 grados: sale con la cabecera en el extremo que queda abajo, util cuando la impresora expulsa el papel hacia el operador. POST a /api/print/ticket",
+  "printer": "caja",
+  "width": 576,
+  "upside_down": true,
+  "cut": "partial",
+  "feed_bottom": 5,
+
+  "title": "RECIBO DE PAGO",
+
+  "lines": [
+    { "text": "N. 000456", "align": "center" },
+    { "type": "rule" },
+    { "text": "Recibi de: Ana Pena" },
+    { "text": "Concepto:  Alquiler octubre" },
+    { "type": "rule" },
+    { "text": "Bs 1.500,00", "scale_w": 2, "scale_h": 2, "align": "center", "bold": true },
+    { "type": "feed", "feed": 2 },
+    { "text": "________________________", "align": "center" },
+    { "text": "Firma", "align": "center", "size": "small" }
+  ]
+}

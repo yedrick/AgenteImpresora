@@ -30,6 +30,7 @@ El token lo muestra el instalador al terminar y el panel local en la pestaña
 | `401` | Falta el token o no coincide (solo aplica desde la red) |
 | `403` | Endpoint de administración invocado desde la red |
 | `413` | El contenido supera `max_print_size` |
+| `429` | Demasiadas impresiones seguidas desde ese equipo |
 | `503` | La cola está llena |
 
 Encolar no significa haber impreso. Para el resultado real, consulta
@@ -42,12 +43,17 @@ Encolar no significa haber impreso. Para el resultado real, consulta
 | Ruta | Campos |
 |---|---|
 | `/api/print/text` | `printer`, `text`, `cut` |
-| `/api/print/ticket` | `printer`, `title`, `lines[]`, `qr`, `barcode`, `logo`, `width`, `scale`, `cut`, `drawer`, `feed_top`, `feed_bottom`, `border`, `margin_left`, `margin_right` |
+| `/api/print/ticket` | `printer`, `title`, `lines[]`, `qr`, `barcode`, `logo`, `scale`, `border`, `margin_left`, `margin_right` + opciones de documento |
 | `/api/print/template` | `printer`, `template`, `data{}`, `width`, `cut` |
 | `/api/print/html` | `printer`, `html`, `width`, `cut` |
 | `/api/print/image` | `printer`, `image`, `width`, `scale`, `cut` |
 | `/api/print/logo` | `printer`, `width`, `scale`, `cut` |
 | `/api/print/raw` | `printer`, `data`, `base64` |
+
+Todos los endpoints de impresión aceptan además las **opciones de
+documento**: `width`, `cut` (`partial`/`full`/`none` o `true`/`false`),
+`compact`, `line_spacing`, `upside_down`, `feed_top`, `feed_bottom`,
+`margin_dots`, `font` y `drawer`.
 
 ### Consulta — `GET`
 
@@ -68,10 +74,12 @@ Responden `403` desde la red, incluso con el token correcto.
 | Ruta | Para qué |
 |---|---|
 | `GET /api/diagnostico` | Informe completo para soporte (el token va tapado) |
+| `GET /api/support-bundle` | Un .zip con diagnóstico, configuración, impresoras, cola y registro |
 | `GET /api/logs?limit=80` | Últimas líneas del log. Máximo 500 |
 | `GET /api/token` | Consultar el token de acceso |
 | `POST /api/settings` | Cambiar ancho de papel y escala |
-| `POST /api/printer-aliases` | Cambiar los alias |
+| `GET`+`POST /api/printers-config` | Impresoras dadas de alta, con su papel, corte y giro |
+| `POST /api/printer-aliases` | Compatibilidad: solo nombre y destino |
 
 ### Páginas
 
@@ -93,7 +101,10 @@ Límites: `qr` hasta 2953 caracteres, `barcode` hasta 253. Pasarse devuelve
 | `"EPSON TM-T20"` | Impresora instalada en Windows |
 | `"printer://EPSON TM-T20"` | Lo mismo, forzado |
 | `"tcp://192.168.1.50:9100"` | Red. Sin puerto se usa 9100 |
-| `"COM3"` / `"com://COM3"` | Puerto serie |
+| `"COM3"` / `"com://COM3"` | Puerto serie en Windows |
+| `"/dev/ttyUSB0"` | Puerto serie en Linux / macOS |
+| `"bt://COM5"` / `"bt://rfcomm0"` | Bluetooth ya emparejada |
+| `"device:///dev/usb/lp0"` | USB directa en Linux |
 | `"cocina"` | Alias de estación |
 
 Las impresoras USB se direccionan por su nombre en Windows; `USB001` es un

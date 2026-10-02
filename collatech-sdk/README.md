@@ -364,8 +364,55 @@ await printer
   .print();
 ```
 
-Metodos del builder: `title`, `line`, `boldLine`, `box`, `blank`, `table`,
-`qr`, `barcode`, `logo`, `width`, `scale`, `cut`, `drawer` y `print`.
+Metodos del builder: `title`, `line`, `boldLine`, `box`, `blank`, `rule`,
+`table`, `image`, `qr`, `qrCode`, `barcode`, `barcodeCode`, `logo`, `width`,
+`scale`, `cut`, `compact`, `upsideDown`, `font`, `feed`, `drawer` y `print`.
+
+### Opciones de documento
+
+Valen para cualquier metodo de impresion:
+
+```ts
+await printer.printTicket({
+  printer: "caja",
+  width: 576,          // 384 = 58 mm, 512 = 72 mm, 576 = 80 mm
+  cut: "partial",      // "partial" | "full" | "none" | true | false
+  compact: true,       // ~20% menos papel
+  upside_down: false,  // girar el ticket 180 grados
+  feed_top: 0,         // sin espacio arriba
+  feed_bottom: 4,      // minimo para que la cuchilla no corte la ultima linea
+  font: "a",           // "b" es condensada
+  lines: [/* ... */],
+});
+```
+
+### Varias impresoras
+
+Cada impresora se da de alta una vez con sus ajustes y luego basta con
+nombrarla:
+
+```ts
+await printer.savePrinterProfiles([
+  { name: "caja",   target: "tcp://192.168.1.50:9100", paper_width: 576, cut: "partial" },
+  { name: "cocina", target: "EPSON Cocina,EPSON Barra", paper_width: 384, cut: "none", font: "b" },
+]);
+
+// El ancho y el corte salen del perfil.
+await printer.printText({ printer: "caja", text: "Hola" });
+```
+
+Un destino con varias impresoras separadas por coma saca una copia en cada
+una. `printerProfiles()` y `savePrinterProfiles()` solo responden desde la
+propia maquina del agente.
+
+### Soporte
+
+```ts
+const zip = await printer.supportBundle();
+```
+
+Devuelve un `Blob` con el diagnostico, la configuracion, las impresoras, la
+cola y el registro reciente, con el token tapado.
 
 `qr()` y `barcode()` validan la longitud en local y lanzan `ValidationError`
 antes de llegar al agente (limites: 2953 y 253 caracteres).

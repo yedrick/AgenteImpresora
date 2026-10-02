@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<!--
+  Factura en HTML. Se manda en el campo "html" de POST /api/print/html.
+
+  El agente NO rasteriza la pagina: traduce el HTML a comandos de texto de
+  la impresora, asi que el ticket sale nitido y rapido. A cambio, solo se
+  entiende el formato que cabe en un ticket, que es lo que usa este ejemplo.
+-->
+<html>
+<body>
+
+  <h1>CAFETERIA CENTRAL</h1>
+  <p style="text-align:center; font-size:small">
+    Av. Siempre Viva 742 &middot; NIT 1234567
+  </p>
+  <hr>
+
+  <p>
+    Factura: <b>#F-000123</b><br>
+    Fecha: 02/10/2026 14:35<br>
+    Cliente: <b>Ana Pe&ntilde;a</b>
+  </p>
+
+  <!-- La ultima columna se alinea sola a la derecha: suele ser el importe -->
+  <table>
+    <tr><th>Producto</th><th>Cant</th><th>Bs</th></tr>
+    <tr><td>Caf&eacute; con leche</td><td>2</td><td>24.00</td></tr>
+    <tr><td>Empanada de queso</td><td>3</td><td>28.50</td></tr>
+    <tr><td>Jugo de naranja</td><td>1</td><td>10.00</td></tr>
+  </table>
+
+  <hr>
+  <p style="text-align:right; font-size:large"><b>TOTAL: Bs 62.50</b></p>
+
+  <ul>
+    <li>Pago en efectivo</li>
+    <li>Cambio: Bs 7.50</li>
+  </ul>
+
+  <!-- Etiquetas propias del agente -->
+  <qr data="https://kollatek.com/f/000123" ec="M"></qr>
+
+  <p style="text-align:center">Gracias por su compra</p>
+
+</body>
+</html>

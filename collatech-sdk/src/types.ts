@@ -103,25 +103,20 @@ export interface TemplateData {
   items?: TemplateItem[];
 }
 
-export interface PrintInvoiceOptions {
-  printer: string;
+export interface PrintInvoiceOptions extends DocumentOptions {
   empresa?: string;
   cliente?: string;
   items?: TemplateItem[];
   total?: string;
   mensaje?: string;
-  width?: number;
-  cut?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Print – Text
 // ---------------------------------------------------------------------------
 
-export interface PrintTextOptions {
-  printer: string;
+export interface PrintTextOptions extends DocumentOptions {
   text: string;
-  cut?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +124,80 @@ export interface PrintTextOptions {
 // ---------------------------------------------------------------------------
 
 export type TextAlign = "left" | "center" | "right";
+
+/** Modo de corte. Tambien se acepta `true` (parcial) y `false` (ninguno). */
+export type CutMode = "partial" | "full" | "none";
+
+/** Ancho del papel en PUNTOS: 384 = 58 mm, 512 = 72 mm, 576 = 80 mm. */
+export type PaperWidth = 384 | 512 | 576;
+
+/** Fuente interna: "a" normal, "b" condensada (entra mas texto por linea). */
+export type PrinterFont = "a" | "b";
+
+/**
+ * Opciones que valen para cualquier trabajo de impresion. Si la impresora
+ * esta dada de alta, lo que se omita sale de su perfil.
+ */
+export interface DocumentOptions {
+  printer: string;
+  width?: PaperWidth;
+  cut?: CutMode | boolean;
+  /** Aprieta el interlineado: alrededor de un 20% menos de papel. */
+  compact?: boolean;
+  /** Alto de linea exacto en puntos. 0 deja el de la impresora. */
+  line_spacing?: number;
+  /** Imprime el ticket girado 180 grados. */
+  upside_down?: boolean;
+  /** Lineas en blanco antes del contenido. 0 por defecto. */
+  feed_top?: number;
+  /** Lineas que se avanzan al cortar. Minimo 4. */
+  feed_bottom?: number;
+  /** Margen izquierdo en puntos. */
+  margin_dots?: number;
+  font?: PrinterFont;
+  /** Abre el cajon de dinero. */
+  drawer?: boolean;
+}
+
+/** Una impresora dada de alta, con sus ajustes propios. */
+export interface PrinterProfile {
+  /** Nombre con el que se la llama al imprimir. */
+  name: string;
+  /** Uno o varios destinos separados por coma; con varios sale una copia en cada uno. */
+  target: string;
+  paper_width?: PaperWidth;
+  cut?: CutMode;
+  upside_down?: boolean;
+  line_spacing?: number;
+  font?: PrinterFont;
+  feed_bottom?: number;
+  description?: string;
+}
+
+/** Niveles de correccion de errores de un QR. */
+export type QRErrorCorrection = "L" | "M" | "Q" | "H";
+
+export interface QRSpec {
+  data: string;
+  /** Lado de cada punto, 1 a 16. Si se omite se calcula segun el papel. */
+  size?: number;
+  ec?: QRErrorCorrection;
+}
+
+export type BarcodeKind =
+  | "code128" | "ean13" | "ean8" | "upca" | "upce"
+  | "code39" | "code93" | "itf" | "codabar" | "pdf417";
+
+export interface BarcodeSpec {
+  data: string;
+  type?: BarcodeKind;
+  /** Alto en puntos, 1 a 255. */
+  height?: number;
+  /** Grosor de la barra fina, 2 a 6. Si se omite se calcula segun el papel. */
+  width?: number;
+  /** Donde va el texto legible. */
+  hri?: "none" | "above" | "below" | "both";
+}
 
 /** Tamanos de fuente que entiende el agente. */
 export type FontSize = "normal" | "double" | "wide" | "tall" | "small";
@@ -147,15 +216,34 @@ export interface TicketTable {
   border?: boolean;
 }
 
+/**
+ * Un elemento del ticket. El campo `type` decide cual de los demas se usa,
+ * de forma que el ticket se describe de arriba abajo en un solo array.
+ */
 export interface TicketLine {
-  /** "table" dibuja `table`; vacio o ausente imprime `text`. */
-  type?: "text" | "table";
+  type?: "text" | "table" | "qr" | "barcode" | "image" | "rule" | "feed";
+
   text?: string;
   table?: TicketTable;
+  qr?: QRSpec;
+  barcode?: BarcodeSpec;
+  /** Imagen en base64 o data URI. */
+  image?: string;
+  /** Caracter con el que se dibuja una linea separadora. */
+  rule?: string;
+  /** Lineas en blanco de un elemento de tipo feed. */
+  feed?: number;
+
   align?: TextAlign;
   bold?: boolean;
   underline?: boolean;
+  /** Blanco sobre negro. */
+  invert?: boolean;
   size?: FontSize;
+  /** Multiplicador exacto, 1 a 8. Manda sobre `size`. */
+  scale_w?: number;
+  scale_h?: number;
+
   /** Lineas en blanco despues de esta. */
   gap?: number;
   /** Enmarca el texto en un recuadro. */
@@ -166,26 +254,17 @@ export interface TicketLine {
   mr?: number;
 }
 
-export interface PrintTicketOptions {
-  printer: string;
+export interface PrintTicketOptions extends DocumentOptions {
   title?: string;
   lines?: TicketLine[];
-  /** Hasta 2953 caracteres. */
-  qr?: string;
-  /** Hasta 253 caracteres (Code128). */
-  barcode?: string;
   /** PNG/JPEG/GIF en base64 o data URI. */
   logo?: string;
-  /** Ancho del papel en PUNTOS: 384 (58mm), 512 (72mm) o 576 (80mm). */
-  width?: number;
   /** Escala de la imagen en porcentaje, 35-100. */
   scale?: number;
-  cut?: boolean;
-  drawer?: boolean;
-  /** Lineas en blanco al principio. */
-  feed_top?: number;
-  /** Lineas en blanco antes del corte (minimo 4). */
-  feed_bottom?: number;
+  /** Atajo: equivale a un elemento qr al final. Hasta 2953 caracteres. */
+  qr?: string;
+  /** Atajo: equivale a un elemento barcode al final. Hasta 253 caracteres. */
+  barcode?: string;
   /** Dibuja un marco alrededor de todo el ticket. */
   border?: boolean;
   margin_left?: number;
@@ -196,54 +275,43 @@ export interface PrintTicketOptions {
 // Print – Template
 // ---------------------------------------------------------------------------
 
-export interface PrintTemplateOptions {
-  printer: string;
+export interface PrintTemplateOptions extends DocumentOptions {
   template: TemplateName;
   data?: TemplateData;
-  width?: number;
-  cut?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Print – HTML
 // ---------------------------------------------------------------------------
 
-export interface PrintHTMLOptions {
-  printer: string;
+export interface PrintHTMLOptions extends DocumentOptions {
   html: string;
-  width?: number;
-  cut?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Print – Image
 // ---------------------------------------------------------------------------
 
-export interface PrintImageOptions {
-  printer: string;
+export interface PrintImageOptions extends DocumentOptions {
   image: string;
-  width?: number;
+  /** Escala en porcentaje, 35-100. */
   scale?: number;
-  cut?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Print – Logo
 // ---------------------------------------------------------------------------
 
-export interface PrintLogoOptions {
-  printer: string;
-  width?: number;
+export interface PrintLogoOptions extends DocumentOptions {
+  /** Escala en porcentaje, 35-100. */
   scale?: number;
-  cut?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Print – Raw
 // ---------------------------------------------------------------------------
 
-export interface PrintRawOptions {
-  printer: string;
+export interface PrintRawOptions extends DocumentOptions {
   data: string;
   base64?: boolean;
 }

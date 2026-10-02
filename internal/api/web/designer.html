@@ -195,7 +195,7 @@ hr{border:none;border-top:1px solid var(--border);margin:4px 0}
 
 <script>
 let E=[]; let SI=-1; let dragFrom=-1;
-// Debe coincidir con ticketCols() del servidor (internal/api/server.go):
+// Debe coincidir con DocOptions.Columns() del servidor (internal/escpos/document.go):
 // 576 son 48 columnas, no 42. Con 42 la previsualizacion y los separadores
 // salian mas cortos que el papel real.
 const API_BASE = location.protocol === "file:" ? "http://localhost:18743" : "";
@@ -412,43 +412,43 @@ function globalImage(e){const f=e.target.files[0];if(!f)return;const r=new FileR
 // ===== JSON GENERATOR =====
 function genJSON(){
   const cols=COLS[+document.getElementById('pw').value]||32;
-  const lines=[]; let gqr=document.getElementById('gqr').value.trim(); let gbar=document.getElementById('gbar').value.trim(); let gimg='';
+  const lines=[];
+  // Cada elemento se emite con su propio tipo. Antes, un segundo QR o codigo
+  // de barras se imprimia como texto plano con la URL dentro.
   E.forEach(el=>{
     if(el.type=='space'){
-      lines.push({text:'',gap:el.gap||1});
+      lines.push({type:'feed',feed:el.gap||1});
     }else if(['title','subtitle','text'].includes(el.type)){
       const l={text:el.text||''};
       if(el.align&&el.align!='left')l.align=el.align;
       if(el.bold)l.bold=true; if(el.underline)l.underline=true;
+      if(el.invert)l.invert=true;
       if(el.size&&el.size!='normal')l.size=el.size;
       if(el.box)l.box=true;
       if(el.ml>0)l.ml=el.ml; if(el.mr>0)l.mr=el.mr;
       if(el.gap>0)l.gap=el.gap;
       lines.push(l);
     }else if(el.type=='separator'){
-      const sep=document.getElementById('tb').checked?'─'.repeat(cols-2):'─'.repeat(cols);
-      lines.push({text:sep,align:'left'});
+      lines.push({type:'rule',rule:'\u2500'});
     }else if(el.type=='table'){
       lines.push({type:'table',table:el.table});
     }else if(el.type=='qr'){
-      const d=el.qr||'';
-      if(!gqr)gqr=d;
-      else if(d)lines.push({text:d,align:'center'});
+      if(el.qr)lines.push({type:'qr',qr:{data:el.qr}});
     }else if(el.type=='barcode'){
-      const d=el.barcode||'';
-      if(!gbar)gbar=d;
-      else if(d)lines.push({text:d,align:'center'});
+      if(el.barcode)lines.push({type:'barcode',barcode:{data:el.barcode}});
     }else if(el.type=='image'){
-      if(el.image&&!gimg)gimg=el.image;
+      if(el.image)lines.push({type:'image',image:el.image});
     }
   });
-  const t={printer:document.getElementById('pr').value||'Demo',width:+document.getElementById('pw').value||384,cut:true,lines};
+  const t={printer:document.getElementById('pr').value||'Demo',width:+document.getElementById('pw').value||384,cut:'partial',lines};
   const ft=+document.getElementById('ft').value;if(ft>0)t.feed_top=ft;
   const fb=+document.getElementById('fb').value;if(fb>0)t.feed_bottom=fb;
   if(document.getElementById('tb').checked)t.border=true;
   const ml=+document.getElementById('tktML').value;if(ml>0)t.margin_left=ml;
   const mr=+document.getElementById('tktMR').value;if(mr>0)t.margin_right=mr;
-  if(gqr)t.qr=gqr; if(gbar)t.barcode=gbar; if(gimg)t.logo=gimg;
+  // Los campos sueltos del formulario se anaden como elementos al final.
+  const gqr=document.getElementById('gqr').value.trim(); if(gqr)t.qr=gqr;
+  const gbar=document.getElementById('gbar').value.trim(); if(gbar)t.barcode=gbar;
   return t;
 }
 

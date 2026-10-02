@@ -1,0 +1,24 @@
+{
+  "_comentario": "Comanda de cocina en 58 mm, letra grande y sin cortar. POST a /api/print/ticket",
+  "printer": "cocina",
+  "width": 384,
+  "compact": true,
+  "cut": "none",
+
+  "title": "COMANDA",
+
+  "lines": [
+    { "text": "Mesa 4  ·  14:35", "align": "center" },
+    { "type": "rule", "rule": "=" },
+
+    { "text": "2x Cafe con leche", "scale_h": 2, "bold": true },
+    { "text": "   sin azucar", "size": "small" },
+    { "text": "3x Empanada de queso", "scale_h": 2, "bold": true },
+    { "text": "1x Jugo de naranja", "scale_h": 2, "bold": true },
+
+    { "type": "rule" },
+    { "text": "PARA LLEVAR", "invert": true, "align": "center" },
+    { "type": "feed", "feed": 1 },
+    { "type": "barcode", "barcode": { "data": "CMD000123", "type": "code128", "height": 50, "hri": "below" } }
+  ]
+}

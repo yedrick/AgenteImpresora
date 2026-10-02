@@ -7,8 +7,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"collatech-agent/internal/config"
+	"collatech-agent/internal/escpos"
 	"collatech-agent/internal/logs"
 	"collatech-agent/internal/printers"
 	"collatech-agent/internal/queue"
@@ -229,5 +231,106 @@ func TestSanitizeTicketNoRegistraElContenido(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"lines":2`) {
 		t.Fatalf("falta la forma del ticket: %s", b)
+	}
+}
+
+// padBoth contaba bytes: una tilde desalineaba la columna del total.
+func TestPadBothAlineaConAcentos(t *testing.T) {
+	for _, c := range []struct{ left, right string }{
+		{"TOTAL", "Bs 120.00"},
+		{"TOTAL ARTICULOS", "Bs 120.00"},
+		{"TOTAL ARTÍCULOS", "Bs 120.00"},
+		{"COMISIÓN AÑO", "Bs 1.00"},
+	} {
+		got := padBoth(c.left, c.right, 32)
+		if n := len([]rune(got)); n != 32 {
+			t.Fatalf("%q + %q -> %d columnas, esperaba 32: %q", c.left, c.right, n, got)
+		}
+		if !strings.HasSuffix(got, c.right) {
+			t.Fatalf("el importe deberia quedar pegado a la derecha: %q", got)
+		}
+	}
+}
+
+// Un recorte por bytes podia partir un caracter UTF-8 por la mitad.
+func TestPadBothNoParteCaracteres(t *testing.T) {
+	got := padBoth(strings.Repeat("ñ", 40), "Bs 1.00", 32)
+	if !utf8.ValidString(got) {
+		t.Fatalf("el recorte produjo UTF-8 invalido: %q", got)
+	}
+}
+
+func TestSeAvisaDeCodigosDemasiadoLargos(t *testing.T) {
+	h := newTestServer(t, nil)
+	body := `{"printer":"P","barcode":"` + strings.Repeat("1", 300) + `"}`
+	if rec := post(t, h, "/api/print/ticket", body, ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("esperaba 400 por codigo de barras largo, obtuve %d", rec.Code)
+	}
+	ok := `{"printer":"P","barcode":"123456789"}`
+	if rec := post(t, h, "/api/print/ticket", ok, ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("un codigo normal deberia aceptarse, obtuve %d", rec.Code)
+	}
+}
+
+// Sin base64 el cuerpo es texto: debe salir en CP850, no en UTF-8.
+func TestRawCodificaElTextoEnCP850(t *testing.T) {
+	h := newTestServer(t, nil)
+	if rec := post(t, h, "/api/print/raw", `{"printer":"P","data":"caña"}`, ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("esperaba 202, obtuve %d", rec.Code)
+	}
+	if got := escpos.EncodeCP850("caña"); len(got) != 4 || got[2] != 0xa4 {
+		t.Fatalf("la codificacion CP850 no es la esperada: %#v", got)
+	}
+}
+
+// El encadenado de strings.Contains hacia que "factura-qr" cayera en la rama
+// "qr" porque se evaluaba antes.
+func TestResolucionDelNombreDePlantilla(t *testing.T) {
+	cases := map[string]string{
+		"recibo":        "recibo",
+		"recibo.html":   "recibo",
+		"RECIBO.HTML":   "recibo",
+		"comanda":       "comanda",
+		"qr":            "qr",
+		"factura":       "factura",
+		"factura-qr":    "factura",
+		"desconocida":   "factura",
+		"":              "factura",
+		"  texto.html ": "texto",
+	}
+	for in, want := range cases {
+		if got := templateName(in); got != want {
+			t.Fatalf("templateName(%q) = %q, esperaba %q", in, got, want)
+		}
+	}
+}
+
+// El endpoint debe listar las plantillas que el motor sabe construir, no
+// archivos que nunca se renderizan.
+func TestListaDePlantillasCoincideConElMotor(t *testing.T) {
+	h := newTestServer(t, nil)
+	rec := get(t, h, "/api/templates", "", "")
+	var resp struct {
+		Data []string `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Data) == 0 {
+		t.Fatal("no se listo ninguna plantilla")
+	}
+	for _, name := range resp.Data {
+		if templateName(name) != name {
+			t.Fatalf("la plantilla listada %q no la reconoce el motor", name)
+		}
+	}
+}
+
+// req.Width se ignoraba: todo salia a 32 columnas.
+func TestLaPlantillaRespetaElAncho(t *testing.T) {
+	estrecho := buildNativeTemplate(templateRequest{Template: "recibo", Width: 384}).Bytes()
+	ancho := buildNativeTemplate(templateRequest{Template: "recibo", Width: 576}).Bytes()
+	if len(ancho) <= len(estrecho) {
+		t.Fatalf("un papel de 80 mm deberia producir lineas mas largas (%d vs %d bytes)", len(ancho), len(estrecho))
 	}
 }

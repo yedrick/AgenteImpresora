@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	_ "embed"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -26,12 +27,25 @@ var agentBinary []byte
 
 const appTitle = "CollaTech Agent - Instalador"
 
+// systemTool devuelve la ruta absoluta en System32. El instalador corre
+// elevado, asi que resolver "sc", "netsh" o "cscript" por el PATH permitiria
+// que un ejecutable con ese nombre, colocado antes en el PATH del usuario, se
+// ejecutara como administrador.
+func systemTool(name string) string {
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		root = `C:\Windows`
+	}
+	return filepath.Join(root, "System32", name)
+}
+
 type installResult struct {
 	installDir string
 	hostname   string
 	ips        []string
 	firewallOK bool
 	serviceOK  bool
+	authToken  string
 }
 
 func main() {
@@ -95,6 +109,12 @@ func successSummary(r *installResult) string {
 	for _, ip := range r.ips {
 		fmt.Fprintf(&b, "  http://%s:18743/panel\n", ip)
 	}
+	if r.authToken != "" {
+		fmt.Fprintf(&b, "\nTOKEN DE ACCESO PARA LA RED:\n  %s\n\n", r.authToken)
+		b.WriteString("Los sistemas que impriman desde OTRA PC deben enviarlo en la\n" +
+			"cabecera 'Authorization: Bearer <token>'. Desde esta misma PC no\n" +
+			"hace falta. Si lo pierdes, lo tienes en el panel local.\n")
+	}
 	return b.String()
 }
 
@@ -119,7 +139,14 @@ func install() (*installResult, error) {
 	}
 
 	os.MkdirAll(filepath.Join(tmpDir, "configs"), 0755)
-	config := `{"host":"0.0.0.0","port":18743,"log_level":"info","allowed_cors":["*"],"allow_remote":true,"max_print_size":2097152,"queue":{"workers":4,"max_retries":2},"tls":{"enabled":false,"cert_file":"certs/cert.pem","key_file":"certs/key.pem"}}`
+	// El agente queda accesible en la LAN, asi que se instala con un token de
+	// acceso y sin CORS comodin: con allowed_cors ["*"] y sin autenticacion,
+	// cualquier web que abriera el cajero podia imprimir y abrir el cajon.
+	authToken, err := newAuthToken()
+	if err != nil {
+		return nil, fmt.Errorf("no se pudo generar el token de acceso: %w", err)
+	}
+	config := fmt.Sprintf(`{"host":"0.0.0.0","port":18743,"log_level":"info","allowed_cors":["http://localhost:18743","http://127.0.0.1:18743"],"allow_remote":true,"auth_token":%q,"max_print_size":2097152,"queue":{"workers":4,"max_retries":2},"tls":{"enabled":false,"cert_file":"certs/cert.pem","key_file":"certs/key.pem"}}`, authToken)
 
 	uninstallPs1 := fmt.Sprintf(`Add-Type -AssemblyName PresentationFramework
 $nl = [Environment]::NewLine
@@ -164,7 +191,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powers
 
 	// Copy extra dirs from source if available (dev builds run from the repo).
 	if _, err := os.Stat("go.mod"); err == nil {
-		for _, dir := range []string{"profiles", "storage", "templates"} {
+		for _, dir := range []string{"storage", "templates"} {
 			if info, err := os.Stat(dir); err == nil && info.IsDir() {
 				copyDir(dir, filepath.Join(tmpDir, dir))
 			}
@@ -177,7 +204,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powers
 
 	os.MkdirAll(filepath.Join(tmpDir, "certs"), 0755)
 	genCert(filepath.Join(tmpDir, "certs"))
-	os.WriteFile(filepath.Join(tmpDir, "configs", "config.json"), []byte(config), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "configs", "config.json"), []byte(config), 0600)
 
 	if err := os.MkdirAll(installDir, 0755); err != nil {
 		return nil, fmt.Errorf("no se pudo crear %s (¿se ejecuto como administrador?): %w", installDir, err)
@@ -203,6 +230,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powers
 		ips:        localIPv4s(),
 		firewallOK: firewallOK,
 		serviceOK:  serviceOK,
+		authToken:  authToken,
 	}, nil
 }
 
@@ -213,7 +241,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powers
 // Windows' Fast Startup — a real service starts at boot regardless.
 func installService(exePath string) bool {
 	run := func(args ...string) error {
-		cmd := exec.Command("sc", args...)
+		cmd := exec.Command(systemTool("sc.exe"), args...)
 		cmd.SysProcAttr = hideWindow(nil)
 		return cmd.Run()
 	}
@@ -244,25 +272,25 @@ func writeUninstallRegistry(installDir string) {
 	setUninstallRegistryString("InstallLocation", installDir)
 }
 
-// prepareAgentBinary compiles CollaTechAgent.exe from source when running
-// from the repo (dev builds), otherwise falls back to the binary embedded at
-// build time by BUILD_INSTALLER.bat.
+// prepareAgentBinary devuelve el agente embebido en tiempo de compilacion
+// por BUILD_INSTALLER.bat. Antes, si encontraba un go.mod en el directorio
+// actual, lanzaba "go build" con el primer go.exe del PATH y con privilegios
+// de administrador.
 func prepareAgentBinary() ([]byte, error) {
-	if _, err := os.Stat("go.mod"); err == nil {
-		if _, err := exec.LookPath("go"); err == nil {
-			cmd := exec.Command("go", "build", "-ldflags", "-H windowsgui -s -w", "-o", "CollaTechAgent.exe", "./cmd/server/")
-			cmd.SysProcAttr = hideWindow(nil)
-			if cmd.Run() == nil {
-				if data, err := os.ReadFile("CollaTechAgent.exe"); err == nil {
-					return data, nil
-				}
-			}
-		}
-	}
 	if len(agentBinary) > 0 {
 		return agentBinary, nil
 	}
-	return nil, fmt.Errorf("no hay CollaTechAgent.exe disponible (compilalo o vuelve a generar el instalador con BUILD_INSTALLER.bat)")
+	return nil, fmt.Errorf("no hay CollaTechAgent.exe disponible (vuelve a generar el instalador con BUILD_INSTALLER.bat)")
+}
+
+// newAuthToken genera el token compartido que el agente exigira a las
+// peticiones que lleguen desde la red.
+func newAuthToken() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 func genCert(dir string) bool {
@@ -299,7 +327,7 @@ func genCert(dir string) bool {
 
 func openFirewall(programPath string) bool {
 	run := func(args ...string) error {
-		cmd := exec.Command("netsh", args...)
+		cmd := exec.Command(systemTool("netsh.exe"), args...)
 		cmd.SysProcAttr = hideWindow(nil)
 		return cmd.Run()
 	}
@@ -384,7 +412,7 @@ S.WindowStyle = %d
 S.Save
 `, vbsEscape(path), vbsEscape(target), vbsEscape(args), vbsEscape(wd), style)
 	os.WriteFile(tmpFile, []byte(content), 0644)
-	cmd := exec.Command("cscript", "//nologo", tmpFile)
+	cmd := exec.Command(systemTool("cscript.exe"), "//nologo", tmpFile)
 	cmd.SysProcAttr = hideWindow(nil)
 	cmd.Run()
 	os.Remove(tmpFile)

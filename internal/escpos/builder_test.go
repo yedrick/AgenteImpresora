@@ -52,7 +52,7 @@ func TestElAvanceAntesDelCorteEsSuficiente(t *testing.T) {
 
 func TestEncodeCP850(t *testing.T) {
 	cases := map[string][]byte{
-		"a":      {'a'},
+		"a": {'a'},
 		"ñ": {0xa4},
 		"é": {0x82},
 		"ü": {0x81},

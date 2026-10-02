@@ -54,7 +54,12 @@ func Save(path string, cfg Settings) (Settings, error) {
 }
 
 func normalize(cfg Settings) Settings {
-	if cfg.PaperWidth != 576 {
+	// Se aceptan los tres anchos que el resto del agente sabe manejar
+	// (printWidth y ticketCols). Antes cualquier valor distinto de 576 se
+	// degradaba a 384, asi que 512 era inalcanzable.
+	switch cfg.PaperWidth {
+	case 384, 512, 576:
+	default:
 		cfg.PaperWidth = 384
 	}
 	if cfg.ImageScale <= 0 {

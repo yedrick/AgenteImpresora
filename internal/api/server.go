@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"collatech-agent/internal/config"
@@ -483,28 +484,14 @@ func splitPrinterTargets(value string) []string {
 	return out
 }
 
+// nativeTemplates son las plantillas que buildNativeTemplate sabe construir.
+// Son la unica fuente de verdad: antes /api/templates listaba los .html de
+// disco, que nunca se renderizaban, asi que el panel ofrecia plantillas que
+// al imprimirse salian como una factura generica.
+var nativeTemplates = []string{"factura", "recibo", "comanda", "texto", "qr", "imagen"}
+
 func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
-	entries, err := os.ReadDir("templates")
-	if err != nil {
-		writeJSON(w, http.StatusOK, response{OK: true, Data: []string{
-			"comanda.html",
-			"factura.html",
-			"imagen.html",
-			"qr.html",
-			"recibo.html",
-			"texto.html",
-			"ticket.html",
-		}})
-		return
-	}
-	var names []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".html") {
-			names = append(names, entry.Name())
-		}
-	}
-	sort.Strings(names)
-	writeJSON(w, http.StatusOK, response{OK: true, Data: names})
+	writeJSON(w, http.StatusOK, response{OK: true, Data: nativeTemplates})
 }
 
 func (s *Server) listPrinters(w http.ResponseWriter, r *http.Request) {
@@ -528,7 +515,7 @@ func (s *Server) printText(w http.ResponseWriter, r *http.Request) {
 	}
 	b := escpos.New().Initialize().Text(strings.Trim(req.Text, "\n\r")).Line()
 	if req.Cut {
-		b.Feed(1).Cut()
+		b.Feed(escpos.CutFeedLines).Cut()
 	}
 	s.enqueue(w, req.Printer, b.Bytes())
 }
@@ -588,6 +575,19 @@ func (s *Server) printTicket(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer is required"})
 		return
 	}
+	// El builder descarta un QR o un codigo de barras fuera de rango para no
+	// emitir un comando corrupto; aqui se avisa al cliente en vez de que se
+	// pierda en silencio.
+	if len(req.Barcode) > escpos.MaxBarcodeLen-2 {
+		writeJSON(w, http.StatusBadRequest, response{OK: false,
+			Error: fmt.Sprintf("el codigo de barras admite %d caracteres como maximo", escpos.MaxBarcodeLen-2)})
+		return
+	}
+	if len(req.QR) > escpos.MaxQRLen {
+		writeJSON(w, http.StatusBadRequest, response{OK: false,
+			Error: fmt.Sprintf("el QR admite %d caracteres como maximo", escpos.MaxQRLen)})
+		return
+	}
 	s.logger.Info("print_ticket", sanitizeTicket(req))
 	cols := ticketCols(req.Width)
 	b := escpos.New().Initialize()
@@ -635,8 +635,10 @@ func (s *Server) printTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Cut {
 		fb := req.FeedBottom
-		if fb < 1 {
-			fb = 1
+		if fb < escpos.CutFeedLines {
+			// La cuchilla esta varias lineas por encima del cabezal: con 1
+			// linea de avance se cortaba la ultima linea del ticket.
+			fb = escpos.CutFeedLines
 		}
 		b.Feed(fb).Cut()
 	}
@@ -740,15 +742,10 @@ func (s *Server) printTemplate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer and template are required"})
 		return
 	}
-	if strings.Contains(req.Template, "..") || strings.ContainsAny(req.Template, `/\`) {
-		s.logger.Error("print_template", map[string]any{"error": "invalid template name", "template": req.Template})
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "invalid template name"})
-		return
-	}
 	s.logger.Info("print_template", map[string]any{"printer": req.Printer, "template": req.Template, "width": req.Width, "cut": req.Cut})
 	b := buildNativeTemplate(req)
 	if req.Cut {
-		b.Feed(1).Cut()
+		b.Feed(escpos.CutFeedLines).Cut()
 	}
 	s.enqueue(w, req.Printer, b.Bytes())
 }
@@ -780,7 +777,7 @@ func (s *Server) printImage(w http.ResponseWriter, r *http.Request) {
 	}
 	b := escpos.New().Initialize().AlignCenter().ImageFit(img, imageWidth(req.Width, req.Scale))
 	if req.Cut {
-		b.Feed(1).Cut()
+		b.Feed(escpos.CutFeedLines).Cut()
 	}
 	s.enqueue(w, req.Printer, b.Bytes())
 }
@@ -811,24 +808,34 @@ func (s *Server) printLogo(w http.ResponseWriter, r *http.Request) {
 	}
 	b := escpos.New().Initialize().AlignCenter().ImageFit(img, imageWidth(req.Width, req.Scale)).Line()
 	if req.Cut {
-		b.Feed(1).Cut()
+		b.Feed(escpos.CutFeedLines).Cut()
 	}
 	s.enqueue(w, req.Printer, b.Bytes())
 }
 
+var (
+	logoOnce sync.Once
+	logoImg  image.Image
+	logoErr  error
+)
+
+// loadLogoImage memoriza el logo: antes se abria y descodificaba el PNG del
+// disco en cada POST /api/print/logo.
 func loadLogoImage() (image.Image, error) {
-	f, err := os.Open("LOGO.png")
-	if err == nil {
-		defer f.Close()
-		img, _, decodeErr := image.Decode(f)
-		return img, decodeErr
-	}
-	data, err := webFS.ReadFile("web/LOGO.png")
-	if err != nil {
-		return nil, err
-	}
-	img, _, err := image.Decode(bytes.NewReader(data))
-	return img, err
+	logoOnce.Do(func() {
+		if f, err := os.Open("LOGO.png"); err == nil {
+			defer f.Close()
+			logoImg, _, logoErr = image.Decode(f)
+			return
+		}
+		data, err := webFS.ReadFile("web/LOGO.png")
+		if err != nil {
+			logoErr = err
+			return
+		}
+		logoImg, _, logoErr = image.Decode(bytes.NewReader(data))
+	})
+	return logoImg, logoErr
 }
 
 type rawRequest struct {
@@ -848,7 +855,10 @@ func (s *Server) printRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Info("print_raw", map[string]any{"printer": req.Printer, "data_len": len(req.Data), "base64": req.Base64})
-	payload := []byte(req.Data)
+	// Sin base64 el cuerpo llega como texto: se codifica en CP850 igual que
+	// el resto del agente. Antes se mandaba UTF-8 crudo y cualquier acento
+	// salia como basura. El ASCII y los bytes de control no cambian.
+	payload := escpos.EncodeCP850(req.Data)
 	if req.Base64 {
 		raw, err := decodeBase64(req.Data)
 		if err != nil {
@@ -1344,9 +1354,31 @@ func ticketCols(width int) int {
 	}
 }
 
+// templateName normaliza el nombre: quita la extension y se queda con la
+// plantilla conocida. Antes se usaba strings.Contains en cadena, asi que
+// "factura-qr" caia en la rama "qr" porque se evaluaba antes.
+func templateName(raw string) string {
+	name := strings.ToLower(strings.TrimSpace(raw))
+	name = strings.TrimSuffix(name, ".html")
+	for _, known := range nativeTemplates {
+		if name == known {
+			return known
+		}
+	}
+	for _, known := range nativeTemplates {
+		if strings.HasPrefix(name, known) {
+			return known
+		}
+	}
+	return "factura"
+}
+
 func buildNativeTemplate(req templateRequest) *escpos.Builder {
 	data := req.Data
-	template := strings.ToLower(req.Template)
+	template := templateName(req.Template)
+	// req.Width se ignoraba: todo salia a 32 columnas aunque el papel fuera
+	// de 80 mm.
+	cols := ticketCols(req.Width)
 	empresa := cleanText(dataString(data, "empresa", "COLLATECH"))
 	cliente := cleanText(dataString(data, "cliente", "Cliente Demo"))
 	total := cleanText(dataString(data, "total", "0.00"))
@@ -1358,29 +1390,29 @@ func buildNativeTemplate(req templateRequest) *escpos.Builder {
 	b := escpos.New().Initialize()
 	b.AlignCenter().Bold(true).DoubleSize(true).TextLine(empresa).DoubleSize(false).Bold(false)
 
-	switch {
-	case strings.Contains(template, "recibo"):
+	switch template {
+	case "recibo":
 		b.AlignCenter().TextLine("RECIBO")
 		b.AlignLeft().TextLine("Cliente: " + cliente)
-		b.TextLine("--------------------------------")
-		b.Bold(true).TextLine(padBoth("TOTAL PAGADO", total, 32)).Bold(false)
-	case strings.Contains(template, "comanda"):
+		b.TextLine(strings.Repeat("-", cols))
+		b.Bold(true).TextLine(padBoth("TOTAL PAGADO", total, cols)).Bold(false)
+	case "comanda":
 		b.AlignCenter().TextLine("COMANDA")
 		b.AlignLeft().TextLine("Mesa/Cliente: " + cliente)
-		b.TextLine("--------------------------------")
+		b.TextLine(strings.Repeat("-", cols))
 		for _, item := range items {
 			b.TextLine("- " + cleanText(item.Name))
 		}
-	case strings.Contains(template, "texto"):
+	case "texto":
 		b.AlignLeft().TextLine(mensaje)
 		b.TextLine(time.Now().Format("2006-01-02 15:04:05"))
-	case strings.Contains(template, "qr"):
+	case "qr":
 		b.AlignCenter().TextLine("QR DE PRUEBA")
 		if qr == "" {
 			qr = "https://kollatek.com"
 		}
 		b.QR(qr).Line()
-	case strings.Contains(template, "imagen"):
+	case "imagen":
 		b.AlignCenter().TextLine("[ LOGO / IMAGEN ]")
 		b.TextLine(mensaje)
 	default:
@@ -1397,16 +1429,16 @@ func buildNativeTemplate(req templateRequest) *escpos.Builder {
 			Header: true,
 			Columns: []tableColumn{
 				{Text: "CANT", Width: 4, Align: "center"},
-				{Text: "PRODUCTO", Width: 16, Align: "left"},
+				{Text: "PRODUCTO", Width: cols - 16, Align: "left"},
 				{Text: "PRECIO", Width: 12, Align: "right"},
 			},
 			Rows: rows,
-		}, 32, false, 0, 0)
-		b.TextLine("--------------------------------")
-		b.Bold(true).TextLine(padBoth("TOTAL", total, 32)).Bold(false)
+		}, cols, false, 0, 0)
+		b.TextLine(strings.Repeat("-", cols))
+		b.Bold(true).TextLine(padBoth("TOTAL", total, cols)).Bold(false)
 	}
 
-	if qr != "" && !strings.Contains(template, "qr") {
+	if qr != "" && template != "qr" {
 		b.AlignCenter().Line().QR(qr).Line()
 	}
 	if barcode != "" {
@@ -1471,18 +1503,23 @@ func padBoth(left, right string, width int) string {
 	if width <= 0 {
 		width = 32
 	}
-	maxLeft := width - len(right) - 1
+	// Se cuenta en runas, no en bytes: con len() un "TOTAL ARTICULOS" con
+	// tilde desalineaba la columna, y el recorte podia partir un caracter
+	// UTF-8 por la mitad.
+	lr := []rune(left)
+	rr := []rune(right)
+	maxLeft := width - len(rr) - 1
 	if maxLeft < 1 {
 		return left + " " + right
 	}
-	if len(left) > maxLeft {
-		left = left[:maxLeft]
+	if len(lr) > maxLeft {
+		lr = lr[:maxLeft]
 	}
-	spaces := width - len(left) - len(right)
+	spaces := width - len(lr) - len(rr)
 	if spaces < 1 {
 		spaces = 1
 	}
-	return left + strings.Repeat(" ", spaces) + right
+	return string(lr) + strings.Repeat(" ", spaces) + string(rr)
 }
 
 func cleanText(s string) string {
@@ -1681,6 +1718,39 @@ func diagnosticAdvice(cfg config.Config, ips []string) []string {
 	return advice
 }
 
+// maxLogTailBytes acota cuanto se lee de cada archivo de log. Antes se leia
+// entero, asi que un GET /api/logs?limit=1 podia cargar cientos de MB.
+const maxLogTailBytes = 1 << 20
+
+// readTail devuelve como mucho los ultimos max bytes del archivo, recortados
+// al primer salto de linea para no empezar a mitad de un registro.
+func readTail(path string, max int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+	if size <= max {
+		return io.ReadAll(f)
+	}
+	if _, err := f.Seek(size-max, io.SeekStart); err != nil {
+		return nil, err
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	if nl := bytes.IndexByte(b, '\n'); nl >= 0 {
+		b = b[nl+1:]
+	}
+	return b, nil
+}
+
 func tailLogLines(dir string, limit int) ([]json.RawMessage, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -1698,7 +1768,7 @@ func tailLogLines(dir string, limit int) ([]json.RawMessage, error) {
 	sort.Strings(names)
 	var lines []json.RawMessage
 	for i := len(names) - 1; i >= 0 && len(lines) < limit; i-- {
-		b, err := os.ReadFile(filepath.Join(dir, names[i]))
+		b, err := readTail(filepath.Join(dir, names[i]), maxLogTailBytes)
 		if err != nil {
 			return nil, err
 		}

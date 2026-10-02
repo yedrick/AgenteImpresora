@@ -108,6 +108,7 @@ var (
 //	tcp://192.168.1.50:9100   red (puerto 9100 si se omite)
 //	printer://EPSON Caja      spooler del sistema, forzado
 //	com://COM3                puerto serie, forzado
+//	bt://COM5  bt://rfcomm0   impresora Bluetooth ya emparejada
 //	device:///dev/usb/lp0     dispositivo, forzado
 //	COM3  /dev/ttyUSB0        puerto serie
 //	EPSON Caja                spooler del sistema (por defecto)
@@ -125,6 +126,8 @@ func (m *Manager) Get(name string) (Printer, error) {
 		return newSpoolerPrinter(name[len("printer://"):]), nil
 	case strings.HasPrefix(lower, "com://"):
 		return newDevicePrinter(devicePath(name[len("com://"):]), "com"), nil
+	case strings.HasPrefix(lower, "bt://"):
+		return newBluetoothPrinter(name[len("bt://"):])
 	case strings.HasPrefix(lower, "device://"):
 		return newDevicePrinter(name[len("device://"):], "device"), nil
 	case comPortRe.MatchString(name):
@@ -203,6 +206,49 @@ func looksLikeHostPort(s string) bool {
 	}
 	n, err := strconv.Atoi(port)
 	return err == nil && n > 0 && n <= 65535
+}
+
+// newBluetoothPrinter resuelve una impresora Bluetooth ya emparejada.
+//
+// El emparejado lo hace el sistema operativo, no el agente: una vez
+// emparejada, la impresora aparece como un puerto serie y se escribe en el
+// igual que en cualquier otro. En Windows es un COM saliente; en Linux hay
+// que crear el nodo con "rfcomm bind".
+func newBluetoothPrinter(target string) (Printer, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil, fmt.Errorf("falta el puerto de la impresora Bluetooth, por ejemplo bt://COM5 o bt://rfcomm0")
+	}
+	if looksLikeMAC(target) {
+		return nil, fmt.Errorf("%q es una direccion Bluetooth, no un puerto: %s", target, pairingHint())
+	}
+	return newDevicePrinter(devicePath(target), "bluetooth"), nil
+}
+
+// looksLikeMAC reconoce una direccion del tipo AA:BB:CC:DD:EE:FF.
+func looksLikeMAC(s string) bool {
+	parts := strings.Split(s, ":")
+	if len(parts) != 6 {
+		return false
+	}
+	for _, p := range parts {
+		if len(p) != 2 {
+			return false
+		}
+		for _, c := range p {
+			if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func pairingHint() string {
+	if runtime.GOOS == "windows" {
+		return "emparejala en Configuracion de Windows, mira que puerto COM saliente le asigna y usa bt://COMn"
+	}
+	return "emparejala con bluetoothctl y crea el nodo con 'sudo rfcomm bind 0 AA:BB:CC:DD:EE:FF', luego usa bt://rfcomm0"
 }
 
 // --- TCP -------------------------------------------------------------------

@@ -102,6 +102,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/diagnostico", s.diagnosticReport)
 	mux.HandleFunc("GET /api/logs", s.readLogs)
 	mux.HandleFunc("GET /api/token", s.readToken)
+	mux.HandleFunc("GET /api/support-bundle", s.supportBundle)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.saveSettings)
 	mux.HandleFunc("GET /api/printers-config", s.getPrinters)
@@ -122,6 +123,7 @@ func (s *Server) Routes() http.Handler {
 	// autorizacion.
 	var h http.Handler = mux
 	h = s.guard(h)
+	h = s.rateLimit(h)
 	if !s.cfg.AllowRemote {
 		h = s.localhostOnly(h)
 	}

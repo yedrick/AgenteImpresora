@@ -19,9 +19,10 @@ import (
 // pase con allow_remote. /api/diagnostico llegaba a volcar la salida completa
 // de netstat -ano a cualquiera en la red.
 var adminPaths = map[string]bool{
-	"/api/diagnostico": true,
-	"/api/logs":        true,
-	"/api/token":       true,
+	"/api/diagnostico":    true,
+	"/api/logs":           true,
+	"/api/token":          true,
+	"/api/support-bundle": true,
 }
 
 // adminWritePaths son cambios de configuracion: nunca desde la red.

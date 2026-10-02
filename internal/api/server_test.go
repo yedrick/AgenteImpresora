@@ -1,7 +1,10 @@
 package api
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -611,5 +614,115 @@ func TestMigracionDeAliasAntiguos(t *testing.T) {
 	}
 	if len(res.Targets) != 2 {
 		t.Fatalf("el alias antiguo deberia dar dos destinos, dio %v", res.Targets)
+	}
+}
+
+// El paquete de soporte tiene que llevar lo necesario para diagnosticar, y
+// nunca el token.
+func TestPaqueteDeSoporte(t *testing.T) {
+	h := newTestServer(t, func(c *config.Config) {
+		c.AllowRemote = true
+		c.AuthToken = "token-muy-secreto"
+	})
+	// Un trabajo para que la cola tenga algo.
+	post(t, h, "/api/print/text", `{"printer":"P","text":"hola"}`, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/support-bundle", nil)
+	req.RemoteAddr = "127.0.0.1:5000"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/zip" {
+		t.Fatalf("Content-Type %q", ct)
+	}
+
+	datos := rec.Body.Bytes()
+	z, err := zip.NewReader(bytes.NewReader(datos), int64(len(datos)))
+	if err != nil {
+		t.Fatalf("el zip no es valido: %v", err)
+	}
+	nombres := map[string]bool{}
+	for _, f := range z.File {
+		nombres[f.Name] = true
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		contenido, _ := io.ReadAll(rc)
+		rc.Close()
+		if bytes.Contains(contenido, []byte("token-muy-secreto")) {
+			t.Fatalf("%s lleva el token en claro", f.Name)
+		}
+	}
+	for _, esperado := range []string{"diagnostico.json", "cola.json", "LEEME.txt", "settings.json"} {
+		if !nombres[esperado] {
+			t.Fatalf("falta %s en el paquete; hay %v", esperado, nombres)
+		}
+	}
+}
+
+// Es un endpoint de administracion: desde la red no debe responder.
+func TestPaqueteDeSoporteSoloEnLocal(t *testing.T) {
+	h := newTestServer(t, func(c *config.Config) {
+		c.AllowRemote = true
+		c.AuthToken = "secreto"
+	})
+	if rec := get(t, h, "/api/support-bundle", "192.168.1.77:5000", "secreto"); rec.Code != http.StatusForbidden {
+		t.Fatalf("esperaba 403, obtuve %d", rec.Code)
+	}
+}
+
+// Un bucle mal escrito en el sistema del cliente no debe gastar el rollo
+// entero.
+func TestLimiteDeImpresiones(t *testing.T) {
+	h := newTestServer(t, nil)
+	body := `{"printer":"P","text":"x"}`
+	var aceptadas, frenadas int
+	for i := 0; i < burstPorIP+20; i++ {
+		switch post(t, h, "/api/print/text", body, "").Code {
+		case http.StatusAccepted:
+			aceptadas++
+		case http.StatusTooManyRequests:
+			frenadas++
+		}
+	}
+	if frenadas == 0 {
+		t.Fatalf("no se freno ninguna de %d peticiones seguidas", burstPorIP+20)
+	}
+	if aceptadas < burstPorIP {
+		t.Fatalf("solo se aceptaron %d, el margen son %d", aceptadas, burstPorIP)
+	}
+}
+
+// Consultar el estado no se limita: el panel lo hace cada pocos segundos.
+func TestLasConsultasNoSeLimitan(t *testing.T) {
+	h := newTestServer(t, nil)
+	for i := 0; i < burstPorIP+50; i++ {
+		if rec := get(t, h, "/api/status", "", ""); rec.Code != http.StatusOK {
+			t.Fatalf("peticion %d: HTTP %d", i, rec.Code)
+		}
+	}
+}
+
+func TestElLimiteSeRecupera(t *testing.T) {
+	l := newRateLimiter(5, 10)
+	ahora := time.Now()
+	for i := 0; i < 5; i++ {
+		if !l.allow("1.2.3.4", ahora) {
+			t.Fatalf("la peticion %d deberia pasar", i)
+		}
+	}
+	if l.allow("1.2.3.4", ahora) {
+		t.Fatal("la sexta deberia frenarse")
+	}
+	// Otro equipo tiene su propio margen.
+	if !l.allow("5.6.7.8", ahora) {
+		t.Fatal("otro origen no deberia verse afectado")
+	}
+	// Un segundo despues hay 10 fichas mas.
+	if !l.allow("1.2.3.4", ahora.Add(time.Second)) {
+		t.Fatal("deberia recuperarse con el tiempo")
 	}
 }

@@ -26,6 +26,12 @@ import (
 )
 
 func (s *Server) diagnosticReport(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, response{OK: true, Data: s.diagnosticData()})
+}
+
+// diagnosticData arma el informe. Esta separado del manejador para poder
+// incluirlo tambien en el paquete de soporte.
+func (s *Server) diagnosticData() map[string]any {
 	host, _ := os.Hostname()
 	cwd, _ := os.Getwd()
 	exe, _ := os.Executable()
@@ -88,7 +94,7 @@ func (s *Server) diagnosticReport(w http.ResponseWriter, r *http.Request) {
 		},
 		"advice": diagnosticAdvice(s.cfg, ips),
 	}
-	writeJSON(w, http.StatusOK, response{OK: true, Data: report})
+	return report
 }
 
 func localIPv4s() []string {
@@ -213,12 +219,17 @@ func redactConfig(cfg config.Config) config.Config {
 
 var authTokenRe = regexp.MustCompile(`("auth_token"\s*:\s*)"[^"]*"`)
 
+// redactTokenText tapa el token en un texto de configuracion.
+func redactTokenText(text string) string {
+	return authTokenRe.ReplaceAllString(text, `${1}"***"`)
+}
+
 func redactRawConfig(raw map[string]any) map[string]any {
 	text, ok := raw["text"].(string)
 	if !ok {
 		return raw
 	}
-	raw["text"] = authTokenRe.ReplaceAllString(text, `${1}"***"`)
+	raw["text"] = redactTokenText(text)
 	return raw
 }
 

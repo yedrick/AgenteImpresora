@@ -144,3 +144,39 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+func TestDestinoBluetooth(t *testing.T) {
+	m := NewManager(nil)
+	// Un puerto ya emparejado se trata como dispositivo de caracteres.
+	p, err := m.Get("bt://rfcomm0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typeName(p) != "*printers.devicePrinter" {
+		t.Fatalf("bt:// deberia resolverse como dispositivo, dio %s", typeName(p))
+	}
+	// Una direccion MAC no sirve: el emparejado lo hace el sistema.
+	_, err = m.Get("bt://AA:BB:CC:DD:EE:FF")
+	if err == nil {
+		t.Fatal("una direccion MAC deberia devolver instrucciones")
+	}
+	if !contains(err.Error(), "rfcomm") && !contains(err.Error(), "COM") {
+		t.Fatalf("el mensaje deberia explicar como emparejar: %v", err)
+	}
+	if _, err := m.Get("bt://"); err == nil {
+		t.Fatal("bt:// sin puerto deberia ser error")
+	}
+}
+
+func TestReconocerDireccionMAC(t *testing.T) {
+	for _, s := range []string{"AA:BB:CC:DD:EE:FF", "00:11:22:33:44:55", "aa:bb:cc:dd:ee:ff"} {
+		if !looksLikeMAC(s) {
+			t.Fatalf("%q deberia reconocerse como MAC", s)
+		}
+	}
+	for _, s := range []string{"COM5", "rfcomm0", "192.168.1.1:9100", "AA:BB:CC"} {
+		if looksLikeMAC(s) {
+			t.Fatalf("%q no es una MAC", s)
+		}
+	}
+}

@@ -264,6 +264,17 @@ func applyLine(b *escpos.Builder, line ticketLine, cols int, border bool, res re
 		}).Line()
 		return feedGap(b, line)
 
+	case "layout":
+		if line.Layout == nil {
+			return nil
+		}
+		raster, err := renderLayout(*line.Layout, res)
+		if err != nil {
+			return fmt.Errorf("bloque maquetado: %w", err)
+		}
+		b.AlignLeft().RawBytes(raster)
+		return feedGap(b, line)
+
 	case "image":
 		if line.Image == "" {
 			return nil

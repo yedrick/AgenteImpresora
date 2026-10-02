@@ -16,6 +16,7 @@ import (
 
 	"collatech-agent/internal/config"
 	"collatech-agent/internal/escpos"
+	"collatech-agent/internal/layout"
 	"collatech-agent/internal/logs"
 	"collatech-agent/internal/printers"
 	"collatech-agent/internal/queue"
@@ -724,5 +725,86 @@ func TestElLimiteSeRecupera(t *testing.T) {
 	// Un segundo despues hay 10 fichas mas.
 	if !l.allow("1.2.3.4", ahora.Add(time.Second)) {
 		t.Fatal("deberia recuperarse con el tiempo")
+	}
+}
+
+// --- Bloque maquetado -------------------------------------------------------
+
+// Lo que no se puede hacer en nativo: un QR al costado del texto.
+func TestBloqueMaquetadoPorLaAPI(t *testing.T) {
+	h := newTestServer(t, nil)
+	body := `{"printer":"P","width":576,"cut":"partial","layout":{
+	  "padding": 6,
+	  "rows": [
+	    {"cols":[{"align":"center","items":[{"text":"CAFETERIA","size":"xl","bold":true}]}]},
+	    {"align":"middle","cols":[
+	      {"weight":1,"items":[{"text":"Factura #123"},{"text":"Cliente: Ana"}]},
+	      {"dots":150,"items":[{"qr":"https://ejemplo.com/f/123"}]}
+	    ]},
+	    {"cols":[
+	      {"weight":3,"border":true,"pad":4,"items":[{"text":"Cafe","mono":true}]},
+	      {"dots":120,"border":true,"pad":4,"align":"right","items":[{"text":"24.00","mono":true}]}
+	    ]},
+	    {"cols":[{"items":[{"text":"TOTAL Bs 24.00","size":"l","bold":true,"invert":true,"align":"center"}]}]}
+	  ]}}`
+	if rec := post(t, h, "/api/print/layout", body, ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Tambien se puede meter como un elemento mas dentro de un ticket normal,
+// que es lo habitual: texto nativo rapido y solo la zona que lo necesita
+// maquetada.
+func TestBloqueMaquetadoDentroDeUnTicket(t *testing.T) {
+	h := newTestServer(t, nil)
+	body := `{"printer":"P","width":576,"title":"TIENDA","lines":[
+	  {"text":"Linea nativa, rapida"},
+	  {"type":"layout","layout":{"rows":[{"cols":[
+	     {"weight":1,"items":[{"text":"Escanea para tu factura"}]},
+	     {"dots":120,"items":[{"qr":"https://ejemplo.com"}]}
+	  ]}]}},
+	  {"text":"Otra linea nativa"}]}`
+	if rec := post(t, h, "/api/print/ticket", body, ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Un bloque mal formado tiene que decir donde esta el problema, no fallar
+// con un 500 generico.
+func TestErroresDelBloqueMaquetado(t *testing.T) {
+	h := newTestServer(t, nil)
+	cases := []string{
+		`{"printer":"P","layout":{"rows":[{"cols":[{"items":[{"type":"image","image":"xx"}]}]}]}}`,
+		`{"printer":"P","layout":{"rows":[{"cols":[{"items":[{"barcode":"café"}]}]}]}}`,
+	}
+	for _, body := range cases {
+		rec := post(t, h, "/api/print/layout", body, "")
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("esperaba 400, obtuve %d para %s", rec.Code, body)
+		}
+		if !strings.Contains(rec.Body.String(), "fila") {
+			t.Fatalf("el error deberia decir en que fila: %s", rec.Body.String())
+		}
+	}
+}
+
+// El bloque se compone al ancho del papel de la impresora, no al que diga
+// quien llama.
+func TestElBloqueUsaElAnchoDelPapel(t *testing.T) {
+	estrecho, err := renderLayout(
+		layout.Layout{Rows: []layout.Row{{Cols: []layout.Col{{Items: []layout.Item{{Text: "x"}}}}}}},
+		resolved{Doc: escpos.DocOptions{PaperWidth: 384}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ancho, err := renderLayout(
+		layout.Layout{Rows: []layout.Row{{Cols: []layout.Col{{Items: []layout.Item{{Text: "x"}}}}}}},
+		resolved{Doc: escpos.DocOptions{PaperWidth: 576}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// El raster de 80 mm tiene que ocupar mas bytes que el de 58 mm.
+	if len(ancho) <= len(estrecho) {
+		t.Fatalf("576 puntos dio %d bytes y 384 dio %d", len(ancho), len(estrecho))
 	}
 }

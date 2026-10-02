@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"collatech-agent/internal/escpos"
+	"collatech-agent/internal/layout"
 	"collatech-agent/internal/queue"
 	"collatech-agent/internal/render"
 )
@@ -96,6 +97,10 @@ type ticketLine struct {
 	QR      *qrSpec      `json:"qr"`
 	Barcode *barcodeSpec `json:"barcode"`
 	Image   string       `json:"image"`
+	// Layout es un bloque maquetado en dos dimensiones. Se compone como
+	// imagen, que es la unica forma de poner, por ejemplo, un QR al costado
+	// del texto: en nativo la impresora solo sabe avanzar lineas.
+	Layout *layout.Layout `json:"layout"`
 	// Rule es el caracter con el que se dibuja una linea separadora.
 	Rule string `json:"rule"`
 	// Feed son las lineas en blanco de un elemento de tipo feed.
@@ -417,6 +422,49 @@ func logoRaster(path string, width int) ([]byte, error) {
 	raster := escpos.New().AlignCenter().ImageFit(img, width).Line().Bytes()
 	logoRaw[width] = raster
 	return raster, nil
+}
+
+// --- Bloque maquetado -------------------------------------------------------
+
+type layoutRequest struct {
+	docRequest
+	Layout layout.Layout `json:"layout"`
+}
+
+// printLayout compone un bloque en dos dimensiones y lo manda como imagen.
+// Es mas lento que el texto nativo, asi que esta pensado para la zona del
+// ticket que necesita maquetacion de verdad, no para el ticket entero.
+func (s *Server) printLayout(w http.ResponseWriter, r *http.Request) {
+	var req layoutRequest
+	if !s.decode(w, r, &req) {
+		return
+	}
+	res, err := s.resolve(req.docRequest)
+	if err != nil {
+		s.badRequest(w, err.Error())
+		return
+	}
+	raster, err := renderLayout(req.Layout, res)
+	if err != nil {
+		s.badRequest(w, err.Error())
+		return
+	}
+	s.logger.Info("print_layout", map[string]any{
+		"printer": req.Printer, "width": res.Doc.PaperWidth, "filas": len(req.Layout.Rows),
+	})
+	b := escpos.Begin(res.Doc).RawBytes(raster)
+	b.End(res.Doc)
+	s.enqueue(w, req.Printer, res, b.Bytes())
+}
+
+// renderLayout compone el bloque al ancho del papel y lo empaqueta.
+func renderLayout(l layout.Layout, res resolved) ([]byte, error) {
+	l.Width = res.Doc.PaperWidth
+	img, err := layout.Render(l)
+	if err != nil {
+		return nil, err
+	}
+	return escpos.New().Image(img).Bytes(), nil
 }
 
 // --- ESC/POS crudo ----------------------------------------------------------

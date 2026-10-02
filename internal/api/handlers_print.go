@@ -21,10 +21,11 @@ import (
 	"collatech-agent/internal/render"
 )
 
+// --- Texto ------------------------------------------------------------------
+
 type textRequest struct {
-	Printer string `json:"printer"`
-	Text    string `json:"text"`
-	Cut     bool   `json:"cut"`
+	docRequest
+	Text string `json:"text"`
 }
 
 func (s *Server) printText(w http.ResponseWriter, r *http.Request) {
@@ -32,33 +33,42 @@ func (s *Server) printText(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &req) {
 		return
 	}
-	if req.Printer == "" || strings.TrimSpace(req.Text) == "" {
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer and text are required"})
+	if strings.TrimSpace(req.Text) == "" {
+		s.badRequest(w, "hace falta el texto a imprimir")
 		return
 	}
-	b := escpos.New().Initialize().Text(strings.Trim(req.Text, "\n\r")).Line()
-	if req.Cut {
-		b.Feed(escpos.CutFeedLines).Cut()
+	res, err := s.resolve(req.docRequest)
+	if err != nil {
+		s.badRequest(w, err.Error())
+		return
 	}
-	s.enqueue(w, req.Printer, b.Bytes())
+	b := escpos.Begin(res.Doc).Text(strings.Trim(req.Text, "\n\r")).Line()
+	b.End(res.Doc)
+	s.enqueue(w, req.Printer, res, b.Bytes())
 }
 
-type ticketRequest struct {
-	Printer     string       `json:"printer"`
-	Title       string       `json:"title"`
-	Lines       []ticketLine `json:"lines"`
-	QR          string       `json:"qr"`
-	Barcode     string       `json:"barcode"`
-	Logo        string       `json:"logo"`
-	Width       int          `json:"width"`
-	Scale       int          `json:"scale"`
-	Cut         bool         `json:"cut"`
-	Drawer      bool         `json:"drawer"`
-	FeedTop     int          `json:"feed_top"`
-	FeedBottom  int          `json:"feed_bottom"`
-	Border      bool         `json:"border"`
-	MarginLeft  int          `json:"margin_left"`
-	MarginRight int          `json:"margin_right"`
+// --- Ticket -----------------------------------------------------------------
+
+type qrSpec struct {
+	Data string `json:"data"`
+	// Size es el lado de cada punto, 1 a 16. Con 0 se calcula segun el ancho
+	// del papel y lo que ocupe el contenido.
+	Size int `json:"size"`
+	// EC es la correccion de errores: L, M, Q o H.
+	EC string `json:"ec"`
+}
+
+type barcodeSpec struct {
+	Data string `json:"data"`
+	// Type: code128 (por defecto), ean13, ean8, upca, upce, code39, code93,
+	// itf, codabar o pdf417.
+	Type string `json:"type"`
+	// Height en puntos, 1 a 255. Width es el grosor de la barra fina, 2 a 6;
+	// con 0 se calcula para que quepa en el papel.
+	Height int `json:"height"`
+	Width  int `json:"width"`
+	// HRI es donde va el texto legible: none, above, below o both.
+	HRI string `json:"hri"`
 }
 
 type tableColumn struct {
@@ -74,18 +84,55 @@ type tableDef struct {
 	Rows    [][]string    `json:"rows"`
 }
 
+// ticketLine es un elemento del ticket. El campo type decide cual de los
+// demas se usa, de forma que un ticket se describe de arriba abajo en un solo
+// array en vez de con campos sueltos repartidos por la peticion.
 type ticketLine struct {
-	Type      string    `json:"type"`
-	Text      string    `json:"text"`
-	Table     *tableDef `json:"table"`
-	Align     string    `json:"align"`
-	Bold      bool      `json:"bold"`
-	Underline bool      `json:"underline"`
-	Size      string    `json:"size"`
-	Gap       int       `json:"gap"`
-	Box       bool      `json:"box"`
-	ML        int       `json:"ml"`
-	MR        int       `json:"mr"`
+	// Type: text (por defecto), table, qr, barcode, image, rule o feed.
+	Type string `json:"type"`
+
+	Text    string       `json:"text"`
+	Table   *tableDef    `json:"table"`
+	QR      *qrSpec      `json:"qr"`
+	Barcode *barcodeSpec `json:"barcode"`
+	Image   string       `json:"image"`
+	// Rule es el caracter con el que se dibuja una linea separadora.
+	Rule string `json:"rule"`
+	// Feed son las lineas en blanco de un elemento de tipo feed.
+	Feed int `json:"feed"`
+
+	Align     string `json:"align"`
+	Bold      bool   `json:"bold"`
+	Underline bool   `json:"underline"`
+	// Invert imprime blanco sobre negro.
+	Invert bool `json:"invert"`
+	// Size por nombre: normal, small, double, wide, tall.
+	Size string `json:"size"`
+	// ScaleW y ScaleH son el multiplicador exacto, 1 a 8. Mandan sobre Size.
+	ScaleW int `json:"scale_w"`
+	ScaleH int `json:"scale_h"`
+
+	Gap int  `json:"gap"`
+	Box bool `json:"box"`
+	ML  int  `json:"ml"`
+	MR  int  `json:"mr"`
+}
+
+type ticketRequest struct {
+	docRequest
+	Title string       `json:"title"`
+	Lines []ticketLine `json:"lines"`
+	Logo  string       `json:"logo"`
+	Scale int          `json:"scale"`
+
+	// Atajos para el caso habitual; equivalen a una linea de tipo qr o
+	// barcode al final del ticket.
+	QR      string `json:"qr"`
+	Barcode string `json:"barcode"`
+
+	Border      bool `json:"border"`
+	MarginLeft  int  `json:"margin_left"`
+	MarginRight int  `json:"margin_right"`
 }
 
 func (s *Server) printTicket(w http.ResponseWriter, r *http.Request) {
@@ -93,49 +140,40 @@ func (s *Server) printTicket(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &req) {
 		return
 	}
-	if req.Printer == "" {
-		s.logger.Error("print_ticket", map[string]any{"error": "printer is required", "body": sanitizeTicket(req)})
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer is required"})
-		return
-	}
-	// El builder descarta un QR o un codigo de barras fuera de rango para no
-	// emitir un comando corrupto; aqui se avisa al cliente en vez de que se
-	// pierda en silencio.
-	if len(req.Barcode) > escpos.MaxBarcodeLen-2 {
-		writeJSON(w, http.StatusBadRequest, response{OK: false,
-			Error: fmt.Sprintf("el codigo de barras admite %d caracteres como maximo", escpos.MaxBarcodeLen-2)})
+	res, err := s.resolve(req.docRequest)
+	if err != nil {
+		s.badRequest(w, err.Error())
 		return
 	}
 	if len(req.QR) > escpos.MaxQRLen {
-		writeJSON(w, http.StatusBadRequest, response{OK: false,
-			Error: fmt.Sprintf("el QR admite %d caracteres como maximo", escpos.MaxQRLen)})
+		s.badRequest(w, fmt.Sprintf("el QR admite %d caracteres como maximo", escpos.MaxQRLen))
+		return
+	}
+	if len(req.Barcode) > escpos.MaxBarcodeLen-2 {
+		s.badRequest(w, fmt.Sprintf("el codigo de barras admite %d caracteres como maximo", escpos.MaxBarcodeLen-2))
 		return
 	}
 	s.logger.Info("print_ticket", sanitizeTicket(req))
-	cols := ticketCols(req.Width)
-	b := escpos.New().Initialize()
-	if req.FeedTop > 0 {
-		b.Feed(req.FeedTop)
-	}
-	if req.Drawer {
-		b.DrawerKick()
-	}
+
+	cols := res.Doc.Columns()
+	b := escpos.Begin(res.Doc)
+
 	if req.Border {
 		b.Text("┌" + strings.Repeat("─", cols-2) + "┐").Line()
 	}
 	if req.Logo != "" {
 		img, err := decodeImage(req.Logo)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "logo must be base64 PNG/JPEG/GIF"})
+			s.badRequest(w, "el logo debe ser PNG, JPEG o GIF en base64")
 			return
 		}
-		b.AlignCenter().ImageFit(img, imageWidth(req.Width, req.Scale)).Line()
+		b.AlignCenter().ImageFit(img, imageWidth(res.Doc.PaperWidth, pick(req.Scale, res.Scale))).Line()
 	}
 	if req.Title != "" {
 		if req.Border {
-			applyLine(b, ticketLine{Text: req.Title, Align: "center", Bold: true, Size: "double"}, cols, true)
+			applyLine(b, ticketLine{Text: req.Title, Align: "center", Bold: true, Size: "double"}, cols, true, res)
 		} else {
-			b.AlignCenter().Bold(true).DoubleSize(true).TextLine(req.Title).DoubleSize(false).Bold(false)
+			b.AlignCenter().Bold(true).TextScale(2, 2).TextLine(req.Title).TextScale(1, 1).Bold(false)
 		}
 	}
 	for _, line := range req.Lines {
@@ -145,47 +183,40 @@ func (s *Server) printTicket(w http.ResponseWriter, r *http.Request) {
 		if line.MR == 0 && req.MarginRight > 0 {
 			line.MR = req.MarginRight
 		}
-		applyLine(b, line, cols, req.Border)
+		if err := applyLine(b, line, cols, req.Border, res); err != nil {
+			s.badRequest(w, err.Error())
+			return
+		}
 	}
 	if req.Border {
 		b.Text("└" + strings.Repeat("─", cols-2) + "┘").Line()
 	}
 	if req.QR != "" {
-		b.AlignCenter().QR(req.QR).Line()
+		b.AlignCenter().QRWith(req.QR, escpos.QROptions{PaperWidth: res.Doc.PaperWidth}).Line()
 	}
 	if req.Barcode != "" {
-		b.AlignCenter().Barcode(req.Barcode).Line()
+		b.AlignCenter().BarcodeWith(req.Barcode, escpos.BarcodeOptions{
+			Type: escpos.BarcodeCode128, PaperWidth: res.Doc.PaperWidth,
+		}).Line()
 	}
-	if req.Cut {
-		fb := req.FeedBottom
-		if fb < escpos.CutFeedLines {
-			// La cuchilla esta varias lineas por encima del cabezal: con 1
-			// linea de avance se cortaba la ultima linea del ticket.
-			fb = escpos.CutFeedLines
-		}
-		b.Feed(fb).Cut()
-	}
-	s.enqueue(w, req.Printer, b.Bytes())
+
+	b.End(res.Doc)
+	s.enqueue(w, req.Printer, res, b.Bytes())
 }
 
-type htmlRequest struct {
-	Printer string `json:"printer"`
-	HTML    string `json:"html"`
-	Width   int    `json:"width"`
-	Cut     bool   `json:"cut"`
-}
-
-// sanitizeTicket arma el evento de log SIN el contenido del ticket. Antes se
-// volcaba el texto de cada linea, asi que nombres de clientes, articulos e
-// importes quedaban en claro en logs/*.jsonl, que GET /api/logs sirve tal cual.
-// Para diagnosticar basta con la forma del ticket, no con lo que dice.
+// sanitizeTicket arma el evento de log SIN el contenido del ticket: nombres
+// de clientes, articulos e importes no deben quedar en claro en un archivo
+// que GET /api/logs sirve tal cual. Para diagnosticar basta con la forma.
 func sanitizeTicket(r ticketRequest) map[string]any {
 	m := map[string]any{
 		"printer": r.Printer, "width": r.Width, "scale": r.Scale,
-		"cut": r.Cut, "drawer": r.Drawer, "border": r.Border,
+		"cut": string(r.Cut.Mode), "drawer": r.Drawer, "border": r.Border,
 		"feed_top": r.FeedTop, "feed_bottom": r.FeedBottom,
 		"margin_left": r.MarginLeft, "margin_right": r.MarginRight,
 		"lines": len(r.Lines),
+	}
+	if r.UpsideDown != nil {
+		m["upside_down"] = *r.UpsideDown
 	}
 	if r.Title != "" {
 		m["title_len"] = len([]rune(r.Title))
@@ -199,22 +230,28 @@ func sanitizeTicket(r ticketRequest) map[string]any {
 	if r.Logo != "" {
 		m["logo_len"] = len(r.Logo)
 	}
-	var tables, boxes int
+	tipos := map[string]int{}
 	for _, l := range r.Lines {
-		if l.Table != nil {
-			tables++
+		t := strings.ToLower(l.Type)
+		if t == "" {
+			t = "text"
 		}
+		tipos[t]++
 		if l.Box {
-			boxes++
+			tipos["box"]++
 		}
 	}
-	if tables > 0 {
-		m["tables"] = tables
-	}
-	if boxes > 0 {
-		m["boxes"] = boxes
+	if len(tipos) > 0 {
+		m["elementos"] = tipos
 	}
 	return m
+}
+
+// --- HTML -------------------------------------------------------------------
+
+type htmlRequest struct {
+	docRequest
+	HTML string `json:"html"`
 }
 
 func (s *Server) printHTML(w http.ResponseWriter, r *http.Request) {
@@ -222,37 +259,36 @@ func (s *Server) printHTML(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &req) {
 		return
 	}
-	if req.Printer == "" || strings.TrimSpace(req.HTML) == "" {
-		s.logger.Error("print_html", map[string]any{"error": "printer and html are required", "printer": req.Printer})
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer and html are required"})
+	if strings.TrimSpace(req.HTML) == "" {
+		s.badRequest(w, "hace falta el html a imprimir")
 		return
 	}
-	s.logger.Info("print_html", map[string]any{"printer": req.Printer, "width": req.Width, "cut": req.Cut, "html_len": len(req.HTML)})
-	html2esc := render.NewHTMLToESCPOS()
-	if req.Width > 0 {
-		cols := 32
-		if req.Width >= 576 {
-			cols = 48
-		} else if req.Width >= 512 {
-			cols = 42
-		}
-		html2esc.SetColumns(cols)
+	res, err := s.resolve(req.docRequest)
+	if err != nil {
+		s.badRequest(w, err.Error())
+		return
 	}
-	var data []byte
-	if req.Cut {
-		data = html2esc.Render(req.HTML)
-	} else {
-		data = html2esc.RenderNoCut(req.HTML)
-	}
-	s.enqueue(w, req.Printer, data)
+	s.logger.Info("print_html", map[string]any{
+		"printer": req.Printer, "width": res.Doc.PaperWidth, "html_len": len(req.HTML),
+	})
+
+	body := render.NewHTMLToESCPOS().
+		WithColumns(res.Doc.Columns()).
+		WithPaperWidth(res.Doc.PaperWidth).
+		WithImageScale(res.Scale).
+		Body(req.HTML)
+
+	b := escpos.Begin(res.Doc).RawBytes(body)
+	b.End(res.Doc)
+	s.enqueue(w, req.Printer, res, b.Bytes())
 }
 
+// --- Plantilla --------------------------------------------------------------
+
 type templateRequest struct {
-	Printer  string         `json:"printer"`
+	docRequest
 	Template string         `json:"template"`
 	Data     map[string]any `json:"data"`
-	Width    int            `json:"width"`
-	Cut      bool           `json:"cut"`
 }
 
 func (s *Server) printTemplate(w http.ResponseWriter, r *http.Request) {
@@ -260,25 +296,29 @@ func (s *Server) printTemplate(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &req) {
 		return
 	}
-	if req.Printer == "" || req.Template == "" {
-		s.logger.Error("print_template", map[string]any{"error": "printer and template are required", "printer": req.Printer, "template": req.Template})
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer and template are required"})
+	if req.Template == "" {
+		s.badRequest(w, "hace falta el nombre de la plantilla")
 		return
 	}
-	s.logger.Info("print_template", map[string]any{"printer": req.Printer, "template": req.Template, "width": req.Width, "cut": req.Cut})
-	b := buildNativeTemplate(req)
-	if req.Cut {
-		b.Feed(escpos.CutFeedLines).Cut()
+	res, err := s.resolve(req.docRequest)
+	if err != nil {
+		s.badRequest(w, err.Error())
+		return
 	}
-	s.enqueue(w, req.Printer, b.Bytes())
+	s.logger.Info("print_template", map[string]any{
+		"printer": req.Printer, "template": templateName(req.Template), "width": res.Doc.PaperWidth,
+	})
+	b := buildNativeTemplate(req, res)
+	b.End(res.Doc)
+	s.enqueue(w, req.Printer, res, b.Bytes())
 }
 
+// --- Imagen y logo ----------------------------------------------------------
+
 type imageRequest struct {
-	Printer string `json:"printer"`
-	Image   string `json:"image"`
-	Width   int    `json:"width"`
-	Scale   int    `json:"scale"`
-	Cut     bool   `json:"cut"`
+	docRequest
+	Image string `json:"image"`
+	Scale int    `json:"scale"`
 }
 
 func (s *Server) printImage(w http.ResponseWriter, r *http.Request) {
@@ -286,30 +326,31 @@ func (s *Server) printImage(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &req) {
 		return
 	}
-	if req.Printer == "" || req.Image == "" {
-		s.logger.Error("print_image", map[string]any{"error": "printer and image are required", "printer": req.Printer})
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer and image are required"})
+	if req.Image == "" {
+		s.badRequest(w, "hace falta la imagen")
 		return
 	}
-	s.logger.Info("print_image", map[string]any{"printer": req.Printer, "width": req.Width, "cut": req.Cut, "img_size": len(req.Image)})
+	res, err := s.resolve(req.docRequest)
+	if err != nil {
+		s.badRequest(w, err.Error())
+		return
+	}
 	img, err := decodeImage(req.Image)
 	if err != nil {
-		s.logger.Error("print_image", map[string]any{"error": "could not decode image", "printer": req.Printer})
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "could not decode image"})
+		s.badRequest(w, "no se pudo leer la imagen: debe ser PNG, JPEG o GIF en base64")
 		return
 	}
-	b := escpos.New().Initialize().AlignCenter().ImageFit(img, imageWidth(req.Width, req.Scale))
-	if req.Cut {
-		b.Feed(escpos.CutFeedLines).Cut()
-	}
-	s.enqueue(w, req.Printer, b.Bytes())
+	s.logger.Info("print_image", map[string]any{"printer": req.Printer, "img_len": len(req.Image)})
+
+	b := escpos.Begin(res.Doc).AlignCenter().
+		ImageFit(img, imageWidth(res.Doc.PaperWidth, pick(req.Scale, res.Scale)))
+	b.End(res.Doc)
+	s.enqueue(w, req.Printer, res, b.Bytes())
 }
 
 type logoRequest struct {
-	Printer string `json:"printer"`
-	Width   int    `json:"width"`
-	Scale   int    `json:"scale"`
-	Cut     bool   `json:"cut"`
+	docRequest
+	Scale int `json:"scale"`
 }
 
 func (s *Server) printLogo(w http.ResponseWriter, r *http.Request) {
@@ -317,23 +358,20 @@ func (s *Server) printLogo(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &req) {
 		return
 	}
-	if req.Printer == "" {
-		s.logger.Error("print_logo", map[string]any{"error": "printer is required"})
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer is required"})
+	res, err := s.resolve(req.docRequest)
+	if err != nil {
+		s.badRequest(w, err.Error())
 		return
 	}
-	s.logger.Info("print_logo", map[string]any{"printer": req.Printer, "width": req.Width, "cut": req.Cut})
-	raster, err := logoRaster(s.paths.Logo, imageWidth(req.Width, req.Scale))
+	raster, err := logoRaster(s.paths.Logo, imageWidth(res.Doc.PaperWidth, pick(req.Scale, res.Scale)))
 	if err != nil {
-		s.logger.Error("print_logo", map[string]any{"error": err.Error(), "printer": req.Printer})
+		s.logger.Error("print_logo", map[string]any{"error": err.Error()})
 		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: "no se pudo leer el logo"})
 		return
 	}
-	b := escpos.New().Initialize().RawBytes(raster)
-	if req.Cut {
-		b.Feed(escpos.CutFeedLines).Cut()
-	}
-	s.enqueue(w, req.Printer, b.Bytes())
+	b := escpos.Begin(res.Doc).RawBytes(raster)
+	b.End(res.Doc)
+	s.enqueue(w, req.Printer, res, b.Bytes())
 }
 
 var (
@@ -364,8 +402,8 @@ func loadLogoImage(path string) (image.Image, error) {
 }
 
 // logoRaster devuelve el logo ya escalado y difuminado para un ancho dado.
-// Convertir la imagen es lo caro (difuminado Floyd-Steinberg sobre cientos de
-// miles de pixeles) y el logo no cambia, asi que se hace una vez por ancho.
+// Convertir la imagen es lo caro y el logo no cambia, asi que se hace una vez
+// por ancho.
 func logoRaster(path string, width int) ([]byte, error) {
 	logoRawMu.Lock()
 	defer logoRawMu.Unlock()
@@ -381,10 +419,12 @@ func logoRaster(path string, width int) ([]byte, error) {
 	return raster, nil
 }
 
+// --- ESC/POS crudo ----------------------------------------------------------
+
 type rawRequest struct {
-	Printer string `json:"printer"`
-	Data    string `json:"data"`
-	Base64  bool   `json:"base64"`
+	docRequest
+	Data   string `json:"data"`
+	Base64 bool   `json:"base64"`
 }
 
 func (s *Server) printRaw(w http.ResponseWriter, r *http.Request) {
@@ -392,67 +432,92 @@ func (s *Server) printRaw(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &req) {
 		return
 	}
-	if req.Printer == "" || req.Data == "" {
-		s.logger.Error("print_raw", map[string]any{"error": "printer and data are required", "printer": req.Printer})
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer and data are required"})
+	if req.Data == "" {
+		s.badRequest(w, "hacen falta los datos a enviar")
 		return
 	}
-	s.logger.Info("print_raw", map[string]any{"printer": req.Printer, "data_len": len(req.Data), "base64": req.Base64})
+	res, err := s.resolve(req.docRequest)
+	if err != nil {
+		s.badRequest(w, err.Error())
+		return
+	}
+	s.logger.Info("print_raw", map[string]any{
+		"printer": req.Printer, "data_len": len(req.Data), "base64": req.Base64,
+	})
+
 	// Sin base64 el cuerpo llega como texto: se codifica en CP850 igual que
-	// el resto del agente. Antes se mandaba UTF-8 crudo y cualquier acento
-	// salia como basura. El ASCII y los bytes de control no cambian.
+	// el resto del agente. El ASCII y los bytes de control no cambian.
 	payload := escpos.EncodeCP850(req.Data)
 	if req.Base64 {
 		raw, err := decodeBase64(req.Data)
 		if err != nil {
-			s.logger.Error("print_raw", map[string]any{"error": "invalid base64 data", "printer": req.Printer})
-			writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "invalid base64 data"})
+			s.badRequest(w, "los datos no son base64 valido")
 			return
 		}
 		payload = raw
 	}
-	s.enqueue(w, req.Printer, payload)
+	// Los bytes crudos van tal cual: quien los manda controla la impresora
+	// entera, asi que no se le anade arranque ni cierre. El corte si se
+	// respeta cuando se pide explicitamente.
+	if req.Cut.Set && req.Cut.Mode != escpos.CutNone {
+		payload = append(payload, escpos.New().Cut(req.Cut.Mode, res.Doc.FeedBottom).Bytes()...)
+	}
+	s.enqueue(w, req.Printer, res, payload)
 }
 
-func (s *Server) enqueue(w http.ResponseWriter, printer string, payload []byte) {
+// --- Encolado ---------------------------------------------------------------
+
+func (s *Server) badRequest(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusBadRequest, response{OK: false, Error: msg})
+}
+
+func (s *Server) enqueue(w http.ResponseWriter, requested string, res resolved, payload []byte) {
 	if int64(len(payload)) > s.cfg.MaxPrintSize {
-		s.logger.Error("print_enqueue", map[string]any{"error": "payload too large", "printer": printer, "size": len(payload)})
-		writeJSON(w, http.StatusRequestEntityTooLarge, response{OK: false, Error: "print payload is too large"})
+		s.logger.Error("print_enqueue", map[string]any{
+			"error": "contenido demasiado grande", "printer": requested, "size": len(payload),
+		})
+		writeJSON(w, http.StatusRequestEntityTooLarge, response{OK: false, Error: "el contenido supera max_print_size"})
 		return
 	}
-	resolvedPrinters, alias := s.resolvePrinters(printer)
-	if len(resolvedPrinters) == 0 {
-		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer is required"})
-		return
-	}
-	jobs, err := s.queue.EnqueueMany(resolvedPrinters, payload)
+	jobs, err := s.queue.EnqueueMany(res.Targets, payload)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, queue.ErrQueueFull) {
 			// 503 en vez de dejar la peticion colgada hasta el WriteTimeout.
 			status = http.StatusServiceUnavailable
 		}
-		s.logger.Error("print_enqueue", map[string]any{"error": err.Error(), "printer": printer})
+		s.logger.Error("print_enqueue", map[string]any{"error": err.Error(), "printer": requested})
 		writeJSON(w, status, response{OK: false, Error: err.Error()})
 		return
 	}
 	for _, job := range jobs {
-		event := map[string]any{"printer": job.Printer, "requested_printer": printer, "size": len(payload), "job_id": job.ID}
-		if alias != "" {
-			event["printer_alias"] = alias
+		event := map[string]any{
+			"printer": job.Printer, "requested_printer": requested,
+			"size": len(payload), "job_id": job.ID,
 		}
-		if len(resolvedPrinters) > 1 {
-			event["printer_targets"] = resolvedPrinters
+		if len(res.Targets) > 1 {
+			event["printer_targets"] = res.Targets
 		}
 		s.logger.Info("print_enqueue", event)
 	}
 	data := any(jobs[0])
-	message := "print job queued"
+	message := "trabajo encolado"
 	if len(jobs) > 1 {
 		data = jobs
-		message = "print jobs queued"
+		message = fmt.Sprintf("trabajo encolado en %d impresoras", len(jobs))
 	}
 	writeJSON(w, http.StatusAccepted, response{OK: true, Message: message, Data: data})
+}
+
+// --- Utilidades -------------------------------------------------------------
+
+func pick(values ...int) int {
+	for _, v := range values {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 func decodeBase64(s string) ([]byte, error) {
@@ -471,6 +536,7 @@ func decodeImage(data string) (image.Image, error) {
 	return img, err
 }
 
+// printWidth acota el ancho a los tres valores que el agente sabe componer.
 func printWidth(width int) int {
 	switch {
 	case width >= 576:
@@ -482,6 +548,8 @@ func printWidth(width int) int {
 	}
 }
 
+// imageWidth calcula el ancho de la imagen en puntos, redondeado a multiplo
+// de 8 porque el raster se empaqueta por bytes.
 func imageWidth(width, scale int) int {
 	base := printWidth(width)
 	if scale <= 0 {

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"collatech-agent/internal/config"
@@ -86,10 +85,11 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &cfg) {
 		return
 	}
-	if cfg.Aliases == nil {
-		current, err := s.loadSettings()
-		if err == nil {
-			cfg.Aliases = current.Aliases
+	// Si la peticion no trae impresoras, se conservan las que ya hubiera: el
+	// panel manda solo las preferencias generales.
+	if cfg.Printers == nil {
+		if current, err := s.loadSettings(); err == nil {
+			cfg.Printers = current.Printers
 		}
 	}
 	saved, err := s.saveSettingsFile(cfg)
@@ -98,90 +98,6 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response{OK: true, Message: "settings saved", Data: saved})
-}
-
-func (s *Server) getPrinterAliases(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.loadSettings()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, response{OK: true, Data: cfg.Aliases})
-}
-
-func (s *Server) savePrinterAliases(w http.ResponseWriter, r *http.Request) {
-	var aliases []settings.Alias
-	if !s.decode(w, r, &aliases) {
-		return
-	}
-	cfg, err := s.loadSettings()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
-		return
-	}
-	cfg.Aliases = normalizeAliases(aliases)
-	saved, err := s.saveSettingsFile(cfg)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, response{OK: true, Message: "printer aliases saved", Data: saved.Aliases})
-}
-
-func normalizeAliases(in []settings.Alias) []settings.Alias {
-	seen := map[string]bool{}
-	out := make([]settings.Alias, 0, len(in))
-	for _, alias := range in {
-		name := strings.ToLower(strings.TrimSpace(alias.Name))
-		printer := strings.TrimSpace(alias.Printer)
-		if name == "" || printer == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		out = append(out, settings.Alias{
-			Name:        name,
-			Printer:     printer,
-			Description: strings.TrimSpace(alias.Description),
-		})
-	}
-	return out
-}
-
-func (s *Server) resolvePrinters(name string) ([]string, string) {
-	requested := strings.TrimSpace(name)
-	if requested == "" {
-		return nil, ""
-	}
-	cfg, err := s.loadSettings()
-	if err != nil {
-		s.logger.Error("printer_alias", map[string]any{"error": err.Error(), "requested_printer": requested})
-		return splitPrinterTargets(requested), ""
-	}
-	key := strings.ToLower(requested)
-	for _, alias := range cfg.Aliases {
-		if strings.ToLower(strings.TrimSpace(alias.Name)) == key && strings.TrimSpace(alias.Printer) != "" {
-			return splitPrinterTargets(alias.Printer), alias.Name
-		}
-	}
-	return splitPrinterTargets(requested), ""
-}
-
-func splitPrinterTargets(value string) []string {
-	parts := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == ';' || r == '\n' || r == '\r'
-	})
-	out := make([]string, 0, len(parts))
-	seen := map[string]bool{}
-	for _, part := range parts {
-		printer := strings.TrimSpace(part)
-		key := strings.ToLower(printer)
-		if printer == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, printer)
-	}
-	return out
 }
 
 // nativeTemplates son las plantillas que buildNativeTemplate sabe construir.
@@ -196,4 +112,83 @@ func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listPrinters(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response{OK: true, Data: s.printers.List()})
+}
+
+// getPrinters devuelve las impresoras dadas de alta, con sus ajustes.
+func (s *Server) getPrinters(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.loadSettings()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, response{OK: true, Data: cfg.Printers})
+}
+
+// savePrinters reemplaza la lista de impresoras dadas de alta.
+func (s *Server) savePrinters(w http.ResponseWriter, r *http.Request) {
+	var list []settings.Printer
+	if !s.decode(w, r, &list) {
+		return
+	}
+	cfg, err := s.loadSettings()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
+		return
+	}
+	cfg.Printers = list
+	saved, err := s.saveSettingsFile(cfg)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, response{OK: true, Message: "impresoras guardadas", Data: saved.Printers})
+}
+
+// getPrinterAliases y savePrinterAliases se mantienen por compatibilidad con
+// los integradores que ya usan /api/printer-aliases; por dentro trabajan
+// sobre la misma lista de impresoras.
+func (s *Server) getPrinterAliases(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.loadSettings()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
+		return
+	}
+	out := make([]settings.Alias, 0, len(cfg.Printers))
+	for _, p := range cfg.Printers {
+		out = append(out, settings.Alias{Name: p.Name, Printer: p.Target, Description: p.Description})
+	}
+	writeJSON(w, http.StatusOK, response{OK: true, Data: out})
+}
+
+func (s *Server) savePrinterAliases(w http.ResponseWriter, r *http.Request) {
+	var aliases []settings.Alias
+	if !s.decode(w, r, &aliases) {
+		return
+	}
+	cfg, err := s.loadSettings()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
+		return
+	}
+	// Se conservan los ajustes propios de cada impresora que ya existiera.
+	list := make([]settings.Printer, 0, len(aliases))
+	for _, a := range aliases {
+		p := settings.Printer{Name: a.Name, Target: a.Printer, Description: a.Description}
+		if old, ok := cfg.Find(a.Name); ok {
+			old.Target, old.Description = a.Printer, a.Description
+			p = old
+		}
+		list = append(list, p)
+	}
+	cfg.Printers = list
+	saved, err := s.saveSettingsFile(cfg)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
+		return
+	}
+	out := make([]settings.Alias, 0, len(saved.Printers))
+	for _, p := range saved.Printers {
+		out = append(out, settings.Alias{Name: p.Name, Printer: p.Target, Description: p.Description})
+	}
+	writeJSON(w, http.StatusOK, response{OK: true, Message: "impresoras guardadas", Data: out})
 }

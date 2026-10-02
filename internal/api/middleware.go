@@ -28,6 +28,7 @@ var adminPaths = map[string]bool{
 var adminWritePaths = map[string]bool{
 	"/api/settings":        true,
 	"/api/printer-aliases": true,
+	"/api/printers-config": true,
 }
 
 func (s *Server) isAdminRequest(r *http.Request) bool {

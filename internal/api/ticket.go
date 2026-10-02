@@ -4,6 +4,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -221,39 +222,94 @@ func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml
 	b.FontSize("normal").Bold(false)
 }
 
-func applyLine(b *escpos.Builder, line ticketLine, cols int, border bool) {
-	if strings.ToLower(line.Type) == "table" {
+// applyLine dibuja un elemento del ticket. El campo type decide que se
+// pinta; sin type se imprime texto, que es el caso de siempre.
+func applyLine(b *escpos.Builder, line ticketLine, cols int, border bool, res resolved) error {
+	switch strings.ToLower(strings.TrimSpace(line.Type)) {
+	case "table":
 		if line.Table != nil {
-			ml := line.ML
-			mr := line.MR
-			if ml < 0 {
-				ml = 0
-			}
-			if mr < 0 {
-				mr = 0
-			}
-			drawTable(b, line.Table, cols, border, ml, mr)
+			drawTable(b, line.Table, cols, border, clampMin0(line.ML), clampMin0(line.MR))
 		}
-		return
+		return nil
+
+	case "qr":
+		if line.QR == nil || line.QR.Data == "" {
+			return nil
+		}
+		if len(line.QR.Data) > escpos.MaxQRLen {
+			return fmt.Errorf("el QR admite %d caracteres como maximo", escpos.MaxQRLen)
+		}
+		alignOf(b, line.Align, "center")
+		b.QRWith(line.QR.Data, escpos.QROptions{
+			ModuleSize: line.QR.Size,
+			ECLevel:    line.QR.EC,
+			PaperWidth: res.Doc.PaperWidth,
+		}).Line()
+		return feedGap(b, line)
+
+	case "barcode":
+		if line.Barcode == nil || line.Barcode.Data == "" {
+			return nil
+		}
+		if len(line.Barcode.Data) > escpos.MaxBarcodeLen-2 {
+			return fmt.Errorf("el codigo de barras admite %d caracteres como maximo", escpos.MaxBarcodeLen-2)
+		}
+		alignOf(b, line.Align, "center")
+		b.BarcodeWith(line.Barcode.Data, escpos.BarcodeOptions{
+			Type:        escpos.BarcodeTypeByName(line.Barcode.Type),
+			HeightDots:  line.Barcode.Height,
+			ModuleWidth: line.Barcode.Width,
+			HRI:         line.Barcode.HRI,
+			PaperWidth:  res.Doc.PaperWidth,
+		}).Line()
+		return feedGap(b, line)
+
+	case "image":
+		if line.Image == "" {
+			return nil
+		}
+		img, err := decodeImage(line.Image)
+		if err != nil {
+			return fmt.Errorf("una imagen del ticket no se pudo leer: debe ser PNG, JPEG o GIF en base64")
+		}
+		alignOf(b, line.Align, "center")
+		b.ImageFit(img, imageWidth(res.Doc.PaperWidth, res.Scale)).Line()
+		return feedGap(b, line)
+
+	case "rule":
+		ch := line.Rule
+		if ch == "" {
+			ch = "-"
+		}
+		inner := cols
+		if border {
+			inner = cols - 2
+		}
+		rule := strings.Repeat(string([]rune(ch)[0]), inner)
+		if border {
+			rule = "│" + rule + "│"
+		}
+		b.AlignLeft().TextLine(rule)
+		return feedGap(b, line)
+
+	case "feed":
+		n := line.Feed
+		if n <= 0 {
+			n = 1
+		}
+		b.Feed(n)
+		return nil
 	}
 
+	// Texto.
 	text := line.Text
 	r := []rune(text)
-
 	if line.Box {
 		drawBoxLine(b, line, r, cols, border)
-		return
+		return nil
 	}
 
-	ml := line.ML
-	mr := line.MR
-	if ml < 0 {
-		ml = 0
-	}
-	if mr < 0 {
-		mr = 0
-	}
-
+	ml, mr := clampMin0(line.ML), clampMin0(line.MR)
 	if border {
 		b.AlignLeft()
 		inner := cols - 2 - ml - mr
@@ -267,30 +323,78 @@ func applyLine(b *escpos.Builder, line ticketLine, cols int, border bool) {
 		case "center":
 			pad := inner - len(r)
 			left := pad / 2
-			right := pad - left
-			text = strings.Repeat(" ", ml) + strings.Repeat(" ", left) + string(r) + strings.Repeat(" ", right) + strings.Repeat(" ", mr)
+			text = strings.Repeat(" ", ml+left) + string(r) + strings.Repeat(" ", pad-left+mr)
 		case "right":
-			text = strings.Repeat(" ", ml) + strings.Repeat(" ", inner-len(r)) + string(r) + strings.Repeat(" ", mr)
+			text = strings.Repeat(" ", ml+inner-len(r)) + string(r) + strings.Repeat(" ", mr)
 		default:
-			text = strings.Repeat(" ", ml) + string(r) + strings.Repeat(" ", inner-len(r)) + strings.Repeat(" ", mr)
+			text = strings.Repeat(" ", ml) + string(r) + strings.Repeat(" ", inner-len(r)+mr)
 		}
 		text = "│" + text + "│"
 	} else {
 		text = strings.Repeat(" ", ml) + text + strings.Repeat(" ", mr)
-		switch strings.ToLower(line.Align) {
-		case "center":
-			b.AlignCenter()
-		case "right":
-			b.AlignRight()
-		default:
-			b.AlignLeft()
-		}
+		alignOf(b, line.Align, "left")
 	}
-	b.FontSize(line.Size).Bold(line.Bold).Underline(line.Underline).TextLine(text)
+
+	applyScale(b, line)
+	b.Bold(line.Bold).Underline(line.Underline).Inverted(line.Invert).TextLine(text)
+	b.TextScale(1, 1).Font("a").Bold(false).Underline(false).Inverted(false)
+	return feedGap(b, line)
+}
+
+func clampMin0(v int) int {
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+func alignOf(b *escpos.Builder, align, def string) {
+	if align == "" {
+		align = def
+	}
+	switch strings.ToLower(align) {
+	case "center":
+		b.AlignCenter()
+	case "right":
+		b.AlignRight()
+	default:
+		b.AlignLeft()
+	}
+}
+
+func feedGap(b *escpos.Builder, line ticketLine) error {
 	for i := 0; i < line.Gap; i++ {
 		b.Line()
 	}
-	b.FontSize("normal").Bold(false).Underline(false)
+	return nil
+}
+
+// applyScale admite tanto el multiplicador exacto (1 a 8) como los nombres de
+// siempre. El exacto manda.
+func applyScale(b *escpos.Builder, line ticketLine) {
+	if line.ScaleW > 0 || line.ScaleH > 0 {
+		w, h := line.ScaleW, line.ScaleH
+		if w <= 0 {
+			w = 1
+		}
+		if h <= 0 {
+			h = 1
+		}
+		b.TextScale(w, h)
+		return
+	}
+	switch strings.ToLower(line.Size) {
+	case "double":
+		b.TextScale(2, 2)
+	case "wide":
+		b.TextScale(2, 1)
+	case "tall":
+		b.TextScale(1, 2)
+	case "small":
+		b.TextScale(1, 1).Font("b")
+	default:
+		b.TextScale(1, 1).Font("a")
+	}
 }
 
 func drawBoxLine(b *escpos.Builder, line ticketLine, r []rune, cols int, border bool) {
@@ -413,12 +517,10 @@ func templateName(raw string) string {
 	return "factura"
 }
 
-func buildNativeTemplate(req templateRequest) *escpos.Builder {
+func buildNativeTemplate(req templateRequest, res resolved) *escpos.Builder {
 	data := req.Data
 	template := templateName(req.Template)
-	// req.Width se ignoraba: todo salia a 32 columnas aunque el papel fuera
-	// de 80 mm.
-	cols := ticketCols(req.Width)
+	cols := res.Doc.Columns()
 	empresa := cleanText(dataString(data, "empresa", "COLLATECH"))
 	cliente := cleanText(dataString(data, "cliente", "Cliente Demo"))
 	total := cleanText(dataString(data, "total", "0.00"))
@@ -427,8 +529,8 @@ func buildNativeTemplate(req templateRequest) *escpos.Builder {
 	barcode := dataString(data, "barcode", "")
 	items := dataItems(data)
 
-	b := escpos.New().Initialize()
-	b.AlignCenter().Bold(true).DoubleSize(true).TextLine(empresa).DoubleSize(false).Bold(false)
+	b := escpos.Begin(res.Doc)
+	b.AlignCenter().Bold(true).TextScale(2, 2).TextLine(empresa).TextScale(1, 1).Bold(false)
 
 	switch template {
 	case "recibo":
@@ -451,7 +553,7 @@ func buildNativeTemplate(req templateRequest) *escpos.Builder {
 		if qr == "" {
 			qr = "https://kollatek.com"
 		}
-		b.QR(qr).Line()
+		b.QRWith(qr, escpos.QROptions{PaperWidth: res.Doc.PaperWidth}).Line()
 	case "imagen":
 		b.AlignCenter().TextLine("[ LOGO / IMAGEN ]")
 		b.TextLine(mensaje)
@@ -479,10 +581,10 @@ func buildNativeTemplate(req templateRequest) *escpos.Builder {
 	}
 
 	if qr != "" && template != "qr" {
-		b.AlignCenter().Line().QR(qr).Line()
+		b.AlignCenter().Line().QRWith(qr, escpos.QROptions{PaperWidth: res.Doc.PaperWidth}).Line()
 	}
 	if barcode != "" {
-		b.AlignCenter().Barcode(barcode).Line()
+		b.AlignCenter().BarcodeWith(barcode, escpos.BarcodeOptions{PaperWidth: res.Doc.PaperWidth}).Line()
 	}
 	b.AlignCenter().TextLine(mensaje)
 	return b

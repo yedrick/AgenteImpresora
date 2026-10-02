@@ -51,6 +51,7 @@ func TestStyleYScriptNoSeImprimen(t *testing.T) {
 // Una etiqueta inline no debe partir la linea.
 func TestEtiquetaInlineNoParteLaLinea(t *testing.T) {
 	out := renderHTML(t, "<p>Total: <b>Bs 12.00</b></p>", 32)
+	out = stripCommands(out)
 	idx := bytes.Index(out, []byte("Total: "))
 	if idx < 0 {
 		t.Fatalf("falta el texto: %q", out)
@@ -60,7 +61,6 @@ func TestEtiquetaInlineNoParteLaLinea(t *testing.T) {
 	if salto < 0 || !bytes.Contains(resto[:salto], []byte("Bs 12.00")) {
 		t.Fatalf("la etiqueta inline partio la linea: %q", resto)
 	}
-	_ = stripCommands
 }
 
 func TestHTMLIndentadoNoParteLaLinea(t *testing.T) {
@@ -119,15 +119,23 @@ func TestLasLineasRespetanElAncho(t *testing.T) {
 	}
 }
 
+// stripCommands quita los comandos ESC/POS y deja solo lo que se imprime.
 func stripCommands(b []byte) []byte {
+	// Comandos de tres bytes: ESC X n / GS X n.
+	esc3 := map[byte]bool{'a': true, 'E': true, '-': true, 'M': true, 't': true, 'd': true, '{': true, 'V': true, '3': true}
+	gs3 := map[byte]bool{'!': true, 'B': true, 'h': true, 'w': true, 'H': true}
 	var out []byte
 	for i := 0; i < len(b); i++ {
 		switch {
-		case b[i] == 0x1b && i+2 < len(b) && (b[i+1] == 'a' || b[i+1] == 'E' || b[i+1] == '-' || b[i+1] == 'M' || b[i+1] == 't' || b[i+1] == 'd'):
-			i += 2
-		case b[i] == 0x1b && i+1 < len(b) && b[i+1] == '@':
+		case b[i] == 0x1b && i+1 < len(b) && (b[i+1] == '@' || b[i+1] == '2'):
 			i++
-		case b[i] == 0x1d && i+2 < len(b) && (b[i+1] == '!' || b[i+1] == 'V'):
+		case b[i] == 0x1b && i+2 < len(b) && esc3[b[i+1]]:
+			i += 2
+		case b[i] == 0x1d && i+3 < len(b) && b[i+1] == 'V':
+			i += 3 // GS V m n
+		case b[i] == 0x1d && i+3 < len(b) && b[i+1] == 'L':
+			i += 3 // GS L nL nH
+		case b[i] == 0x1d && i+2 < len(b) && gs3[b[i+1]]:
 			i += 2
 		default:
 			out = append(out, b[i])

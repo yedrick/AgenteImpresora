@@ -216,9 +216,9 @@ func TestElDiagnosticoNoFiltraElToken(t *testing.T) {
 
 func TestSanitizeTicketNoRegistraElContenido(t *testing.T) {
 	req := ticketRequest{
-		Printer: "POS1",
-		Title:   "ACME",
-		QR:      "https://ejemplo/factura/123",
+		docRequest: docRequest{Printer: "POS1"},
+		Title:      "ACME",
+		QR:         "https://ejemplo/factura/123",
 		Lines: []ticketLine{
 			{Text: "Nombre: Ana Perez"},
 			{Text: "Total: Bs 120"},
@@ -332,8 +332,11 @@ func TestListaDePlantillasCoincideConElMotor(t *testing.T) {
 
 // req.Width se ignoraba: todo salia a 32 columnas.
 func TestLaPlantillaRespetaElAncho(t *testing.T) {
-	estrecho := buildNativeTemplate(templateRequest{Template: "recibo", Width: 384}).Bytes()
-	ancho := buildNativeTemplate(templateRequest{Template: "recibo", Width: 576}).Bytes()
+	doc := func(w int) resolved {
+		return resolved{Doc: escpos.DocOptions{PaperWidth: w}}
+	}
+	estrecho := buildNativeTemplate(templateRequest{Template: "recibo"}, doc(384)).Bytes()
+	ancho := buildNativeTemplate(templateRequest{Template: "recibo"}, doc(576)).Bytes()
 	if len(ancho) <= len(estrecho) {
 		t.Fatalf("un papel de 80 mm deberia producir lineas mas largas (%d vs %d bytes)", len(ancho), len(estrecho))
 	}
@@ -395,20 +398,27 @@ func TestLaCacheDeAjustesSeRefresca(t *testing.T) {
 	}
 	s := &Server{cfg: config.Default(), paths: paths}
 
-	escribir := func(alias, destino string) {
-		body := `{"default_printer":"POS1","paper_width":576,"image_scale":80,"aliases":[{"name":"` +
-			alias + `","printer":"` + destino + `"}]}`
+	escribir := func(nombre, destino string) {
+		body := `{"default_printer":"POS1","paper_width":576,"image_scale":80,"printers":[{"name":"` +
+			nombre + `","target":"` + destino + `"}]}`
 		if err := os.WriteFile(paths.Settings, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
+	destinos := func(nombre string) []string {
+		res, err := s.resolve(docRequest{Printer: nombre})
+		if err != nil {
+			t.Fatalf("resolve(%q): %v", nombre, err)
+		}
+		return res.Targets
+	}
 
 	escribir("cocina", "IMPRESORA-A")
-	if got, _ := s.resolvePrinters("cocina"); len(got) != 1 || got[0] != "IMPRESORA-A" {
+	if got := destinos("cocina"); len(got) != 1 || got[0] != "IMPRESORA-A" {
 		t.Fatalf("primera lectura: %v", got)
 	}
 	// Dos veces seguidas debe dar lo mismo (y la segunda sale de la cache).
-	if got, _ := s.resolvePrinters("cocina"); got[0] != "IMPRESORA-A" {
+	if got := destinos("cocina"); got[0] != "IMPRESORA-A" {
 		t.Fatalf("segunda lectura: %v", got)
 	}
 
@@ -419,7 +429,7 @@ func TestLaCacheDeAjustesSeRefresca(t *testing.T) {
 	if err := os.Chtimes(paths.Settings, futuro, futuro); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := s.resolvePrinters("cocina"); len(got) != 1 || got[0] != "IMPRESORA-B" {
+	if got := destinos("cocina"); len(got) != 1 || got[0] != "IMPRESORA-B" {
 		t.Fatalf("tras cambiar el archivo deberia leerse de nuevo, obtuve %v", got)
 	}
 }
@@ -435,11 +445,171 @@ func TestGuardarAjustesRefrescaLaCache(t *testing.T) {
 
 	if _, err := s.saveSettingsFile(settings.Settings{
 		PaperWidth: 576,
-		Aliases:    []settings.Alias{{Name: "caja", Printer: "IMPRESORA-C"}},
+		Printers:   []settings.Printer{{Name: "caja", Target: "IMPRESORA-C"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := s.resolvePrinters("caja"); len(got) != 1 || got[0] != "IMPRESORA-C" {
-		t.Fatalf("la cache no se refresco al guardar: %v", got)
+	res, err := s.resolve(docRequest{Printer: "caja"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Targets) != 1 || res.Targets[0] != "IMPRESORA-C" {
+		t.Fatalf("la cache no se refresco al guardar: %v", res.Targets)
+	}
+}
+
+// --- Opciones de documento --------------------------------------------------
+
+func TestCutAceptaBooleanoYNombre(t *testing.T) {
+	cases := map[string]escpos.CutMode{
+		`true`:       escpos.CutPartial,
+		`false`:      escpos.CutNone,
+		`"partial"`:  escpos.CutPartial,
+		`"full"`:     escpos.CutFull,
+		`"none"`:     escpos.CutNone,
+		`"completo"`: escpos.CutFull,
+		`"ninguno"`:  escpos.CutNone,
+	}
+	for raw, want := range cases {
+		var c CutSetting
+		if err := json.Unmarshal([]byte(raw), &c); err != nil {
+			t.Fatalf("cut=%s: %v", raw, err)
+		}
+		if !c.Set || c.Mode != want {
+			t.Fatalf("cut=%s -> %q, esperaba %q", raw, c.Mode, want)
+		}
+	}
+	var c CutSetting
+	if err := json.Unmarshal([]byte(`"loquesea"`), &c); err == nil {
+		t.Fatal("un modo de corte invalido deberia dar error")
+	}
+}
+
+// Cada impresora puede tener su propio ancho: una de 58 mm en cocina y una de
+// 80 mm en caja, sin repetirlo en cada llamada.
+func TestCadaImpresoraTieneSusAjustes(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.DefaultPaths(dir)
+	if err := os.MkdirAll(filepath.Dir(paths.Settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{cfg: config.Default(), paths: paths}
+	if _, err := s.saveSettingsFile(settings.Settings{
+		PaperWidth: 384,
+		Printers: []settings.Printer{
+			{Name: "cocina", Target: "COCINA-1", PaperWidth: 384, Cut: "none"},
+			{Name: "caja", Target: "CAJA-1,CAJA-2", PaperWidth: 576, Cut: "full", UpsideDown: true},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cocina, err := s.resolve(docRequest{Printer: "cocina"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cocina.Doc.PaperWidth != 384 || cocina.Doc.Cut != escpos.CutNone {
+		t.Fatalf("cocina: %+v", cocina.Doc)
+	}
+	if cocina.Doc.Columns() != 32 {
+		t.Fatalf("cocina deberia tener 32 columnas, tiene %d", cocina.Doc.Columns())
+	}
+
+	caja, err := s.resolve(docRequest{Printer: "caja"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if caja.Doc.PaperWidth != 576 || caja.Doc.Cut != escpos.CutFull || !caja.Doc.UpsideDown {
+		t.Fatalf("caja: %+v", caja.Doc)
+	}
+	if len(caja.Targets) != 2 {
+		t.Fatalf("caja deberia encolar en dos destinos, tiene %v", caja.Targets)
+	}
+
+	// Lo que trae la peticion manda sobre el perfil.
+	no := false
+	sobre, err := s.resolve(docRequest{Printer: "caja", Width: 384, UpsideDown: &no})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sobre.Doc.PaperWidth != 384 || sobre.Doc.UpsideDown {
+		t.Fatalf("la peticion deberia mandar sobre el perfil: %+v", sobre.Doc)
+	}
+}
+
+// Una impresora que no esta dada de alta se usa tal cual: no hace falta
+// configurar nada para imprimir.
+func TestImpresoraNoConfiguradaFunciona(t *testing.T) {
+	s := &Server{cfg: config.Default(), paths: config.DefaultPaths(t.TempDir())}
+	res, err := s.resolve(docRequest{Printer: "EPSON TM-T20"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Targets) != 1 || res.Targets[0] != "EPSON TM-T20" {
+		t.Fatalf("destinos: %v", res.Targets)
+	}
+}
+
+func TestImpresionAlRevesPorLaAPI(t *testing.T) {
+	h := newTestServer(t, nil)
+	rec := post(t, h, "/api/print/text", `{"printer":"P","text":"hola","upside_down":true}`, "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Los elementos nuevos del ticket no deben romper nada.
+func TestElementosDelTicket(t *testing.T) {
+	h := newTestServer(t, nil)
+	body := `{"printer":"P","width":576,"compact":true,"cut":"partial","lines":[
+	 {"text":"CABECERA","scale_w":2,"scale_h":2,"align":"center"},
+	 {"type":"rule","rule":"="},
+	 {"text":"Invertido","invert":true},
+	 {"type":"table","table":{"header":true,"columns":[{"text":"A","width":10}],"rows":[["A"],["b"]]}},
+	 {"type":"qr","qr":{"data":"https://kollatek.com","size":6,"ec":"H"}},
+	 {"type":"barcode","barcode":{"data":"123456789","type":"ean13","height":60,"hri":"below"}},
+	 {"type":"feed","feed":2},
+	 {"text":"Fin","box":true,"align":"center"}]}`
+	if rec := post(t, h, "/api/print/ticket", body, ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestElementosInvalidosDanError(t *testing.T) {
+	h := newTestServer(t, nil)
+	cases := []string{
+		`{"printer":"P","lines":[{"type":"qr","qr":{"data":"` + strings.Repeat("x", 4000) + `"}}]}`,
+		`{"printer":"P","lines":[{"type":"barcode","barcode":{"data":"` + strings.Repeat("1", 400) + `"}}]}`,
+		`{"printer":"P","lines":[{"type":"image","image":"no-es-base64"}]}`,
+	}
+	for _, body := range cases {
+		if rec := post(t, h, "/api/print/ticket", body, ""); rec.Code != http.StatusBadRequest {
+			t.Fatalf("esperaba 400, obtuve %d para %s", rec.Code, body[:60])
+		}
+	}
+	if rec := post(t, h, "/api/print/text", `{"text":"sin impresora"}`, ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("sin impresora deberia ser 400, obtuve %d", rec.Code)
+	}
+}
+
+// Los alias antiguos se siguen leyendo y se convierten en impresoras.
+func TestMigracionDeAliasAntiguos(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.DefaultPaths(dir)
+	if err := os.MkdirAll(filepath.Dir(paths.Settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	viejo := `{"default_printer":"POS1","paper_width":576,"image_scale":80,
+	 "aliases":[{"name":"cocina","printer":"EPSON Cocina,EPSON Barra","description":"Pedidos"}]}`
+	if err := os.WriteFile(paths.Settings, []byte(viejo), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{cfg: config.Default(), paths: paths}
+	res, err := s.resolve(docRequest{Printer: "cocina"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Targets) != 2 {
+		t.Fatalf("el alias antiguo deberia dar dos destinos, dio %v", res.Targets)
 	}
 }

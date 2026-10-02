@@ -20,6 +20,13 @@ const (
 	// linea del ticket.
 	CutFeedLines = 4
 
+	// defaultLineHeight son los puntos de alto de una linea normal, el valor
+	// de fabrica de la mayoria de termicas.
+	defaultLineHeight = 30
+
+	// TightLineSpacing aprieta el interlineado para no desperdiciar papel.
+	TightLineSpacing = 24
+
 	// MaxBarcodeLen es el limite del byte de longitud de "GS k".
 	MaxBarcodeLen = 255
 	// MaxQRLen es la capacidad maxima de un QR modelo 2 en modo byte.
@@ -82,6 +89,35 @@ func (b *Builder) DoubleSize(on bool) *Builder {
 	return b
 }
 
+// TextScale fija el tamano por multiplicador (GS ! n): 1 es el normal y 8 el
+// maximo que admite ESC/POS, por separado en ancho y alto. FontSize sigue
+// existiendo para los nombres de siempre.
+func (b *Builder) TextScale(width, height int) *Builder {
+	clamp := func(v int) int {
+		if v < 1 {
+			return 1
+		}
+		if v > 8 {
+			return 8
+		}
+		return v
+	}
+	w, h := clamp(width), clamp(height)
+	b.buf.Write([]byte{0x1d, 0x21, byte((w-1)<<4 | (h - 1))})
+	return b
+}
+
+// Font selecciona la fuente interna (ESC M): "a" es la normal y "b" la
+// condensada, que entra mas texto por linea.
+func (b *Builder) Font(name string) *Builder {
+	if strings.EqualFold(name, "b") || strings.EqualFold(name, "small") {
+		b.buf.Write([]byte{0x1b, 0x4d, 0x01})
+		return b
+	}
+	b.buf.Write([]byte{0x1b, 0x4d, 0x00})
+	return b
+}
+
 func (b *Builder) FontSize(size string) *Builder {
 	switch strings.ToLower(size) {
 	case "double":
@@ -99,6 +135,46 @@ func (b *Builder) FontSize(size string) *Builder {
 	return b
 }
 
+// LineSpacing fija el alto de linea en puntos (ESC 3 n). Bajarlo aprieta el
+// ticket; 0 restaura el valor de fabrica de la impresora (ESC 2).
+func (b *Builder) LineSpacing(dots int) *Builder {
+	if dots <= 0 {
+		b.buf.Write([]byte{0x1b, 0x32})
+		return b
+	}
+	if dots > 255 {
+		dots = 255
+	}
+	b.buf.Write([]byte{0x1b, 0x33, byte(dots)})
+	return b
+}
+
+// UpsideDown imprime el contenido girado 180 grados (ESC { n), de forma que
+// el ticket sale con la cabecera en el extremo que queda abajo. Hay que
+// activarlo al principio: afecta a lo que se imprima despues.
+func (b *Builder) UpsideDown(on bool) *Builder {
+	return b.onOff([]byte{0x1b, 0x7b}, on)
+}
+
+// Inverted imprime blanco sobre negro (GS B n). Util para destacar un total.
+func (b *Builder) Inverted(on bool) *Builder {
+	return b.onOff([]byte{0x1d, 0x42}, on)
+}
+
+// Rotate90 gira cada caracter 90 grados (ESC V n).
+func (b *Builder) Rotate90(on bool) *Builder {
+	return b.onOff([]byte{0x1b, 0x56}, on)
+}
+
+// LeftMargin fija el margen izquierdo en puntos (GS L).
+func (b *Builder) LeftMargin(dots int) *Builder {
+	if dots < 0 {
+		dots = 0
+	}
+	b.buf.Write([]byte{0x1d, 0x4c, byte(dots % 256), byte(dots / 256)})
+	return b
+}
+
 func (b *Builder) Feed(lines int) *Builder {
 	if lines < 1 {
 		lines = 1
@@ -110,7 +186,46 @@ func (b *Builder) Feed(lines int) *Builder {
 	return b
 }
 
-func (b *Builder) Cut() *Builder {
+// CutMode indica como cortar el papel.
+type CutMode string
+
+const (
+	CutFull    CutMode = "full"    // corte completo
+	CutPartial CutMode = "partial" // deja un punto de union; lo normal en POS
+	CutNone    CutMode = "none"    // no cortar
+)
+
+// Cut avanza y corta en un solo comando (GS V 66 n). Hacerlo con "avanzar y
+// luego cortar" por separado deja al descubierto la distancia entre el
+// cabezal y la cuchilla, que es justo lo que cortaba la ultima linea.
+func (b *Builder) Cut(mode CutMode, feedLines int) *Builder {
+	if mode == CutNone {
+		return b
+	}
+	if feedLines < 0 {
+		feedLines = 0
+	}
+	if feedLines > 255 {
+		feedLines = 255
+	}
+	// GS V 66 n: avanza n puntos hasta la posicion de corte y hace corte
+	// parcial. Se traduce de lineas a puntos con la altura de linea tipica.
+	dots := feedLines * defaultLineHeight
+	if dots > 255 {
+		dots = 255
+	}
+	if mode == CutFull {
+		// GS V 65 n hace lo mismo pero con corte completo.
+		b.buf.Write([]byte{0x1d, 0x56, 65, byte(dots)})
+		return b
+	}
+	b.buf.Write([]byte{0x1d, 0x56, 66, byte(dots)})
+	return b
+}
+
+// CutLegacy usa GS V 0 sin avance, para impresoras que no entienden la
+// funcion B del comando de corte.
+func (b *Builder) CutLegacy() *Builder {
 	b.buf.Write([]byte{0x1d, 0x56, 0x00})
 	return b
 }
@@ -120,19 +235,101 @@ func (b *Builder) DrawerKick() *Builder {
 	return b
 }
 
+// QROptions controla el aspecto del codigo QR.
+type QROptions struct {
+	// ModuleSize es el lado de cada punto, de 1 a 16. Con 0 se calcula a
+	// partir del ancho del papel y de cuanto texto lleve el QR.
+	ModuleSize int
+	// ECLevel es la correccion de errores: L, M, Q o H. Mas correccion
+	// significa un QR mas grande pero legible aunque se manche. Por defecto M.
+	ECLevel string
+	// PaperWidth en puntos, para calcular ModuleSize cuando vale 0.
+	PaperWidth int
+}
+
+// QR imprime un codigo QR con los valores por defecto.
 func (b *Builder) QR(data string) *Builder {
+	return b.QRWith(data, QROptions{})
+}
+
+// QRWith imprime un codigo QR con el tamano y la correccion indicados.
+func (b *Builder) QRWith(data string, opt QROptions) *Builder {
 	payload := []byte(data)
 	if len(payload) == 0 || len(payload) > MaxQRLen {
 		return b
 	}
+	module := opt.ModuleSize
+	if module <= 0 {
+		module = AutoQRModule(len(payload), opt.PaperWidth)
+	}
+	if module < 1 {
+		module = 1
+	}
+	if module > 16 {
+		module = 16
+	}
+
+	// GS ( k: modelo 2
 	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00})
-	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x06})
-	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31})
+	// tamano del modulo
+	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, byte(module)})
+	// nivel de correccion
+	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, qrECByte(opt.ECLevel)})
+	// datos
 	pLen := len(payload) + 3
 	b.buf.Write([]byte{0x1d, 0x28, 0x6b, byte(pLen % 256), byte(pLen / 256), 0x31, 0x50, 0x30})
 	b.buf.Write(payload)
+	// imprimir
 	b.buf.Write([]byte{0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30})
 	return b
+}
+
+func qrECByte(level string) byte {
+	switch strings.ToUpper(strings.TrimSpace(level)) {
+	case "L":
+		return 48
+	case "Q":
+		return 50
+	case "H":
+		return 51
+	default: // M
+		return 49
+	}
+}
+
+// AutoQRModule elige el tamano de punto mas grande que deja el QR dentro del
+// papel. Con el tamano fijo de antes, un QR con mucho texto se salia del
+// ancho y la impresora lo recortaba.
+func AutoQRModule(dataLen, paperWidth int) int {
+	if paperWidth <= 0 {
+		paperWidth = 384
+	}
+	// Lado del simbolo en modulos, aproximado por la capacidad en modo byte
+	// del modelo 2 con correccion M.
+	modules := 25
+	switch {
+	case dataLen > 1000:
+		modules = 129
+	case dataLen > 500:
+		modules = 97
+	case dataLen > 250:
+		modules = 73
+	case dataLen > 120:
+		modules = 57
+	case dataLen > 60:
+		modules = 45
+	case dataLen > 30:
+		modules = 37
+	}
+	// Se deja un margen del 10% para la zona de silencio.
+	size := (paperWidth * 9 / 10) / modules
+	if size < 1 {
+		size = 1
+	}
+	if size > 16 {
+		size = 16
+	}
+	return size
 }
 
 type BarcodeType byte
@@ -143,34 +340,134 @@ const (
 	BarcodeEAN13   BarcodeType = 67
 	BarcodeEAN8    BarcodeType = 68
 	BarcodeCode39  BarcodeType = 69
+	BarcodeITF     BarcodeType = 70
+	BarcodeCodabar BarcodeType = 71
 	BarcodeCode93  BarcodeType = 72
 	BarcodeCode128 BarcodeType = 73
 	BarcodePDF417  BarcodeType = 0
 )
 
+// BarcodeTypeByName traduce el nombre que llega por la API.
+func BarcodeTypeByName(name string) BarcodeType {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "upca", "upc-a":
+		return BarcodeUPCA
+	case "upce", "upc-e":
+		return BarcodeUPCE
+	case "ean13", "ean-13":
+		return BarcodeEAN13
+	case "ean8", "ean-8":
+		return BarcodeEAN8
+	case "code39", "code-39":
+		return BarcodeCode39
+	case "itf":
+		return BarcodeITF
+	case "codabar":
+		return BarcodeCodabar
+	case "code93", "code-93":
+		return BarcodeCode93
+	case "pdf417":
+		return BarcodePDF417
+	default:
+		return BarcodeCode128
+	}
+}
+
+// BarcodeOptions controla el aspecto del codigo de barras.
+type BarcodeOptions struct {
+	Type BarcodeType
+	// HeightDots es el alto en puntos, de 1 a 255. Por defecto 100.
+	HeightDots int
+	// ModuleWidth es el grosor de la barra fina, de 2 a 6. Con 0 se calcula
+	// para que el codigo quepa en el papel.
+	ModuleWidth int
+	// HRI es donde se imprime el texto legible: none, above, below o both.
+	HRI string
+	// PaperWidth en puntos, para calcular ModuleWidth cuando vale 0.
+	PaperWidth int
+}
+
 func (b *Builder) Barcode(data string) *Builder {
-	return b.BarcodeWithType(BarcodeCode128, data)
+	return b.BarcodeWith(data, BarcodeOptions{Type: BarcodeCode128})
 }
 
 func (b *Builder) BarcodeWithType(kind BarcodeType, data string) *Builder {
-	if kind == BarcodePDF417 {
+	return b.BarcodeWith(data, BarcodeOptions{Type: kind})
+}
+
+// BarcodeWith imprime un codigo de barras con el tamano indicado.
+func (b *Builder) BarcodeWith(data string, opt BarcodeOptions) *Builder {
+	if opt.Type == BarcodePDF417 {
 		return b.PDF417(data)
 	}
 	payload := []byte(data)
-	if kind == BarcodeCode128 && len(payload) > 0 && payload[0] != '{' {
+	if opt.Type == BarcodeCode128 && len(payload) > 0 && payload[0] != '{' {
 		payload = append([]byte("{B"), payload...)
 	}
-	// byte(len(payload)) daba la vuelta con 256 bytes o mas: la impresora leia
-	// unos pocos bytes y ejecutaba el resto del codigo como comandos.
+	// byte(len(payload)) daba la vuelta con 256 bytes o mas: la impresora
+	// leia unos pocos y ejecutaba el resto de los datos como comandos.
 	if len(payload) == 0 || len(payload) > MaxBarcodeLen {
 		return b
 	}
-	b.buf.Write([]byte{0x1d, 0x48, 0x02})
-	b.buf.Write([]byte{0x1d, 0x68, 0x64})
-	b.buf.Write([]byte{0x1d, 0x77, 0x02})
-	b.buf.Write([]byte{0x1d, 0x6b, byte(kind), byte(len(payload))})
+
+	height := opt.HeightDots
+	if height <= 0 {
+		height = 100
+	}
+	if height > 255 {
+		height = 255
+	}
+	width := opt.ModuleWidth
+	if width <= 0 {
+		width = AutoBarcodeWidth(len(payload), opt.PaperWidth)
+	}
+	if width < 2 {
+		width = 2
+	}
+	if width > 6 {
+		width = 6
+	}
+
+	b.buf.Write([]byte{0x1d, 0x48, hriByte(opt.HRI)})
+	b.buf.Write([]byte{0x1d, 0x68, byte(height)})
+	b.buf.Write([]byte{0x1d, 0x77, byte(width)})
+	b.buf.Write([]byte{0x1d, 0x6b, byte(opt.Type), byte(len(payload))})
 	b.buf.Write(payload)
 	return b
+}
+
+func hriByte(pos string) byte {
+	switch strings.ToLower(strings.TrimSpace(pos)) {
+	case "none", "":
+		return 0
+	case "above", "arriba":
+		return 1
+	case "both", "ambos":
+		return 3
+	default: // below
+		return 2
+	}
+}
+
+// AutoBarcodeWidth elige el grosor de barra mas grande que deja el codigo
+// dentro del papel.
+func AutoBarcodeWidth(dataLen, paperWidth int) int {
+	if paperWidth <= 0 {
+		paperWidth = 384
+	}
+	if dataLen <= 0 {
+		return 2
+	}
+	// Code128 gasta unos 11 modulos por caracter, mas el inicio y el final.
+	modules := dataLen*11 + 35
+	w := (paperWidth * 9 / 10) / modules
+	if w < 2 {
+		w = 2
+	}
+	if w > 6 {
+		w = 6
+	}
+	return w
 }
 
 func (b *Builder) PDF417(data string) *Builder {
@@ -186,8 +483,6 @@ func (b *Builder) PDF417(data string) *Builder {
 	return b
 }
 
-// Image empaqueta la imagen a 1 bit por pixel y la emite como mapa de bits
-// raster (GS v 0).
 func (b *Builder) Image(img image.Image) *Builder {
 	if img == nil {
 		return b

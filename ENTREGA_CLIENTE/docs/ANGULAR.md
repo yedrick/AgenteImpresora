@@ -74,14 +74,14 @@ await this.print.configureStorePrinters({
 
 Con esto tu app imprime usando alias (`cocina`, `facturas`, `pagos`) y no depende del nombre fisico en cada pantalla.
 
-## PASO 1: Crear proyecto Angular
+## Paso 1: Crear proyecto Angular
 
 ```bash
 ng new mi-tienda
 cd mi-tienda
 ```
 
-## PASO 2: Copiar SDK a tu proyecto
+## Paso 2: Copiar SDK a tu proyecto
 
 Copia la carpeta `collatech-sdk` dentro de `mi-tienda/`:
 
@@ -93,19 +93,19 @@ mi-tienda/
 └── package.json
 ```
 
-## PASO 3: Instalar dependencias
+## Paso 3: Instalar dependencias
 
 ```bash
 npm install ./collatech-sdk
 ```
 
-## PASO 4: Crear servicio de impresion
+## Paso 4: Crear servicio de impresion
 
 ```bash
 ng generate service services/printer --skip-tests
 ```
 
-## PASO 5: Editar el servicio
+## Paso 5: Editar el servicio
 
 Reemplaza el contenido de `src/app/services/printer.service.ts`:
 
@@ -174,13 +174,13 @@ export class PrinterService {
 }
 ```
 
-## PASO 6: Crear componente
+## Paso 6: Crear componente
 
 ```bash
 ng generate component components/pos --skip-tests
 ```
 
-## PASO 7: Editar el componente
+## Paso 7: Editar el componente
 
 Reemplaza `src/app/components/pos/pos.component.ts`:
 
@@ -313,7 +313,7 @@ export class PosComponent implements OnInit {
 }
 ```
 
-## PASO 8: Editar el template
+## Paso 8: Editar el template
 
 Reemplaza `src/app/components/pos/pos.component.html`:
 
@@ -373,7 +373,7 @@ Reemplaza `src/app/components/pos/pos.component.html`:
 </div>
 ```
 
-## PASO 9: Editar estilos
+## Paso 9: Editar estilos
 
 Reemplaza `src/app/components/pos/pos.component.css`:
 
@@ -464,7 +464,7 @@ h2 {
 }
 ```
 
-## PASO 10: Importar FormsModule
+## Paso 10: Importar FormsModule
 
 Edita `src/app/app.module.ts`:
 
@@ -491,7 +491,7 @@ import { PosComponent } from './components/pos/pos.component';
 export class AppModule { }
 ```
 
-## PASO 11: Usar el componente
+## Paso 11: Usar el componente
 
 Edita `src/app/app.component.html`:
 
@@ -499,7 +499,7 @@ Edita `src/app/app.component.html`:
 <app-pos></app-pos>
 ```
 
-## PASO 12: Ejecutar
+## Paso 12: Ejecutar
 
 ```bash
 ng serve
@@ -554,3 +554,69 @@ export class MiComponent {
   }
 }
 ```
+
+---
+
+## Opcional: proxy de Angular para evitar CORS
+
+Crea `proxy.conf.json` en la raiz del proyecto:
+
+```json
+{
+  "/api": {
+    "target": "http://localhost:18743",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/health": {
+    "target": "http://localhost:18743",
+    "secure": false
+  }
+}
+```
+
+Edita `angular.json` > `serve` > `options`:
+
+```json
+"proxyConfig": "proxy.conf.json"
+```
+
+Y actualiza el servicio para usar proxy:
+
+```typescript
+this.client = new CollaTech({
+  baseUrl: '',  // Usa proxy de Angular
+  timeout: 10000,
+});
+```
+
+## Uso directo sin componente (ejemplo rapido)
+
+```typescript
+import { Component } from '@angular/core';
+import { PrinterService } from './services/printer.service';
+
+@Component({
+  selector: 'app-root',
+  template: `
+    <button (click)="imprimir()">Imprimir</button>
+  `
+})
+export class AppComponent {
+  constructor(private printer: PrinterService) {}
+
+  async imprimir() {
+    await this.printer.printTicket({
+      printer: 'Impresora1',
+      title: 'MI TIENDA',
+      lines: [
+        { text: 'Cafe', align: 'left' },
+        { text: 'Bs 5.00', align: 'right', bold: true },
+      ],
+      cut: true,
+    });
+  }
+}
+```
+
+---

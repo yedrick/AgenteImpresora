@@ -74,12 +74,25 @@ func uninstallService() error {
 }
 
 func installSystemd(binPath string, paths config.Paths) error {
-	// ProtectSystem=strict deja todo el sistema de archivos en solo lectura
-	// salvo lo que se declare: el agente solo necesita escribir sus datos y,
-	// la primera vez, el token en su configuracion.
-	unit := fmt.Sprintf(`[Unit]
+	if err := os.WriteFile(systemdUnit, []byte(systemdUnitText(binPath, paths)), 0o644); err != nil {
+		return fmt.Errorf("no se pudo escribir %s: %w", systemdUnit, err)
+	}
+	if err := run("systemctl", "daemon-reload"); err != nil {
+		return err
+	}
+	if err := run("systemctl", "enable", "collatech-agent"); err != nil {
+		return err
+	}
+	return run("systemctl", "restart", "collatech-agent")
+}
+
+// systemdUnitText arma la unidad. ProtectSystem=strict deja todo el sistema
+// de archivos en solo lectura salvo lo que se declare: el agente solo
+// necesita escribir sus datos y, la primera vez, el token en su
+// configuracion.
+func systemdUnitText(binPath string, paths config.Paths) string {
+	return fmt.Sprintf(`[Unit]
 Description=CollaTech Agent - impresion ESC/POS
-Documentation=https://github.com/collatech/agent
 After=network-online.target cups.service
 Wants=network-online.target
 
@@ -93,29 +106,27 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=%s %s
-# Acceso a impresoras USB y puertos serie
+# Acceso a impresoras USB (/dev/usb/lp*) y puertos serie (/dev/ttyUSB*).
+# El permiso lo dan los grupos; no se usa DeviceAllow porque, al declararlo,
+# systemd deniega todo lo que no aparezca en la lista, y un nombre de clase
+# equivocado dejaria al agente sin acceso a ningun dispositivo.
 SupplementaryGroups=lp dialout
-DeviceAllow=char-usb/lp rw
-DeviceAllow=char-ttyUSB rw
 
 [Install]
 WantedBy=multi-user.target
 `, binPath, paths.Config, paths.DataDir, paths.DataDir, filepath.Dir(paths.Config))
-
-	if err := os.WriteFile(systemdUnit, []byte(unit), 0o644); err != nil {
-		return fmt.Errorf("no se pudo escribir %s: %w", systemdUnit, err)
-	}
-	if err := run("systemctl", "daemon-reload"); err != nil {
-		return err
-	}
-	if err := run("systemctl", "enable", "collatech-agent"); err != nil {
-		return err
-	}
-	return run("systemctl", "restart", "collatech-agent")
 }
 
 func installLaunchd(binPath string, paths config.Paths) error {
-	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	if err := os.WriteFile(launchdPlist, []byte(launchdPlistText(binPath, paths)), 0o644); err != nil {
+		return fmt.Errorf("no se pudo escribir %s: %w", launchdPlist, err)
+	}
+	_ = run("launchctl", "unload", launchdPlist)
+	return run("launchctl", "load", "-w", launchdPlist)
+}
+
+func launchdPlistText(binPath string, paths config.Paths) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -132,12 +143,6 @@ func installLaunchd(binPath string, paths config.Paths) error {
 </dict>
 </plist>
 `, binPath, paths.Config, paths.DataDir, paths.Logs)
-
-	if err := os.WriteFile(launchdPlist, []byte(plist), 0o644); err != nil {
-		return fmt.Errorf("no se pudo escribir %s: %w", launchdPlist, err)
-	}
-	_ = run("launchctl", "unload", launchdPlist)
-	return run("launchctl", "load", "-w", launchdPlist)
 }
 
 // copyExecutable copia el binario en marcha a su ubicacion definitiva.
@@ -195,7 +200,10 @@ func writeDefaultConfig(path string) error {
 	cfg := config.Default()
 	cfg.Host = "0.0.0.0"
 	cfg.AllowRemote = true
-	cfg.AllowedCORS = []string{"http://localhost:18743", "http://127.0.0.1:18743"}
+	cfg.AllowedCORS = []string{
+		fmt.Sprintf("http://localhost:%d", config.DefaultPort),
+		fmt.Sprintf("http://127.0.0.1:%d", config.DefaultPort),
+	}
 	cfg.Queue.Workers = 4
 	token, err := config.NewToken()
 	if err != nil {

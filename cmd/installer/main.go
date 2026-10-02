@@ -17,11 +17,22 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
+
+	"collatech-agent/internal/config"
 )
 
 const appTitle = "CollaTech Agent - Instalador"
+
+// portText y panelURL evitan repetir el numero de puerto por los mensajes,
+// las reglas del firewall y los accesos directos.
+var portText = strconv.Itoa(config.DefaultPort)
+
+func panelURL(host string) string {
+	return fmt.Sprintf("http://%s:%d/panel", host, config.DefaultPort)
+}
 
 // systemTool devuelve la ruta absoluta en System32. El instalador corre
 // elevado, asi que resolver "sc", "netsh" o "cscript" por el PATH permitiria
@@ -55,7 +66,7 @@ func main() {
 		}
 		messageBox(
 			"CollaTech Agent necesita permisos de administrador para instalarse "+
-				"(inicio automatico y apertura del puerto 18743 en el Firewall).\n\n"+
+				"(inicio automatico y apertura del puerto "+portText+" en el Firewall).\n\n"+
 				"Vuelve a ejecutar el instalador y acepta el aviso de Windows.",
 			appTitle, mbOK|mbIconError)
 		return
@@ -65,7 +76,7 @@ func main() {
 		"Esto instalara CollaTech Agent en este equipo:\n\n"+
 			"- Servicio de impresion en segundo plano\n"+
 			"- Inicio automatico al encender la PC\n"+
-			"- Puerto 18743 habilitado en el Firewall (red local)\n\n"+
+			"- Puerto "+portText+" habilitado en el Firewall (red local)\n\n"+
 			"¿Continuar con la instalacion?",
 		appTitle, mbYesNo|mbIconQuestion)
 	if confirm != idYes {
@@ -80,7 +91,7 @@ func main() {
 
 	messageBox(successSummary(result), appTitle, mbOK|mbIconInformation)
 	if messageBox("¿Abrir el panel de CollaTech Agent ahora?", appTitle, mbYesNo|mbIconQuestion) == idYes {
-		shellOpen("http://localhost:18743/panel")
+		shellOpen(panelURL("localhost"))
 	}
 }
 
@@ -94,16 +105,16 @@ func successSummary(r *installResult) string {
 		b.WriteString("Servicio de Windows: no se pudo registrar (revisa permisos/antivirus)\n")
 	}
 	if r.firewallOK {
-		b.WriteString("Firewall: puerto 18743 habilitado para la red local\n")
+		fmt.Fprintf(&b, "Firewall: puerto %s habilitado para la red local\n", portText)
 	} else {
 		b.WriteString("Firewall: no se pudo habilitar automaticamente (revisa el antivirus)\n")
 	}
-	b.WriteString("\nPanel en esta PC:\n  http://localhost:18743/panel\n")
+	fmt.Fprintf(&b, "\nPanel en esta PC:\n  %s\n", panelURL("localhost"))
 	if r.hostname != "" {
-		fmt.Fprintf(&b, "\nPanel desde otra PC de la red:\n  http://%s:18743/panel\n", r.hostname)
+		fmt.Fprintf(&b, "\nPanel desde otra PC de la red:\n  %s\n", panelURL(r.hostname))
 	}
 	for _, ip := range r.ips {
-		fmt.Fprintf(&b, "  http://%s:18743/panel\n", ip)
+		fmt.Fprintf(&b, "  %s\n", panelURL(ip))
 	}
 	if r.authToken != "" {
 		fmt.Fprintf(&b, "\nTOKEN DE ACCESO PARA LA RED:\n  %s\n\n", r.authToken)
@@ -142,7 +153,7 @@ func install() (*installResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no se pudo generar el token de acceso: %w", err)
 	}
-	config := fmt.Sprintf(`{"host":"0.0.0.0","port":18743,"log_level":"info","allowed_cors":["http://localhost:18743","http://127.0.0.1:18743"],"allow_remote":true,"auth_token":%q,"max_print_size":2097152,"queue":{"workers":4,"max_retries":2},"tls":{"enabled":false,"cert_file":"certs/cert.pem","key_file":"certs/key.pem"}}`, authToken)
+	config := fmt.Sprintf(`{"host":"0.0.0.0","port":%d,"log_level":"info","allowed_cors":["http://localhost:%d","http://127.0.0.1:%d"],"allow_remote":true,"auth_token":%q,"max_print_size":2097152,"queue":{"workers":4,"max_retries":2},"tls":{"enabled":false,"cert_file":"certs/cert.pem","key_file":"certs/key.pem"}}`, config.DefaultPort, config.DefaultPort, config.DefaultPort, authToken)
 
 	uninstallPs1 := fmt.Sprintf(`Add-Type -AssemblyName PresentationFramework
 $nl = [Environment]::NewLine
@@ -150,7 +161,7 @@ $answer = [System.Windows.MessageBox]::Show("¿Deseas desinstalar CollaTech Agen
 if ($answer -eq "No") { exit }
 
 # 1. Quitar accesos del menu Inicio y escritorio
-Remove-Item -Path "%s" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "%[1]s" -Recurse -Force -ErrorAction SilentlyContinue
 $desktop = [Environment]::GetFolderPath('Desktop')
 Remove-Item -Path "$desktop\CollaTech Agent.lnk" -Force -ErrorAction SilentlyContinue
 
@@ -158,8 +169,8 @@ Remove-Item -Path "$desktop\CollaTech Agent.lnk" -Force -ErrorAction SilentlyCon
 Remove-Item -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CollaTechAgent" -Recurse -Force -ErrorAction SilentlyContinue
 
 # 3. Quitar regla de firewall
-netsh advfirewall firewall delete rule name="GOServer18743" | Out-Null
-netsh advfirewall firewall delete rule name="CollaTech Agent 18743" | Out-Null
+netsh advfirewall firewall delete rule name="GOServer%[3]s" | Out-Null
+netsh advfirewall firewall delete rule name="CollaTech Agent %[3]s" | Out-Null
 netsh advfirewall firewall delete rule name="CollaTech Agent App" | Out-Null
 
 # 4. Detener y quitar el servicio de Windows
@@ -171,13 +182,13 @@ Stop-Process -Name "CollaTechAgent" -Force -ErrorAction SilentlyContinue
 
 # 5. Eliminar archivos
 Start-Sleep -Milliseconds 500
-Remove-Item -Path "%s" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "%[2]s" -Recurse -Force -ErrorAction SilentlyContinue
 
 # 6. Limpiar rastro del propio script
 Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 
 [System.Windows.MessageBox]::Show("CollaTech Agent ha sido desinstalado correctamente.", "Desinstalacion Completa", "OK", "Information")
-`, startMenu, installDir)
+`, startMenu, installDir, portText)
 	os.WriteFile(filepath.Join(tmpDir, "DESINSTALAR.ps1"), []byte(uninstallPs1), 0644)
 
 	launcherBat := fmt.Sprintf(`@echo off
@@ -192,6 +203,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powers
 				copyDir(dir, filepath.Join(tmpDir, dir))
 			}
 		}
+		// El logo es opcional: el agente lleva uno incorporado y solo usa
+		// este si el cliente pone el suyo al lado del ejecutable.
 		if _, err := os.Stat("LOGO.png"); err == nil {
 			data, _ := os.ReadFile("LOGO.png")
 			os.WriteFile(filepath.Join(tmpDir, "LOGO.png"), data, 0644)
@@ -210,8 +223,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powers
 	os.MkdirAll(startMenu, 0755)
 
 	createShortcut(startMenu+"\\Desinstalar.lnk", installDir+"\\Desinstalar.bat", "", installDir, 1)
-	createShortcut(startMenu+"\\Panel Web.lnk", "http://localhost:18743/panel", "", "", 1)
-	createShortcut(os.Getenv("USERPROFILE")+"\\Desktop\\CollaTech Agent - Panel Web.lnk", "http://localhost:18743/panel", "", "", 1)
+	createShortcut(startMenu+"\\Panel Web.lnk", panelURL("localhost"), "", "", 1)
+	createShortcut(os.Getenv("USERPROFILE")+"\\Desktop\\CollaTech Agent - Panel Web.lnk", panelURL("localhost"), "", "", 1)
 
 	writeUninstallRegistry(installDir)
 
@@ -252,7 +265,7 @@ func installService(exePath string) bool {
 	); err != nil {
 		return false
 	}
-	_ = run("description", serviceNameArg, "Agente de impresion ESC/POS CollaTech (panel en http://localhost:18743/panel)")
+	_ = run("description", serviceNameArg, "Agente de impresion ESC/POS CollaTech (panel en "+panelURL("localhost")+")")
 	_ = run("failure", serviceNameArg, "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/5000")
 
 	return run("start", serviceNameArg) == nil
@@ -331,14 +344,14 @@ func openFirewall(programPath string) bool {
 	// Solo los perfiles Privado y Dominio: con "any" el puerto quedaba abierto
 	// tambien en redes Publicas (WiFi de cafeteria), donde no hay nada que
 	// imprimir y si alguien a quien dejar entrar.
-	_ = run("advfirewall", "firewall", "delete", "rule", "name=GOServer18743")
-	_ = run("advfirewall", "firewall", "delete", "rule", "name=CollaTech Agent 18743")
+	_ = run("advfirewall", "firewall", "delete", "rule", "name=GOServer"+portText)
+	_ = run("advfirewall", "firewall", "delete", "rule", "name=CollaTech Agent "+portText)
 	_ = run("advfirewall", "firewall", "delete", "rule", "name=CollaTech Agent App")
 
 	portOK := run("advfirewall", "firewall", "add", "rule",
-		"name=GOServer18743", "dir=in", "action=allow", "protocol=TCP", "localport=18743", "profile=private,domain") == nil
+		"name=GOServer"+portText, "dir=in", "action=allow", "protocol=TCP", "localport="+portText, "profile=private,domain") == nil
 	_ = run("advfirewall", "firewall", "add", "rule",
-		"name=CollaTech Agent 18743", "dir=in", "action=allow", "protocol=TCP", "localport=18743", "profile=private,domain")
+		"name=CollaTech Agent "+portText, "dir=in", "action=allow", "protocol=TCP", "localport="+portText, "profile=private,domain")
 	appOK := run("advfirewall", "firewall", "add", "rule",
 		"name=CollaTech Agent App", "dir=in", "action=allow", "program="+programPath, "enable=yes", "profile=private,domain") == nil
 

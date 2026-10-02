@@ -10,6 +10,10 @@ import (
 	"path/filepath"
 )
 
+// DefaultPort es el puerto de escucha del agente. Estaba escrito a mano en
+// veintiseis sitios entre el servidor y el instalador.
+const DefaultPort = 18743
+
 type Config struct {
 	Host        string   `json:"host"`
 	Port        int      `json:"port"`
@@ -39,7 +43,7 @@ type TLS struct {
 func Default() Config {
 	return Config{
 		Host:         "127.0.0.1",
-		Port:         18743,
+		Port:         DefaultPort,
 		LogLevel:     "info",
 		AllowedCORS:  []string{"http://localhost", "http://127.0.0.1", "null"},
 		AllowRemote:  false,
@@ -62,7 +66,7 @@ func Load(path string) (Config, error) {
 		return cfg, err
 	}
 	if cfg.Port == 0 {
-		cfg.Port = 18743
+		cfg.Port = DefaultPort
 	}
 	if cfg.Host == "" {
 		cfg.Host = Default().Host

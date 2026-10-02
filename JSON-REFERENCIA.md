@@ -218,7 +218,8 @@ PNG, JPEG o GIF, en base64 o como data URI. `scale` va de 35 a 100.
 
 ## 6. Logo — `POST /api/print/logo`
 
-Imprime el `LOGO.png` que está junto al ejecutable.
+Imprime el logo. Si pones un `LOGO.png` junto al ejecutable se usa ese;
+si no, se imprime el que trae el agente incorporado.
 
 ```json
 { "printer": "EPSON TM-T20", "width": 576, "scale": 80, "cut": true }

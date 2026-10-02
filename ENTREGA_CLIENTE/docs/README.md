@@ -1,8 +1,11 @@
 # CollaTech Agent
 
-CollaTech Agent es un agente local de impresión ESC/POS para Windows x64.
-Expone una API REST y convierte trabajos POS a bytes ESC/POS para impresoras
-térmicas Windows, TCP/IP, COM y alias de estación.
+CollaTech Agent es un agente local de impresión ESC/POS. Expone una API REST
+y convierte trabajos POS a bytes ESC/POS para impresoras térmicas.
+
+Funciona en **Windows, Linux y macOS**: usa el spooler del sistema (winspool
+en Windows, CUPS en Linux y macOS) y también sabe imprimir por TCP/IP, por
+puerto serie y directamente sobre un dispositivo USB.
 
 Por defecto escucha solo en `127.0.0.1:18743`. El instalador lo configura para
 la red local (`0.0.0.0`) y, en ese caso, **genera un token de acceso** que las
@@ -10,11 +13,42 @@ peticiones desde otras PCs deben enviar.
 
 ## Requisitos
 
-- Windows x64 para uso en producción con impresoras locales
-- Impresora térmica compatible ESC/POS
+- Una impresora térmica compatible ESC/POS
+- En Linux y macOS, CUPS instalado si vas a imprimir por el spooler
+  (`lp` y `lpstat`); para TCP/IP o USB directo no hace falta
 - Go 1.22 o superior solo para compilar
 
-## Instalación en el cliente
+## Instalación
+
+### Linux y macOS
+
+Un solo comando: el binario se instala a sí mismo como servicio.
+
+```bash
+sudo ./collatech-agent --install
+```
+
+Eso copia el binario a `/usr/local/bin`, crea la configuración en
+`/etc/collatech-agent/config.json` (en macOS, `/usr/local/etc/...`) con un
+token generado que te muestra por pantalla, deja los datos en
+`/var/lib/collatech-agent`, y registra el servicio: unidad **systemd** en
+Linux o demonio **launchd** en macOS, con arranque automático y reinicio
+ante fallo.
+
+```bash
+sudo ./collatech-agent --uninstall   # quitarlo
+systemctl status collatech-agent     # ver cómo va (Linux)
+journalctl -u collatech-agent -f     # seguir el registro (Linux)
+```
+
+Para imprimir por el spooler, la cola de CUPS debe estar configurada como
+**raw** (sin driver), que es lo normal en una térmica ESC/POS:
+
+```bash
+lpadmin -p POS1 -E -v socket://192.168.1.50:9100 -m raw
+```
+
+### Windows
 
 Entrega un único archivo:
 
@@ -86,24 +120,42 @@ imprimir en paralelo en impresoras distintas.
 `max_retries` es el número **total de intentos**, no de reintentos: con `2`,
 el agente prueba una vez, espera 1 segundo y prueba una segunda vez.
 
+## Opciones de línea de comandos
+
+```text
+--config RUTA     archivo de configuración (por defecto, junto al ejecutable)
+--data-dir RUTA   carpeta para logs/ y storage/
+--host HOST       dirección de escucha, por encima del archivo
+--port N          puerto de escucha, por encima del archivo
+--token T         token de acceso, por encima del archivo
+--install         instalar como servicio del sistema y arrancarlo
+--uninstall       detener y quitar el servicio
+--version         mostrar la versión
+```
+
 ## Desarrollo
 
-```powershell
+```bash
 go mod tidy
 go run ./cmd/server
 go test ./...
+go test -race ./...
+go test -run=NONE -bench=. ./internal/escpos ./internal/render ./internal/api
 ```
 
-El agente completo solo se ejecuta en Windows (usa el spooler y el Service
-Control Manager), pero compila y pasa los tests en Linux y macOS, donde la
-impresión por el spooler devuelve error y sigue funcionando `tcp://`.
+Compila y pasa los tests en Linux, macOS y Windows.
 
-### Compilación Windows x64
+### Compilación
 
-```powershell
-$env:GOOS="windows"; $env:GOARCH="amd64"
-go build -ldflags "-H windowsgui -s -w" -o CollaTechAgent.exe ./cmd/server
+```bash
+# Linux / macOS
+go build -ldflags "-s -w" -o collatech-agent ./cmd/server
+
+# Windows, desde cualquier sistema
+GOOS=windows GOARCH=amd64 go build -ldflags "-H windowsgui -s -w" -o CollaTechAgent.exe ./cmd/server
 ```
+
+La versión se incrusta con `-ldflags "-X main.version=1.2.0"`.
 
 Para regenerar el instalador hay que compilar **primero** el agente: usa
 `BUILD_SERVER.bat` y después `BUILD_INSTALLER.bat`, que embebe el binario.
@@ -112,14 +164,20 @@ Para regenerar el instalador hay que compilar **primero** el agente: usa
 
 ```text
 collatech-agent/
-  cmd/server      agente y servicio de Windows
-  cmd/installer   instalador con el agente embebido
-  internal/api    API REST y panel web embebido
-  internal/escpos encoder ESC/POS (CP850, QR, barcode, raster)
-  internal/render conversor HTML -> ESC/POS
-  internal/printers spooler de Windows, TCP y COM
-  internal/queue  cola con reintentos y persistencia
-  collatech-sdk   SDK TypeScript
+  cmd/server         agente, flags e instalación del servicio por sistema
+  cmd/installer      instalador gráfico de Windows, con el agente embebido
+  internal/api       API REST y panel web embebido
+    server.go          montaje, rutas y estado compartido
+    middleware.go      acceso, token y CORS
+    handlers_*.go      manejadores por área
+    ticket.go          composición de tickets y plantillas
+    diagnostics.go     informe de soporte y lectura del registro
+  internal/escpos    encoder ESC/POS (CP850, QR, barcode, raster)
+  internal/render    conversor HTML -> ESC/POS
+  internal/printers  spooler (winspool / CUPS), TCP y dispositivos
+  internal/queue     cola con reintentos y persistencia
+  internal/config    configuración y rutas por sistema
+  collatech-sdk      SDK TypeScript
   configs storage logs docs
 ```
 
@@ -148,7 +206,8 @@ GET  /api/diagnostico  GET /api/logs  GET /api/token
 ```
 
 El contrato completo, campo a campo, está en
-[JSON-REFERENCIA.md](JSON-REFERENCIA.md) y [docs/API.md](docs/API.md).
+[JSON-REFERENCIA.md](JSON-REFERENCIA.md) y [docs/API.md](docs/API.md). Para
+integrar desde Angular, [ANGULAR.md](ANGULAR.md).
 
 ## Ejemplos curl
 
@@ -208,14 +267,19 @@ Valores aceptados en `printer`:
 
 | Valor | Destino |
 |---|---|
-| `"EPSON TM-T20"` | Impresora instalada en Windows |
+| `"EPSON TM-T20"` | Cola del spooler del sistema (winspool o CUPS) |
 | `"printer://EPSON TM-T20"` | Lo mismo, forzado |
 | `"tcp://192.168.1.50:9100"` o `"192.168.1.50:9100"` | Red (puerto 9100 por defecto) |
-| `"COM3"` o `"com://COM3"` | Puerto serie |
+| `"COM3"` o `"com://COM3"` | Puerto serie (Windows) |
+| `"/dev/ttyUSB0"` | Puerto serie (Linux / macOS) |
+| `"device:///dev/usb/lp0"` | Impresora USB directa (Linux) |
 | `"cocina"` | Alias de estación |
 
-Las impresoras USB se direccionan por **su nombre en Windows**, no por el
-puerto: `USB001` no es un destino válido.
+En Windows, las impresoras USB se direccionan por **su nombre en el sistema**,
+no por el puerto: `USB001` no es un destino válido. En Linux puedes usar
+directamente `/dev/usb/lp0`.
+
+`GET /api/printers` lista lo que el agente detecta, con su estado real.
 
 ## Cómo se imprime HTML
 

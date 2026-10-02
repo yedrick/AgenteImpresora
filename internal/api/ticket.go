@@ -1,0 +1,586 @@
+// Composicion de tickets: tablas, lineas con formato, recuadros y las
+// plantillas integradas.
+package api
+
+import (
+	"encoding/json"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"strings"
+	"time"
+
+	"collatech-agent/internal/escpos"
+)
+
+func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml, mr int) {
+	if tbl == nil || len(tbl.Columns) == 0 {
+		return
+	}
+	if ml < 0 {
+		ml = 0
+	}
+	if mr < 0 {
+		mr = 0
+	}
+	inner := cols - ml - mr
+	if inner < 8 {
+		inner = 8
+	}
+
+	if ticketBorder {
+		inner -= 2
+	}
+	if inner < 6 {
+		inner = 6
+	}
+	colCount := len(tbl.Columns)
+	sep := tbl.Border
+
+	// Calcular anchos totales
+	colWidths := make([]int, colCount)
+	totalWidth := 0
+	for i, c := range tbl.Columns {
+		w := c.Width
+		if w < 1 {
+			w = 5
+		}
+		// Ajustar si excede el ancho disponible
+		if totalWidth+w > inner {
+			w = inner - totalWidth
+			if w < 3 {
+				w = 3
+			}
+		}
+		colWidths[i] = w
+		totalWidth += w
+		if sep && i < colCount-1 {
+			totalWidth++ // para │ separador
+		}
+	}
+	// Si no alcanza, escalar proporcionalmente
+	if totalWidth > inner {
+		ratio := float64(inner) / float64(totalWidth)
+		newTotal := 0
+		for i := range colWidths {
+			w := int(float64(colWidths[i]) * ratio)
+			if w < 3 {
+				w = 3
+			}
+			colWidths[i] = w
+			newTotal += w
+			if sep && i < colCount-1 {
+				newTotal++
+			}
+		}
+		// Ajustar ultima columna para llenar exactamente
+		if newTotal < inner {
+			colWidths[colCount-1] += inner - newTotal
+		}
+	}
+
+	b.AlignLeft().FontSize("normal")
+	padLine := func(s string) string {
+		if ml > 0 || mr > 0 {
+			s = strings.Repeat(" ", ml) + s + strings.Repeat(" ", mr)
+		}
+		return s
+	}
+
+	buildRow := func(cells []string, isHeader bool) {
+		var line string
+		// Se recorren las columnas declaradas, no las celdas: una fila con mas
+		// celdas que columnas desbordaba colWidths, y una con menos dejaba la
+		// linea corta.
+		for i := 0; i < colCount; i++ {
+			txt := ""
+			if i < len(cells) {
+				txt = cells[i]
+			}
+			r := []rune(txt)
+			w := colWidths[i]
+			if len(r) > w {
+				r = r[:w]
+			}
+			switch strings.ToLower(tbl.Columns[i].Align) {
+			case "center":
+				pad := w - len(r)
+				left := pad / 2
+				right := pad - left
+				txt = strings.Repeat(" ", left) + string(r) + strings.Repeat(" ", right)
+			case "right":
+				txt = strings.Repeat(" ", w-len(r)) + string(r)
+			default:
+				txt = string(r) + strings.Repeat(" ", w-len(r))
+			}
+			if sep {
+				line += "│" + txt
+			} else {
+				if i > 0 {
+					line += " "
+				}
+				line += txt
+			}
+		}
+		if sep {
+			line += "│"
+		}
+		if ticketBorder && !sep {
+			// Rellenar hacia la derecha para que la linea mida inner
+			rline := []rune(line)
+			if len(rline) < inner {
+				line += strings.Repeat(" ", inner-len(rline))
+			}
+		}
+		if isHeader && tbl.Header && sep {
+			b.Bold(true).TextLine(padLine(line)).Bold(false)
+		} else {
+			b.TextLine(padLine(line))
+		}
+	}
+
+	// Borde superior
+	if sep {
+		var top string
+		for i, w := range colWidths {
+			if i == 0 {
+				top += "┌"
+			} else {
+				top += "┬"
+			}
+			top += strings.Repeat("─", w)
+		}
+		top += "┐"
+		if ticketBorder {
+			// Centrar dentro del border
+			r := []rune(top)
+			pad := (inner - len(r)) / 2
+			if pad > 0 {
+				top = strings.Repeat(" ", pad) + top
+			}
+		}
+		b.TextLine(padLine(top))
+	}
+
+	// Header
+	if len(tbl.Rows) > 0 && tbl.Header {
+		buildRow(tbl.Rows[0], true)
+		// Separador header
+		if sep {
+			var mid string
+			for i, w := range colWidths {
+				if i == 0 {
+					mid += "├"
+				} else {
+					mid += "┼"
+				}
+				mid += strings.Repeat("─", w)
+			}
+			mid += "┤"
+			if ticketBorder {
+				r := []rune(mid)
+				pad := (inner - len(r)) / 2
+				if pad > 0 {
+					mid = strings.Repeat(" ", pad) + mid
+				}
+			}
+			b.TextLine(padLine(mid))
+		}
+	}
+
+	// Filas de datos
+	startRow := 0
+	if tbl.Header {
+		startRow = 1
+	}
+	for i := startRow; i < len(tbl.Rows); i++ {
+		buildRow(tbl.Rows[i], false)
+	}
+
+	// Borde inferior
+	if sep {
+		var bot string
+		for i, w := range colWidths {
+			if i == 0 {
+				bot += "└"
+			} else {
+				bot += "┴"
+			}
+			bot += strings.Repeat("─", w)
+		}
+		bot += "┘"
+		if ticketBorder {
+			r := []rune(bot)
+			pad := (inner - len(r)) / 2
+			if pad > 0 {
+				bot = strings.Repeat(" ", pad) + bot
+			}
+		}
+		b.TextLine(padLine(bot))
+	}
+	b.FontSize("normal").Bold(false)
+}
+
+func applyLine(b *escpos.Builder, line ticketLine, cols int, border bool) {
+	if strings.ToLower(line.Type) == "table" {
+		if line.Table != nil {
+			ml := line.ML
+			mr := line.MR
+			if ml < 0 {
+				ml = 0
+			}
+			if mr < 0 {
+				mr = 0
+			}
+			drawTable(b, line.Table, cols, border, ml, mr)
+		}
+		return
+	}
+
+	text := line.Text
+	r := []rune(text)
+
+	if line.Box {
+		drawBoxLine(b, line, r, cols, border)
+		return
+	}
+
+	ml := line.ML
+	mr := line.MR
+	if ml < 0 {
+		ml = 0
+	}
+	if mr < 0 {
+		mr = 0
+	}
+
+	if border {
+		b.AlignLeft()
+		inner := cols - 2 - ml - mr
+		if inner < 1 {
+			inner = 1
+		}
+		if len(r) > inner {
+			r = r[:inner]
+		}
+		switch strings.ToLower(line.Align) {
+		case "center":
+			pad := inner - len(r)
+			left := pad / 2
+			right := pad - left
+			text = strings.Repeat(" ", ml) + strings.Repeat(" ", left) + string(r) + strings.Repeat(" ", right) + strings.Repeat(" ", mr)
+		case "right":
+			text = strings.Repeat(" ", ml) + strings.Repeat(" ", inner-len(r)) + string(r) + strings.Repeat(" ", mr)
+		default:
+			text = strings.Repeat(" ", ml) + string(r) + strings.Repeat(" ", inner-len(r)) + strings.Repeat(" ", mr)
+		}
+		text = "│" + text + "│"
+	} else {
+		text = strings.Repeat(" ", ml) + text + strings.Repeat(" ", mr)
+		switch strings.ToLower(line.Align) {
+		case "center":
+			b.AlignCenter()
+		case "right":
+			b.AlignRight()
+		default:
+			b.AlignLeft()
+		}
+	}
+	b.FontSize(line.Size).Bold(line.Bold).Underline(line.Underline).TextLine(text)
+	for i := 0; i < line.Gap; i++ {
+		b.Line()
+	}
+	b.FontSize("normal").Bold(false).Underline(false)
+}
+
+func drawBoxLine(b *escpos.Builder, line ticketLine, r []rune, cols int, border bool) {
+	inner := cols
+	if border {
+		inner = cols - 2
+	}
+	ml := line.ML
+	mr := line.MR
+	if ml < 0 {
+		ml = 0
+	}
+	if mr < 0 {
+		mr = 0
+	}
+	// El texto comparte el ancho interior con los margenes y con el marco
+	// ("│  " + " │" = 4 caracteres), asi que se trunca contando ya los
+	// margenes. Truncar antes de sumarlos dejaba la linea mas ancha que la
+	// caja y hacia que el relleno de abajo saliera negativo.
+	maxText := inner - 4 - ml - mr
+	if maxText < 1 {
+		maxText = 1
+		ml, mr = 0, 0
+	}
+	if len(r) > maxText {
+		r = r[:maxText]
+	}
+	if ml+mr > 0 {
+		r = append([]rune(strings.Repeat(" ", ml)), r...)
+		r = append(r, []rune(strings.Repeat(" ", mr))...)
+	}
+	wall := len(r) + 4
+	if wall+2 > inner {
+		wall = inner - 2
+	}
+	if wall < len(r)+2 {
+		wall = len(r) + 2
+	}
+	// El relleno se reparte a los dos lados para que el texto quede centrado
+	// dentro del recuadro, y suma exactamente el ancho del marco: antes la
+	// linea de contenido salia un caracter mas ancha que los bordes.
+	pad := wall - len(r) - 2
+	if pad < 0 {
+		pad = 0
+	}
+	left := pad / 2
+	right := pad - left
+	topLine := "┌" + strings.Repeat("─", wall) + "┐"
+	ctLine := "│ " + strings.Repeat(" ", left) + string(r) + strings.Repeat(" ", right) + " │"
+	botLine := "└" + strings.Repeat("─", wall) + "┘"
+
+	b.FontSize("normal").Bold(line.Bold)
+
+	if border {
+		pad := 0
+		switch strings.ToLower(line.Align) {
+		case "center":
+			pad = (inner - (wall + 2)) / 2
+		case "right":
+			pad = inner - (wall + 2)
+		}
+		if pad < 0 {
+			pad = 0
+		}
+		rp := inner - (wall + 2) - pad
+		if rp < 0 {
+			rp = 0
+		}
+		b.AlignLeft()
+		b.TextLine("│" + strings.Repeat(" ", pad) + topLine + strings.Repeat(" ", rp) + "│")
+		b.TextLine("│" + strings.Repeat(" ", pad) + ctLine + strings.Repeat(" ", rp) + "│")
+		b.TextLine("│" + strings.Repeat(" ", pad) + botLine + strings.Repeat(" ", rp) + "│")
+	} else {
+		switch strings.ToLower(line.Align) {
+		case "center":
+			b.AlignCenter()
+		case "right":
+			b.AlignRight()
+		default:
+			b.AlignLeft()
+		}
+		b.TextLine(topLine)
+		b.TextLine(ctLine)
+		b.TextLine(botLine)
+	}
+
+	b.FontSize("normal").Bold(false)
+	for i := 0; i < line.Gap; i++ {
+		b.Line()
+	}
+}
+
+func ticketCols(width int) int {
+	switch {
+	case width >= 576:
+		return 48
+	case width >= 512:
+		return 42
+	default:
+		return 32
+	}
+}
+
+// templateName normaliza el nombre: quita la extension y se queda con la
+// plantilla conocida. Antes se usaba strings.Contains en cadena, asi que
+// "factura-qr" caia en la rama "qr" porque se evaluaba antes.
+func templateName(raw string) string {
+	name := strings.ToLower(strings.TrimSpace(raw))
+	name = strings.TrimSuffix(name, ".html")
+	for _, known := range nativeTemplates {
+		if name == known {
+			return known
+		}
+	}
+	for _, known := range nativeTemplates {
+		if strings.HasPrefix(name, known) {
+			return known
+		}
+	}
+	return "factura"
+}
+
+func buildNativeTemplate(req templateRequest) *escpos.Builder {
+	data := req.Data
+	template := templateName(req.Template)
+	// req.Width se ignoraba: todo salia a 32 columnas aunque el papel fuera
+	// de 80 mm.
+	cols := ticketCols(req.Width)
+	empresa := cleanText(dataString(data, "empresa", "COLLATECH"))
+	cliente := cleanText(dataString(data, "cliente", "Cliente Demo"))
+	total := cleanText(dataString(data, "total", "0.00"))
+	mensaje := cleanText(dataString(data, "mensaje", "Gracias por su compra"))
+	qr := dataString(data, "qr", "")
+	barcode := dataString(data, "barcode", "")
+	items := dataItems(data)
+
+	b := escpos.New().Initialize()
+	b.AlignCenter().Bold(true).DoubleSize(true).TextLine(empresa).DoubleSize(false).Bold(false)
+
+	switch template {
+	case "recibo":
+		b.AlignCenter().TextLine("RECIBO")
+		b.AlignLeft().TextLine("Cliente: " + cliente)
+		b.TextLine(strings.Repeat("-", cols))
+		b.Bold(true).TextLine(padBoth("TOTAL PAGADO", total, cols)).Bold(false)
+	case "comanda":
+		b.AlignCenter().TextLine("COMANDA")
+		b.AlignLeft().TextLine("Mesa/Cliente: " + cliente)
+		b.TextLine(strings.Repeat("-", cols))
+		for _, item := range items {
+			b.TextLine("- " + cleanText(item.Name))
+		}
+	case "texto":
+		b.AlignLeft().TextLine(mensaje)
+		b.TextLine(time.Now().Format("2006-01-02 15:04:05"))
+	case "qr":
+		b.AlignCenter().TextLine("QR DE PRUEBA")
+		if qr == "" {
+			qr = "https://kollatek.com"
+		}
+		b.QR(qr).Line()
+	case "imagen":
+		b.AlignCenter().TextLine("[ LOGO / IMAGEN ]")
+		b.TextLine(mensaje)
+	default:
+		b.AlignCenter().TextLine("FACTURA")
+		b.AlignLeft().TextLine("Cliente: " + cliente)
+		b.TextLine(time.Now().Format("2006-01-02 15:04:05"))
+		// Tabla de items
+		rows := make([][]string, 0, len(items))
+		for _, item := range items {
+			rows = append(rows, []string{"1", cleanText(item.Name), cleanText(item.Price)})
+		}
+		drawTable(b, &tableDef{
+			Border: false,
+			Header: true,
+			Columns: []tableColumn{
+				{Text: "CANT", Width: 4, Align: "center"},
+				{Text: "PRODUCTO", Width: cols - 16, Align: "left"},
+				{Text: "PRECIO", Width: 12, Align: "right"},
+			},
+			Rows: rows,
+		}, cols, false, 0, 0)
+		b.TextLine(strings.Repeat("-", cols))
+		b.Bold(true).TextLine(padBoth("TOTAL", total, cols)).Bold(false)
+	}
+
+	if qr != "" && template != "qr" {
+		b.AlignCenter().Line().QR(qr).Line()
+	}
+	if barcode != "" {
+		b.AlignCenter().Barcode(barcode).Line()
+	}
+	b.AlignCenter().TextLine(mensaje)
+	return b
+}
+
+type nativeItem struct {
+	Name  string
+	Price string
+}
+
+func dataString(data map[string]any, key, fallback string) string {
+	if data == nil {
+		return fallback
+	}
+	v, ok := data[key]
+	if !ok || v == nil {
+		return fallback
+	}
+	switch val := v.(type) {
+	case string:
+		if strings.TrimSpace(val) == "" {
+			return fallback
+		}
+		return val
+	default:
+		return strings.TrimSpace(strings.Trim(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(toJSON(val)), "\n", " "), "\"", ""), "{}"))
+	}
+}
+
+func dataItems(data map[string]any) []nativeItem {
+	if data == nil {
+		return []nativeItem{{Name: "Producto Demo", Price: "Bs 10.00"}}
+	}
+	raw, ok := data["items"].([]any)
+	if !ok || len(raw) == 0 {
+		return []nativeItem{{Name: "Producto Demo", Price: "Bs 10.00"}}
+	}
+	items := make([]nativeItem, 0, len(raw))
+	for _, row := range raw {
+		itemMap, ok := row.(map[string]any)
+		if !ok {
+			continue
+		}
+		items = append(items, nativeItem{
+			Name:  dataString(itemMap, "nombre", "Item"),
+			Price: dataString(itemMap, "precio", ""),
+		})
+	}
+	if len(items) == 0 {
+		return []nativeItem{{Name: "Producto Demo", Price: "Bs 10.00"}}
+	}
+	return items
+}
+
+func padBoth(left, right string, width int) string {
+	left = cleanText(left)
+	right = cleanText(right)
+	if width <= 0 {
+		width = 32
+	}
+	// Se cuenta en runas, no en bytes: con len() un "TOTAL ARTICULOS" con
+	// tilde desalineaba la columna, y el recorte podia partir un caracter
+	// UTF-8 por la mitad.
+	lr := []rune(left)
+	rr := []rune(right)
+	maxLeft := width - len(rr) - 1
+	if maxLeft < 1 {
+		return left + " " + right
+	}
+	if len(lr) > maxLeft {
+		lr = lr[:maxLeft]
+	}
+	spaces := width - len(lr) - len(rr)
+	if spaces < 1 {
+		spaces = 1
+	}
+	return string(lr) + strings.Repeat(" ", spaces) + string(rr)
+}
+
+func cleanText(s string) string {
+	replacer := strings.NewReplacer(
+		"–", "-", "—", "-", "“", "\"", "”", "\"", "’", "'",
+	)
+	s = replacer.Replace(s)
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	var out strings.Builder
+	for _, r := range s {
+		if r == '\n' || r == '\t' || (r >= 32) {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+
+func toJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}

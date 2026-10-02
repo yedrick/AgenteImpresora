@@ -14,10 +14,11 @@ import (
 const RetentionDays = 30
 
 type Logger struct {
-	mu   sync.Mutex
-	dir  string
-	day  string
-	file *os.File
+	mu       sync.Mutex
+	dir      string
+	day      string
+	file     *os.File
+	onlyErrs bool
 }
 
 type Entry struct {
@@ -27,11 +28,18 @@ type Entry struct {
 	Details map[string]any `json:"details,omitempty"`
 }
 
+// NewJSONLogger abre el log del dia. level acepta "error" para registrar solo
+// los fallos; cualquier otro valor registra todo. Antes el log_level del
+// config se leia y no se usaba.
 func NewJSONLogger(dir string) (*Logger, error) {
+	return NewJSONLoggerLevel(dir, "info")
+}
+
+func NewJSONLoggerLevel(dir, level string) (*Logger, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	l := &Logger{dir: dir}
+	l := &Logger{dir: dir, onlyErrs: strings.EqualFold(strings.TrimSpace(level), "error")}
 	if err := l.rotate(time.Now()); err != nil {
 		return nil, err
 	}
@@ -43,7 +51,7 @@ func (l *Logger) Info(event string, details map[string]any)  { l.write("info", e
 func (l *Logger) Error(event string, details map[string]any) { l.write("error", event, details) }
 
 func (l *Logger) write(level, event string, details map[string]any) {
-	if l == nil {
+	if l == nil || (l.onlyErrs && level != "error") {
 		return
 	}
 	l.mu.Lock()

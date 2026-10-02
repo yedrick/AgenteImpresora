@@ -81,7 +81,7 @@ func startServer() (*agent, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	logger, err := logs.NewJSONLogger("logs")
+	logger, err := logs.NewJSONLoggerLevel("logs", cfg.LogLevel)
 	if err != nil {
 		return nil, fmt.Errorf("create logger: %w", err)
 	}

@@ -1,0 +1,710 @@
+// ---------------------------------------------------------------------------
+// CollaTech Agent SDK – Client
+// ---------------------------------------------------------------------------
+
+import type {
+  CollaTechConfig,
+  CollaTechResponse,
+  HealthData,
+  StatusData,
+  NetworkInfo,
+  PrinterInfo,
+  PrinterAlias,
+  Settings,
+  PrintResult,
+  WaitUntilReadyOptions,
+  PrintInvoiceOptions,
+  PrintTextOptions,
+  PrintTicketOptions,
+  PrintTemplateOptions,
+  PrintHTMLOptions,
+  PrintImageOptions,
+  PrintLogoOptions,
+  PrintRawOptions,
+  LogEntry,
+} from "./types.js";
+
+import {
+  CollaTechError,
+  ConnectionError,
+  ApiError,
+  ForbiddenError,
+} from "./errors.js";
+
+import { normalizeUrl } from "./utils.js";
+
+const DEFAULT_BASE_URL = "http://localhost:18743";
+const DEFAULT_TIMEOUT = 10_000;
+
+function resolveBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    const w = window as any;
+    if (w.__COLLATECH_URL__) return w.__COLLATECH_URL__;
+    if (w.collatech?.baseUrl) return w.collatech.baseUrl;
+  }
+  return DEFAULT_BASE_URL;
+}
+
+/**
+ * CollaTech Agent SDK client.
+ *
+ * Works in any JavaScript environment: browser (React, Angular, Vue, Next.js),
+ * Node.js (≥ 18), Deno, Bun, and edge runtimes.
+ *
+ * @example
+ * ```ts
+ * import { CollaTech } from "collatech-sdk";
+ *
+ * const printer = new CollaTech();
+ *
+ * // Health check
+ * await printer.health();
+ *
+ * // Print text
+ * await printer.printText({ printer: "Impresora1", text: "Hello!" });
+ * ```
+ */
+export class CollaTech {
+  private readonly baseUrl: string;
+  private readonly timeout: number;
+  private readonly debug: boolean;
+  private readonly _fetch: typeof globalThis.fetch;
+
+  constructor(config?: CollaTechConfig) {
+    this.baseUrl = normalizeUrl(config?.baseUrl ?? resolveBaseUrl());
+    this.timeout = config?.timeout ?? DEFAULT_TIMEOUT;
+    this.debug = config?.debug ?? false;
+    this._fetch = config?.fetch ?? globalThis.fetch;
+    this.log(`[CollaTech] SDK initialized. URL: ${this.baseUrl}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Health / Status
+  // -------------------------------------------------------------------------
+
+  /** Check if the agent is running and healthy. */
+  async health(): Promise<HealthData> {
+    const res = await this.get<HealthData>("/health");
+    return res;
+  }
+
+  /** Return true when the agent is reachable. */
+  async isReady(): Promise<boolean> {
+    try {
+      await this.health();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Wait until the local agent is reachable. Useful before first print. */
+  async waitUntilReady(options: WaitUntilReadyOptions = {}): Promise<boolean> {
+    const retries = options.retries ?? 20;
+    const intervalMs = options.intervalMs ?? 500;
+    for (let i = 0; i < retries; i++) {
+      if (await this.isReady()) return true;
+      await delay(intervalMs);
+    }
+    return false;
+  }
+
+  /** Get agent status including current time and queued print jobs. */
+  async status(): Promise<StatusData> {
+    const res = await this.get<StatusData>("/api/status");
+    return res;
+  }
+
+  /** Get LAN URLs and host information for this agent. */
+  async network(): Promise<NetworkInfo> {
+    const res = await this.get<NetworkInfo>("/api/network");
+    return res;
+  }
+
+  // -------------------------------------------------------------------------
+  // Printers
+  // -------------------------------------------------------------------------
+
+  /** List all detected printers (Windows + COM ports). */
+  async printers(): Promise<PrinterInfo[]> {
+    const res = await this.get<PrinterInfo[]>("/api/printers");
+    return res;
+  }
+
+  // -------------------------------------------------------------------------
+  // Templates
+  // -------------------------------------------------------------------------
+
+  /** List available built-in template names. */
+  async templates(): Promise<string[]> {
+    const res = await this.get<string[]>("/api/templates");
+    return res;
+  }
+
+  // -------------------------------------------------------------------------
+  // Settings
+  // -------------------------------------------------------------------------
+
+  /** Load current user settings. */
+  async getSettings(): Promise<Settings> {
+    const res = await this.get<Settings>("/api/settings");
+    return res;
+  }
+
+  /** Save user settings. */
+  async saveSettings(settings: Settings): Promise<Settings> {
+    const res = await this.post<Settings>("/api/settings", settings);
+    return res;
+  }
+
+  /** List configured logical printer aliases, like cocina, recepcion, facturas. */
+  async printerAliases(): Promise<PrinterAlias[]> {
+    const res = await this.get<PrinterAlias[]>("/api/printer-aliases");
+    return res;
+  }
+
+  /** Save logical printer aliases used by print calls. */
+  async savePrinterAliases(aliases: PrinterAlias[]): Promise<PrinterAlias[]> {
+    const res = await this.post<PrinterAlias[]>("/api/printer-aliases", aliases);
+    return res;
+  }
+
+  /** Save common POS stations in one call. */
+  async configurePrinterAliases(aliases: PrinterAlias[]): Promise<PrinterAlias[]> {
+    return this.savePrinterAliases(aliases);
+  }
+
+  // -------------------------------------------------------------------------
+  // Logs
+  // -------------------------------------------------------------------------
+
+  /** Get the last `limit` log entries (max 500). */
+  async logs(limit = 80): Promise<LogEntry[]> {
+    const res = await this.get<LogEntry[]>(`/api/logs?limit=${limit}`);
+    return res;
+  }
+
+  // -------------------------------------------------------------------------
+  // Print – Text
+  // -------------------------------------------------------------------------
+
+  /**
+   * Print plain text.
+   *
+   * @example
+   * ```ts
+   * await printer.printText({
+   *   printer: "Impresora1",
+   *   text: "Hola Mundo",
+   *   cut: true,
+   * });
+   * ```
+   */
+  async printText(options: PrintTextOptions): Promise<PrintResult> {
+    return this.post<PrintResult>("/api/print/text", {
+      printer: options.printer,
+      text: options.text,
+      cut: options.cut ?? true,
+    });
+  }
+
+  /** Print text to a station alias, for example cocina, recepcion, facturas. */
+  async printToStation(
+    station: string,
+    text: string,
+    cut = true
+  ): Promise<PrintResult> {
+    return this.printText({ printer: station, text, cut });
+  }
+
+  /** Send a quick diagnostic ticket to one station or a comma-separated printer list. */
+  async testStation(station: string, copies = 1): Promise<PrintResult[]> {
+    const total = Math.max(1, Math.min(5, Math.floor(copies)));
+    const results: PrintResult[] = [];
+    for (let i = 1; i <= total; i++) {
+      results.push(
+        await this.printText({
+          printer: station,
+          text: `COLLATECH AGENT\nPrueba estacion: ${station}\nCopia: ${i}/${total}\n${new Date().toLocaleString()}`,
+          cut: true,
+        })
+      );
+    }
+    return results;
+  }
+
+  // -------------------------------------------------------------------------
+  // Print – Ticket
+  // -------------------------------------------------------------------------
+
+  /**
+   * Print a structured ticket with title, lines, QR, barcode, and logo.
+   *
+   * @example
+   * ```ts
+   * await printer.printTicket({
+   *   printer: "Impresora1",
+   *   title: "Mi Tienda",
+   *   lines: [
+   *     { text: "Producto A", align: "left" },
+   *     { text: "Bs 100.00", align: "right", bold: true },
+   *   ],
+   *   qr: "https://example.com",
+   *   cut: true,
+   * });
+   * ```
+   */
+  async printTicket(options: PrintTicketOptions): Promise<PrintResult> {
+    return this.post<PrintResult>("/api/print/ticket", {
+      printer: options.printer,
+      title: options.title,
+      lines: options.lines,
+      qr: options.qr,
+      barcode: options.barcode,
+      logo: options.logo,
+      width: options.width,
+      scale: options.scale,
+      cut: options.cut ?? true,
+      drawer: options.drawer ?? false,
+    });
+  }
+
+  /** Open a cash drawer connected to a printer. */
+  async openDrawer(printer: string): Promise<PrintResult> {
+    return this.printTicket({
+      printer,
+      drawer: true,
+      lines: [{ text: "Apertura de caja" }],
+      cut: false,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Print – Template
+  // -------------------------------------------------------------------------
+
+  /**
+   * Print using a built-in template (recibo, comanda, texto, qr, imagen,
+   * or default factura).
+   *
+   * @example
+   * ```ts
+   * await printer.printTemplate({
+   *   printer: "Impresora1",
+   *   template: "recibo",
+   *   data: {
+   *     empresa: "Mi Empresa",
+   *     cliente: "Juan Perez",
+   *     total: "Bs 250.00",
+   *     items: [
+   *       { nombre: "Cafe", precio: "Bs 5.00" },
+   *       { nombre: "Te", precio: "Bs 3.00" },
+   *     ],
+   *   },
+   * });
+   * ```
+   */
+  async printTemplate(
+    options: PrintTemplateOptions
+  ): Promise<PrintResult> {
+    return this.post<PrintResult>("/api/print/template", {
+      printer: options.printer,
+      template: options.template,
+      data: options.data,
+      width: options.width,
+      cut: options.cut ?? true,
+    });
+  }
+
+  /** Print the built-in factura template with a simple typed payload. */
+  async printInvoice(options: PrintInvoiceOptions): Promise<PrintResult> {
+    return this.printTemplate({
+      printer: options.printer,
+      template: "factura.html",
+      width: options.width ?? 576,
+      cut: options.cut ?? true,
+      data: {
+        empresa: options.empresa,
+        cliente: options.cliente,
+        items: options.items,
+        total: options.total,
+        mensaje: options.mensaje,
+      },
+    });
+  }
+
+  /** Print the built-in recibo template with a simple typed payload. */
+  async printReceipt(options: PrintInvoiceOptions): Promise<PrintResult> {
+    return this.printTemplate({
+      printer: options.printer,
+      template: "recibo.html",
+      width: options.width ?? 576,
+      cut: options.cut ?? true,
+      data: {
+        empresa: options.empresa,
+        cliente: options.cliente,
+        items: options.items,
+        total: options.total,
+        mensaje: options.mensaje,
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Print – HTML
+  // -------------------------------------------------------------------------
+
+  /**
+   * Render HTML directly to ESC/POS native commands (fast, no image).
+   * Supports: bold, underline, center, tables, hr, headings.
+   * Use this for fully custom invoice / receipt designs.
+   *
+   * @example
+   * ```ts
+   * await printer.printHTML({
+   *   printer: "Impresora1",
+   *   html: `
+   *     <center><b>MI EMPRESA</b></center>
+   *     <hr>
+   *     <p>Factura #00123</p>
+   *     <table>
+   *       <tr><td>Cafe</td><td style="text-align:right">Bs 5.00</td></tr>
+   *     </table>
+   *     <hr>
+   *     <p style="text-align:right"><b>Total: Bs 150.00</b></p>
+   *   `,
+   *   cut: true,
+   * });
+   * ```
+   */
+  async printHTML(options: PrintHTMLOptions): Promise<PrintResult> {
+    return this.post<PrintResult>("/api/print/html", {
+      printer: options.printer,
+      html: options.html,
+      width: options.width,
+      cut: options.cut ?? true,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Print – Image
+  // -------------------------------------------------------------------------
+
+  /**
+   * Print a base64-encoded image (PNG, JPEG, GIF).
+   * Use {@link fileToBase64} to convert a File/Blob from the browser.
+   *
+   * @example
+   * ```ts
+   * const { fileToBase64 } = await import("collatech-sdk");
+   * const base64 = await fileToBase64(fileInput.files[0]);
+   * await printer.printImage({
+   *   printer: "Impresora1",
+   *   image: base64,
+   *   cut: true,
+   * });
+   * ```
+   */
+  async printImage(options: PrintImageOptions): Promise<PrintResult> {
+    return this.post<PrintResult>("/api/print/image", {
+      printer: options.printer,
+      image: options.image,
+      width: options.width,
+      scale: options.scale,
+      cut: options.cut ?? true,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Print – Logo
+  // -------------------------------------------------------------------------
+
+  /**
+   * Print the default LOGO.png file from the agent's directory.
+   */
+  async printLogo(options: PrintLogoOptions): Promise<PrintResult> {
+    return this.post<PrintResult>("/api/print/logo", {
+      printer: options.printer,
+      width: options.width,
+      scale: options.scale,
+      cut: options.cut ?? true,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Print – Raw ESC/POS
+  // -------------------------------------------------------------------------
+
+  /**
+   * Send raw ESC/POS bytes directly to the printer.
+   *
+   * @example
+   * ```ts
+   * await printer.printRaw({
+   *   printer: "Impresora1",
+   *   data: "GUFjQUFBSUFBQUFB", // base64-encoded ESC/POS
+   *   base64: true,
+   * });
+   * ```
+   */
+  async printRaw(options: PrintRawOptions): Promise<PrintResult> {
+    return this.post<PrintResult>("/api/print/raw", {
+      printer: options.printer,
+      data: options.data,
+      base64: options.base64 ?? false,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Fluent Helpers – Builder-style printing
+  // -------------------------------------------------------------------------
+
+  /**
+   * Create a builder for constructing and sending print jobs fluently.
+   *
+   * @example
+   * ```ts
+   * await printer
+   *   .createJob("Impresora1")
+   *   .title("Mi Tienda")
+   *   .line("Producto A", { align: "left" })
+   *   .line("Bs 100.00", { align: "right", bold: true })
+   *   .qr("https://example.com")
+   *   .print();
+   * ```
+   */
+  createJob(printer: string): PrintJobBuilder {
+    return new PrintJobBuilder(this, printer);
+  }
+
+  // -------------------------------------------------------------------------
+  // Internal HTTP helpers
+  // -------------------------------------------------------------------------
+
+  private async get<T>(path: string): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    this.log(`[CollaTech] GET ${url}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const res = await this._fetch(url, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+      this.log(`[CollaTech] GET ${url} -> ${res.status}`);
+      return this.handleResponse<T>(res);
+    } catch (err: unknown) {
+      clearTimeout(timer);
+      this.error(`[CollaTech] GET ${url} ERROR:`, err);
+      if (err instanceof CollaTechError) throw err;
+      if (isAbortError(err)) {
+        throw new ConnectionError(
+          `Request to ${url} timed out after ${this.timeout}ms`
+        );
+      }
+      throw new ConnectionError(
+        `Cannot connect to CollaTech Agent at ${this.baseUrl}. Is it running?`
+      );
+    }
+  }
+
+  private async post<T>(path: string, body: unknown): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    this.log(`[CollaTech] POST ${url}`, body);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const res = await this._fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+      this.log(`[CollaTech] POST ${url} -> ${res.status}`);
+      return this.handleResponse<T>(res);
+    } catch (err: unknown) {
+      clearTimeout(timer);
+      this.error(`[CollaTech] POST ${url} ERROR:`, err);
+      if (err instanceof CollaTechError) throw err;
+      if (isAbortError(err)) {
+        throw new ConnectionError(
+          `Request to ${url} timed out after ${this.timeout}ms`
+        );
+      }
+      throw new ConnectionError(
+        `Cannot connect to CollaTech Agent at ${this.baseUrl}. Is it running?`
+      );
+    }
+  }
+
+  private async handleResponse<T>(res: Response): Promise<T> {
+    if (res.status === 403) {
+      this.error(`[CollaTech] Response 403 Forbidden`);
+      throw new ForbiddenError();
+    }
+
+    let json: CollaTechResponse<T>;
+    try {
+      json = (await res.json()) as CollaTechResponse<T>;
+    } catch {
+      this.error(`[CollaTech] Invalid JSON response`);
+      throw new ApiError(res.status, "Invalid JSON response from agent");
+    }
+
+    this.log(`[CollaTech] Response OK:`, json);
+
+    if (!json.ok) {
+      throw new ApiError(res.status, json.error ?? "Unknown error");
+    }
+
+    return json.data as T;
+  }
+
+  private log(message?: unknown, ...optionalParams: unknown[]): void {
+    if (this.debug) console.log(message, ...optionalParams);
+  }
+
+  private error(message?: unknown, ...optionalParams: unknown[]): void {
+    if (this.debug) console.error(message, ...optionalParams);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Print Job Builder (fluent API)
+// ---------------------------------------------------------------------------
+
+type LineOptions = {
+  align?: "left" | "center" | "right";
+  bold?: boolean;
+  underline?: boolean;
+};
+
+/**
+ * Fluent builder for constructing print jobs.
+ * Created via {@link CollaTech.createJob}.
+ */
+export class PrintJobBuilder {
+  private readonly client: CollaTech;
+  private readonly printer: string;
+  private _title?: string;
+  private _lines: Array<{
+    text: string;
+    align?: "left" | "center" | "right";
+    bold?: boolean;
+    underline?: boolean;
+  }> = [];
+  private _qr?: string;
+  private _barcode?: string;
+  private _logo?: string;
+  private _cut = true;
+  private _drawer = false;
+  private _width?: number;
+  private _scale?: number;
+
+  constructor(client: CollaTech, printer: string) {
+    this.client = client;
+    this.printer = printer;
+  }
+
+  /** Set the ticket title (printed large & centered). */
+  title(text: string): this {
+    this._title = text;
+    return this;
+  }
+
+  /** Add a text line to the ticket. */
+  line(text: string, options?: LineOptions): this {
+    this._lines.push({
+      text,
+      align: options?.align,
+      bold: options?.bold,
+      underline: options?.underline,
+    });
+    return this;
+  }
+
+  /** Add a bold line. */
+  boldLine(text: string, options?: Omit<LineOptions, "bold">): this {
+    return this.line(text, { ...options, bold: true });
+  }
+
+  /** Add a QR code. */
+  qr(data: string): this {
+    this._qr = data;
+    return this;
+  }
+
+  /** Add a barcode. */
+  barcode(data: string): this {
+    this._barcode = data;
+    return this;
+  }
+
+  /** Set a base64 logo image. */
+  logo(base64: string): this {
+    this._logo = base64;
+    return this;
+  }
+
+  /** Set paper width (384, 512, or 576). */
+  width(px: number): this {
+    this._width = px;
+    return this;
+  }
+
+  /** Set image scale (35–100). */
+  scale(pct: number): this {
+    this._scale = pct;
+    return this;
+  }
+
+  /** Whether to cut paper after printing. Default: true. */
+  cut(value: boolean): this {
+    this._cut = value;
+    return this;
+  }
+
+  /** Whether to open the cash drawer. */
+  drawer(value: boolean): this {
+    this._drawer = value;
+    return this;
+  }
+
+  /** Send the print job to the agent. */
+  async print(): Promise<PrintResult> {
+    return this.client.printTicket({
+      printer: this.printer,
+      title: this._title,
+      lines: this._lines,
+      qr: this._qr,
+      barcode: this._barcode,
+      logo: this._logo,
+      width: this._width,
+      scale: this._scale,
+      cut: this._cut,
+      drawer: this._drawer,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

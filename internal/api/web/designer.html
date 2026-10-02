@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CollaTech - Diseñador Visual</title>
+<style>
+:root{--bg:#0f172a;--surface:#1e293b;--surface2:#334155;--border:#475569;--text:#f1f5f9;--text2:#94a3b8;--accent:#22c55e;--accent2:#16a34a;--danger:#ef4444;--blue:#3b82f6}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+.app{display:grid;grid-template-columns:200px 1fr 300px;height:100vh}
+
+/* LEFT SIDEBAR */
+.sidebar-left{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;user-select:none}
+.sidebar-left h3{padding:12px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);border-bottom:1px solid var(--border)}
+.egroup{padding:8px;border-bottom:1px solid var(--border)}
+.egroup-title{font-size:9px;text-transform:uppercase;color:var(--text2);margin-bottom:4px;letter-spacing:.5px}
+.eitem{display:flex;align-items:center;gap:6px;padding:7px 8px;margin-bottom:2px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;cursor:grab;font-size:12px;transition:.12s}
+.eitem:hover{border-color:var(--accent);background:rgba(34,197,94,.08)}
+.eitem:active{cursor:grabbing;transform:scale(.97)}
+.eitem .ico{font-size:15px;width:18px;text-align:center;flex:none}
+
+/* CANVAS */
+.canvas-area{display:flex;flex-direction:column;overflow:hidden}
+.cbar{display:flex;align-items:center;gap:4px;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.cbar button{padding:4px 8px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);font-size:10px;cursor:pointer}
+.cbar button:hover{border-color:var(--accent)}
+.cbar .primary{background:var(--accent);color:#000;font-weight:700}
+.cbar .danger{background:var(--danger)}
+.cscroll{flex:1;overflow:auto;padding:16px;display:flex;justify-content:center}
+#canvas{width:280px;min-height:380px;background:#fff;color:#111;padding:4px 0;border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,.55);position:relative;transition:box-shadow .2s}
+#canvas.dragover{box-shadow:0 0 0 3px var(--accent),0 4px 24px rgba(0,0,0,.55)}
+.ci{padding:3px 6px;margin:1px 0;cursor:pointer;border:2px solid transparent;border-radius:2px;position:relative;font-size:12px;line-height:1.4;transition:border-color .15s}
+.ci:hover{border-color:var(--accent)}
+.ci.sel{border-color:var(--blue);background:rgba(59,130,246,.07)}
+.ci.dragging{opacity:.4}
+.ci .cd{position:absolute;top:-5px;right:-5px;width:16px;height:16px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:8px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1;padding:0}
+.ci:hover .cd{display:flex;z-index:5}
+.c-tag{position:absolute;left:2px;top:-8px;font-size:7px;color:#999;opacity:.4;pointer-events:none}
+.c-title{font-size:18px;font-weight:700;text-align:center;padding:4px 6px}
+.c-sub{font-size:14px;text-align:center;padding:3px 6px}
+.c-txt{font-size:12px;padding:2px 6px}
+.c-alc{text-align:center}.c-alr{text-align:right}
+.c-bld{font-weight:700}.c-und{text-decoration:underline}
+.c-dbl{font-size:20px}.c-wid{letter-spacing:4px}.c-tal{line-height:1.8}.c-sml{font-size:9px}
+.c-hr{border:none;border-top:1px dashed #aaa;margin:3px 6px}
+.c-spc{min-height:8px;background:rgba(0,0,0,.02);display:flex;align-items:center;justify-content:center;color:#bbb;font-size:9px;border:1px dashed #ddd;margin:1px 4px;border-radius:2px}
+.c-bx{border:1px solid #333;padding:2px 5px;margin:2px 4px;border-radius:2px}
+.c-bdr{border-left:1px solid #333;border-right:1px solid #333}
+.ctable{font-size:10px;margin:2px 4px;border-collapse:collapse;width:auto}
+.ctable td,.ctable th{border:1px solid #666;padding:1px 4px;white-space:nowrap;font-size:10px}
+.ctable th{background:#e8e8e8;font-weight:700}
+.c-qr{text-align:center;padding:4px;font-size:10px;color:#888}
+.c-bar{text-align:center;padding:4px;font-family:'Courier New',monospace;font-size:10px;color:#888}
+.c-img{text-align:center;padding:2px}
+.c-img img{max-width:85%;max-height:70px;border-radius:2px}
+.c-empty{text-align:center;color:#ccc;padding:30px 10px;font-size:13px;line-height:1.8}
+
+/* RIGHT PANEL */
+.panel{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;padding:10px;gap:6px;font-size:11px}
+.panel h5{font-size:10px;text-transform:uppercase;color:var(--text2);margin:4px 0 2px;letter-spacing:.5px}
+.pr{display:flex;gap:4px;align-items:center;margin-bottom:2px;flex-wrap:wrap}
+.pr label{font-size:10px;color:var(--text2);min-width:40px}
+.pr input,.pr select{padding:3px 5px;border:1px solid var(--border);border-radius:2px;background:var(--surface2);color:var(--text);font-size:10px;flex:1;min-width:30px}
+.pr textarea{padding:3px 5px;border:1px solid var(--border);border-radius:2px;background:var(--surface2);color:var(--text);font-size:10px;flex:1;min-height:30px;resize:vertical}
+.pr input[type=checkbox]{width:14px;flex:none}
+.pr .btn-s{padding:2px 6px;border:1px solid var(--border);border-radius:2px;background:var(--surface2);color:var(--text);font-size:9px;cursor:pointer}
+.pr .btn-s:hover{border-color:var(--accent)}
+.pr .btn-d{border-color:var(--danger)}
+.pr .btn-d:hover{background:var(--danger)}
+.mctrl{display:flex;align-items:center;gap:2px}
+.mctrl button{width:22px;height:20px;padding:0;border:1px solid var(--border);border-radius:2px;background:var(--surface2);color:var(--text);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.mctrl button:hover{border-color:var(--accent)}
+.mctrl span{display:inline-block;width:24px;text-align:center;font-size:11px;font-weight:700;color:var(--accent)}
+.tab-b{display:flex;gap:1px;margin:2px 0}
+.tab-b button{padding:3px 8px;border:1px solid var(--border);border-radius:2px 2px 0 0;background:var(--surface2);color:var(--text2);font-size:9px;cursor:pointer;flex:1}
+.tab-b button.on{background:var(--accent);color:#000;font-weight:700}
+.tabc{display:none}.tabc.on{display:block}
+code{font-size:9px;white-space:pre-wrap;word-break:break-all;display:block;max-height:200px;overflow:auto;padding:4px;background:var(--bg);border-radius:2px;margin-top:2px}
+hr{border:none;border-top:1px solid var(--border);margin:4px 0}
+.tedit{margin:2px 0;padding:4px;background:var(--bg);border-radius:2px}
+.tedit table{width:100%;font-size:10px;border-collapse:collapse}
+.tedit td,.tedit th{border:1px solid var(--border);padding:1px 3px}
+.tedit input{width:100%;border:none;background:transparent;color:var(--text);font-size:10px;padding:1px}
+.tedit .cw{width:35px}
+.nosel{color:var(--text2);font-size:11px;padding:10px 4px;text-align:center}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="sidebar-left">
+  <h3>🧩 Elementos</h3>
+  <div class="egroup">
+    <div class="egroup-title">Texto</div>
+    <div class="eitem" draggable="true" data-type="title"><span class="ico">T</span> Título</div>
+    <div class="eitem" draggable="true" data-type="subtitle"><span class="ico">t</span> Subtítulo</div>
+    <div class="eitem" draggable="true" data-type="text"><span class="ico">Aa</span> Texto</div>
+    <div class="eitem" draggable="true" data-type="separator"><span class="ico">—</span> Separador</div>
+    <div class="eitem" draggable="true" data-type="space"><span class="ico">⤓</span> Espacio</div>
+  </div>
+  <div class="egroup">
+    <div class="egroup-title">Tabla</div>
+    <div class="eitem" draggable="true" data-type="table"><span class="ico">⊞</span> Tabla</div>
+  </div>
+  <div class="egroup">
+    <div class="egroup-title">Especiales</div>
+    <div class="eitem" draggable="true" data-type="qr"><span class="ico">▦</span> QR</div>
+    <div class="eitem" draggable="true" data-type="barcode"><span class="ico">≡</span> Código Barras</div>
+    <div class="eitem" draggable="true" data-type="image" onclick="document.getElementById('imgGlobalPicker').click()"><span class="ico">🖼</span> Imagen</div>
+  </div>
+</div>
+
+<div class="canvas-area">
+  <div class="cbar">
+    <button class="danger" onclick="if(elements.length&&confirm('Limpiar todo?')){elements=[];sel();render()}">🗑 Limpiar</button>
+    <span style="color:var(--text2);font-size:9px">|</span>
+    <button onclick="tmpl('simple')">📋 Ticket</button>
+    <button onclick="tmpl('factura')">🧾 Factura</button>
+    <button onclick="tmpl('comanda')">📝 Comanda</button>
+    <span style="color:var(--text2);font-size:9px">|</span>
+    <button onclick="saveDesign()">💾 Guardar</button>
+    <button onclick="document.getElementById('lf').click()">📂 Cargar</button>
+    <input type="file" id="lf" accept=".json" style="display:none" onchange="loadDesign(event)">
+    <span style="color:var(--text2);font-size:9px">|</span>
+    <button class="primary" onclick="printNow(event)">🖨 Imprimir</button>
+  </div>
+  <div class="cscroll">
+    <div id="canvas"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h5>🎫 Ticket</h5>
+  <div class="pr"><label>Impresora</label><input id="pr" list="prList" value="Demo" oninput="render()"><button class="btn-s" type="button" title="Buscar impresoras" onclick="loadPrinters()">⟳</button></div>
+  <datalist id="prList"></datalist>
+  <div class="pr"><label>Ancho</label><select id="pw" onchange="render()"><option value=384>58mm</option><option value=576 selected>80mm</option></select></div>
+  <div class="pr"><label>Borde</label><input type=checkbox id="tb" onchange="render()"></div>
+  <div class="pr"><label>Margen izq <span id="mlv">0</span></label>
+    <div class="mctrl"><button onclick="adj('tktML',-1)">−</button><button onclick="adj('tktML',1)">+</button></div>
+    <input type=hidden id="tktML" value=0>
+  </div>
+  <div class="pr"><label>Margen der <span id="mrv">0</span></label>
+    <div class="mctrl"><button onclick="adj('tktMR',-1)">−</button><button onclick="adj('tktMR',1)">+</button></div>
+    <input type=hidden id="tktMR" value=0>
+  </div>
+  <div class="pr"><label>Feed ini</label><input type=number id="ft" value=0 min=0 max=10 style="width:40px" oninput="render()"></div>
+  <div class="pr"><label>Feed fin</label><input type=number id="fb" value=3 min=0 max=20 style="width:40px" oninput="render()"></div>
+  <div class="pr"><label>QR</label><input id="gqr" placeholder="https://..." oninput="render()"></div>
+  <div class="pr"><label>Barcode</label><input id="gbar" placeholder="123456" oninput="render()"></div>
+  <input type=file id="imgGlobalPicker" accept="image/*" style="display:none" onchange="globalImage(event)">
+
+  <hr>
+
+  <h5>✏️ Elemento</h5>
+  <div id="ns" class="nosel">← Haz clic en un elemento del ticket</div>
+  <div id="pp" style="display:none">
+    <div class="pr"><label>Tipo</label><span id="pt" style="color:var(--text2)"></span></div>
+    <div class="pr" id="prTxt"><label>Texto</label><textarea id="pTxt" rows=2 oninput="up('text',this.value)"></textarea></div>
+    <div class="pr" id="prAl"><label>Ali.</label>
+      <select id="pAl" onchange="up('align',this.value)"><option value=left>Izq</option><option value=center>Cen</option><option value=right>Der</option></select>
+    </div>
+    <div class="pr" id="prSz"><label>Tamaño</label>
+      <select id="pSz" onchange="up('size',this.value)">
+        <option value=normal>Normal</option><option value=double>Doble</option><option value=small>Pequeño</option><option value=wide>Ancho</option><option value=tall>Alto</option>
+      </select>
+    </div>
+    <div class="pr" id="prB"><label>Negrita</label><input type=checkbox id="pB" onchange="up('bold',this.checked)"></div>
+    <div class="pr" id="prU"><label>Subrayado</label><input type=checkbox id="pU" onchange="up('underline',this.checked)"></div>
+    <div class="pr" id="prBox"><label>Recuadro</label><input type=checkbox id="pBox" onchange="up('box',this.checked)"></div>
+    <div class="pr" id="prG"><label>Gap <span id="pgv">0</span></label>
+      <div class="mctrl"><button onclick="adjEl('gap',-1)">−</button><button onclick="adjEl('gap',1)">+</button></div>
+    </div>
+    <div class="pr" id="prML"><label>Margen izq <span id="pmlv">0</span></label>
+      <div class="mctrl"><button onclick="adjEl('ml',-1)">−</button><button onclick="adjEl('ml',1)">+</button></div>
+    </div>
+    <div class="pr" id="prMR"><label>Margen der <span id="pmrv">0</span></label>
+      <div class="mctrl"><button onclick="adjEl('mr',-1)">−</button><button onclick="adjEl('mr',1)">+</button></div>
+    </div>
+    <div class="pr" id="prImg" style="display:none"><label>Imagen</label><button class="btn-s" onclick="document.getElementById('ip').click()">Subir</button><input type=file id="ip" accept="image/*" style="display:none" onchange="imgUp(event)"></div>
+    <div class="pr" id="prQR" style="display:none"><label>QR</label><input id="pQR" onchange="up('qr',this.value)"></div>
+    <div class="pr" id="prBar" style="display:none"><label>Barcode</label><input id="pBar" onchange="up('barcode',this.value)"></div>
+    <div class="pr" id="prTab" style="display:none"><label>Tabla</label><div class="tedit" id="te"></div></div>
+    <div class="pr" style="margin-top:4px"><button class="btn-s btn-d" onclick="delEl()">🗑 Eliminar</button></div>
+  </div>
+
+  <hr>
+  <div class="tab-b">
+    <button class="on" onclick="sw('json',this)">📋 JSON</button>
+    <button onclick="sw('html',this)">🌐 HTML</button>
+  </div>
+  <div id="tj" class="tabc on"><code id="jsonOut"></code></div>
+  <div id="th" class="tabc"><code id="htmlOut"></code></div>
+</div>
+</div>
+
+<script>
+let E=[]; let SI=-1; let dragFrom=-1;
+const COLS={384:32,576:42};
+
+function add(type,data){
+  const el={type};
+  if(type=='title'){el.text='TITULO';el.align='center';el.bold=true;el.size='double'}
+  else if(type=='subtitle'){el.text='Subtitulo';el.align='center'}
+  else if(type=='text'){el.text='Texto de ejemplo'}
+  else if(type=='separator'){el.text='────────────────────';el.align='left'}
+  else if(type=='space'){el.gap=1}
+  else if(type=='table'){el.table={border:true,header:true,columns:[{text:'ITEM',width:12,align:'left'},{text:'PRECIO',width:8,align:'right'}],rows:[['Producto','0.00'],['Total','0.00']]}}
+  else if(type=='qr'){el.qr='https://kollatek.com';el.align='center'}
+  else if(type=='barcode'){el.barcode='123456789';el.align='center'}
+  else if(type=='image'){el.image='';el.align='center'}
+  if(data) Object.assign(el,data);
+  E.push(el); select(E.length-1); render();
+}
+
+function select(i){SI=i; pp(); document.querySelectorAll('.ci').forEach((d,j)=>d.classList.toggle('sel',j===i))}
+
+function delEl(){if(SI<0)return;E.splice(SI,1);SI=-1;render()}
+
+function render(){
+  const c=document.getElementById('canvas'); c.innerHTML='';
+  const cols=COLS[+document.getElementById('pw').value]||32;
+  const border=document.getElementById('tb').checked;
+  E.forEach((el,i)=>{
+    const d=document.createElement('div'); d.className='ci'; d.dataset.idx=i;
+    d.draggable=true;
+    if(el.bold)d.classList.add('c-bld');
+    if(el.underline)d.classList.add('c-und');
+    if(el.align=='center')d.classList.add('c-alc');
+    else if(el.align=='right')d.classList.add('c-alr');
+    if(el.size=='double')d.classList.add('c-dbl'); else if(el.size=='small')d.classList.add('c-sml'); else if(el.size=='wide')d.classList.add('c-wid'); else if(el.size=='tall')d.classList.add('c-tal');
+    if(el.box)d.classList.add('c-bx'); if(border)d.classList.add('c-bdr');
+
+    const del=document.createElement('button'); del.className='cd'; del.textContent='×';
+    del.onclick=e=>{e.stopPropagation();E.splice(i,1);render()};
+    d.appendChild(del);
+
+    if(el.type=='space'){
+      d.className='ci c-spc'; d.textContent='⤓ espacio'; d.style.minHeight=Math.max(8,(el.gap||1)*8)+'px';
+    }else if(el.type=='title'||el.type=='subtitle'){
+      const tag=document.createElement('div'); tag.className='c-tag'; tag.textContent=el.type; d.appendChild(tag);
+      const t=document.createElement('div'); t.className='c-'+(el.type=='title'?'title':'sub');
+      t.textContent=el.text||'';
+      if(el.ml)t.style.paddingLeft=(el.ml*7)+'px'; if(el.mr)t.style.paddingRight=(el.mr*7)+'px';
+      d.appendChild(t);
+    }else if(el.type=='text'){
+      const tag=document.createElement('div'); tag.className='c-tag'; tag.textContent='txt'; d.appendChild(tag);
+      const t=document.createElement('div'); t.className='c-txt';
+      t.textContent=el.text||'';
+      if(el.ml)t.style.paddingLeft=(el.ml*7)+'px'; if(el.mr)t.style.paddingRight=(el.mr*7)+'px';
+      d.appendChild(t);
+    }else if(el.type=='separator'){
+      const hr=document.createElement('hr'); hr.className='c-hr'; d.appendChild(hr);
+    }else if(el.type=='table'){
+      const tag=document.createElement('div'); tag.className='c-tag'; tag.textContent='table'; d.appendChild(tag);
+      if(el.table&&el.table.columns){
+        const t=document.createElement('table'); t.className='ctable';
+        if(el.table.header){const h=document.createElement('tr');el.table.columns.forEach(c=>{const th=document.createElement('th');th.textContent=c.text;h.appendChild(th)});t.appendChild(h)}
+        (el.table.rows||[]).forEach(r=>{
+          const tr=document.createElement('tr');
+          r.forEach((cell,ci)=>{const td=document.createElement('td');td.textContent=cell;if(el.table.columns[ci]&&el.table.columns[ci].align=='right')td.style.textAlign='right';else if(el.table.columns[ci]&&el.table.columns[ci].align=='center')td.style.textAlign='center';tr.appendChild(td)});
+          t.appendChild(tr);
+        });
+        d.appendChild(t);
+      }
+    }else if(el.type=='qr'){d.innerHTML='<div class="c-qr">▦ QR: '+(el.qr||'sin datos')+'</div>'}
+    else if(el.type=='barcode'){d.innerHTML='<div class="c-bar">≡ Codigo: '+(el.barcode||'sin datos')+'</div>'}
+    else if(el.type=='image'){
+      d.innerHTML=el.image?'<div class="c-img"><img src="'+el.image+'"></div>':'<div class="c-img" style="color:#bbb">🖼 Sin imagen</div>';
+    }
+
+    d.onclick=()=>select(i);
+
+    // Drag reorder
+    d.addEventListener('dragstart',e=>{dragFrom=i;e.dataTransfer.effectAllowed='move';d.classList.add('dragging')});
+    d.addEventListener('dragend',e=>{d.classList.remove('dragging')});
+    d.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move'});
+    d.addEventListener('drop',e=>{
+      e.preventDefault(); e.stopPropagation();
+      if(dragFrom>=0&&dragFrom!==i){const[el]=E.splice(dragFrom,1);E.splice(i,0,el);SI=i;render()}
+      dragFrom=-1;
+    });
+    c.appendChild(d);
+  });
+
+  if(!E.length){
+    const e=document.createElement('div'); e.className='c-empty';
+    e.innerHTML='← Arrastra elementos aquí<br>o haz clic en "Ticket" para empezar';
+    c.appendChild(e);
+  }
+
+  // Ticket-level margin display
+  document.getElementById('mlv').textContent=document.getElementById('tktML').value||0;
+  document.getElementById('mrv').textContent=document.getElementById('tktMR').value||0;
+  out();
+}
+
+// SIDEBAR DRAG
+document.querySelectorAll('.eitem[draggable]').forEach(el=>{
+  el.addEventListener('dragstart',e=>{
+    e.dataTransfer.setData('text/plain',el.dataset.type);
+    e.dataTransfer.effectAllowed='copy';
+  });
+});
+
+// CANVAS DROP (from sidebar)
+const canvas=document.getElementById('canvas');
+canvas.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';canvas.classList.add('dragover')});
+canvas.addEventListener('dragleave',()=>canvas.classList.remove('dragover'));
+canvas.addEventListener('drop',e=>{
+  e.preventDefault(); canvas.classList.remove('dragover');
+  const type=e.dataTransfer.getData('text/plain');
+  if(type)add(type);
+});
+
+// ===== PROP PANEL =====
+function pp(){
+  const el=SI>=0?E[SI]:null;
+  document.getElementById('ns').style.display=el?'none':'block';
+  document.getElementById('pp').style.display=el?'block':'none';
+  if(!el)return;
+  document.getElementById('pt').textContent=el.type;
+  ['prTxt','prAl','prSz','prB','prU','prBox','prG','prML','prMR','prImg','prQR','prBar','prTab'].forEach(id=>document.getElementById(id).style.display='none');
+  document.getElementById('prTxt').style.display='block'; document.getElementById('pTxt').value=el.text||'';
+  if(el.type!=='space'){
+    document.getElementById('prAl').style.display='block'; document.getElementById('pAl').value=el.align||'left';
+  }
+  if(['title','subtitle','text'].includes(el.type)){
+    document.getElementById('prSz').style.display='block'; document.getElementById('pSz').value=el.size||'normal';
+    document.getElementById('prB').style.display='block'; document.getElementById('pB').checked=!!el.bold;
+    document.getElementById('prU').style.display='block'; document.getElementById('pU').checked=!!el.underline;
+    document.getElementById('prBox').style.display='block'; document.getElementById('pBox').checked=!!el.box;
+    document.getElementById('prG').style.display='block'; document.getElementById('pgv').textContent=el.gap||0;
+    document.getElementById('prML').style.display='block'; document.getElementById('pmlv').textContent=el.ml||0;
+    document.getElementById('prMR').style.display='block'; document.getElementById('pmrv').textContent=el.mr||0;
+  }
+  if(el.type==='space'){
+    document.getElementById('prG').style.display='block'; document.getElementById('pgv').textContent=el.gap||1;
+  }
+  if(el.type==='image'){document.getElementById('prImg').style.display='block'}
+  if(el.type==='qr'){document.getElementById('prQR').style.display='block';document.getElementById('pQR').value=el.qr||''}
+  if(el.type==='barcode'){document.getElementById('prBar').style.display='block';document.getElementById('pBar').value=el.barcode||''}
+  if(el.type==='table'){document.getElementById('prTab').style.display='block';tEdit(el)}
+}
+
+function up(k,v){if(SI<0)return;E[SI][k]=v;render()}
+
+function adjEl(k,delta){
+  if(SI<0)return;
+  const el=E[SI]; const v=(el[k]||0)+delta;
+  el[k]=Math.max(0,Math.min(20,v));
+  render();
+}
+
+function adj(id,delta){
+  const inp=document.getElementById(id); const v=(+inp.value||0)+delta;
+  inp.value=Math.max(0,Math.min(10,v));
+  render();
+}
+
+function tEdit(el){
+  const ed=document.getElementById('te');
+  const tbl=el.table||{border:true,header:true,columns:[{text:'ITEM',width:12,align:'left'}],rows:[['']]};
+  el.table=tbl;
+  let h='<div class="pr" style="margin-bottom:2px">';
+  h+=`<label>Borde</label><input type=checkbox ${tbl.border?'checked':''} onchange="E[SI].table.border=this.checked;render()">`;
+  h+=`<label>Encab.</label><input type=checkbox ${tbl.header?'checked':''} onchange="E[SI].table.header=this.checked;render()">`;
+  h+='</div>';
+  h+='<div style="margin-bottom:2px;font-size:9px;color:var(--text2)">Columnas:</div><table><tr>';
+  tbl.columns.forEach((c,ci)=>{
+    h+=`<td><input class="cw" value="${c.width}" onchange="E[SI].table.columns[${ci}].width=parseInt(this.value)||5;render()"></td>`;
+  });
+  h+=`<td><button class="btn-s" onclick="addCol(${SI})">+</button></td></tr><tr>`;
+  tbl.columns.forEach((c,ci)=>{
+    h+=`<td><input value="${c.text}" onchange="E[SI].table.columns[${ci}].text=this.value;render()"></td>`;
+  });
+  h+='</tr></table><div style="margin:2px 0;font-size:9px;color:var(--text2)">Filas:</div><table>';
+  tbl.rows.forEach((r,ri)=>{
+    h+='<tr>';
+    r.forEach((c,ci)=>{
+      h+=`<td><input value="${c}" onchange="E[SI].table.rows[${ri}][${ci}]=this.value;render()"></td>`;
+    });
+    h+=`<td><button class="btn-s" onclick="E[SI].table.rows.splice(${ri},1);render()">×</button></td></tr>`;
+  });
+  h+='</table><button class="btn-s" onclick="addRow('+SI+')" style="margin-top:2px">+ fila</button>';
+  ed.innerHTML=h;
+}
+
+function addCol(i){const t=E[i].table;const w=Math.floor(40/(t.columns.length+1));t.columns.push({text:'Nuevo',width:w,align:'left'});t.rows.forEach(r=>r.push(''));render()}
+function addRow(i){E[i].table.rows.push(E[i].table.columns.map(()=>''));render()}
+
+function imgUp(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{if(SI>=0){E[SI].image=ev.target.result;render()}};r.readAsDataURL(f)}
+
+let globalImg='';
+function globalImage(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{globalImg=ev.target.result;add('image',{image:ev.target.result})};r.readAsDataURL(f)}
+
+// ===== JSON GENERATOR =====
+function genJSON(){
+  const cols=COLS[+document.getElementById('pw').value]||32;
+  const lines=[]; let gqr=document.getElementById('gqr').value.trim(); let gbar=document.getElementById('gbar').value.trim(); let gimg='';
+  E.forEach(el=>{
+    if(el.type=='space'){
+      lines.push({text:'',gap:el.gap||1});
+    }else if(['title','subtitle','text'].includes(el.type)){
+      const l={text:el.text||''};
+      if(el.align&&el.align!='left')l.align=el.align;
+      if(el.bold)l.bold=true; if(el.underline)l.underline=true;
+      if(el.size&&el.size!='normal')l.size=el.size;
+      if(el.box)l.box=true;
+      if(el.ml>0)l.ml=el.ml; if(el.mr>0)l.mr=el.mr;
+      if(el.gap>0)l.gap=el.gap;
+      lines.push(l);
+    }else if(el.type=='separator'){
+      const sep=document.getElementById('tb').checked?'─'.repeat(cols-2):'─'.repeat(cols);
+      lines.push({text:sep,align:'left'});
+    }else if(el.type=='table'){
+      lines.push({type:'table',table:el.table});
+    }else if(el.type=='qr'){
+      const d=el.qr||'';
+      if(!gqr)gqr=d;
+      else if(d)lines.push({text:d,align:'center'});
+    }else if(el.type=='barcode'){
+      const d=el.barcode||'';
+      if(!gbar)gbar=d;
+      else if(d)lines.push({text:d,align:'center'});
+    }else if(el.type=='image'){
+      if(el.image&&!gimg)gimg=el.image;
+    }
+  });
+  const t={printer:document.getElementById('pr').value||'Demo',width:+document.getElementById('pw').value||384,cut:true,lines};
+  const ft=+document.getElementById('ft').value;if(ft>0)t.feed_top=ft;
+  const fb=+document.getElementById('fb').value;if(fb>0)t.feed_bottom=fb;
+  if(document.getElementById('tb').checked)t.border=true;
+  const ml=+document.getElementById('tktML').value;if(ml>0)t.margin_left=ml;
+  const mr=+document.getElementById('tktMR').value;if(mr>0)t.margin_right=mr;
+  if(gqr)t.qr=gqr; if(gbar)t.barcode=gbar; if(gimg)t.logo=gimg;
+  return t;
+}
+
+function genHTML(){
+  let h='';
+  E.forEach(el=>{
+    if(el.type=='title')h+='<h2>'+esc(el.text||'')+'</h2>';
+    else if(el.type=='subtitle')h+='<h4>'+esc(el.text||'')+'</h4>';
+    else if(el.type=='text'){const a=el.align||'left';h+='<p align="'+a+'">'+esc(el.text||'')+'</p>'}
+    else if(el.type=='separator')h+='<hr>';
+    else if(el.type=='space')h+='<br>'.repeat(el.gap||1);
+    else if(el.type=='table'&&el.table&&el.table.columns){
+      h+='<table>'; if(el.table.header){h+='<tr>';el.table.columns.forEach(c=>{h+='<th>'+esc(c.text)+'</th>'});h+='</tr>'}
+      (el.table.rows||[]).forEach(r=>{h+='<tr>';r.forEach(c=>h+='<td>'+esc(c)+'</td>');h+='</tr>'});
+      h+='</table>';
+    }
+    else if(el.type=='qr')h+='<p align="center">QR: '+esc(el.qr||'')+'</p>';
+    else if(el.type=='barcode')h+='<p align="center">Barcode: '+esc(el.barcode||'')+'</p>';
+    else if(el.type=='image'&&el.image)h+='<p align="center">[LOGO]</p>';
+  }); return h;
+}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+function out(){
+  document.getElementById('jsonOut').textContent=JSON.stringify(genJSON(),null,2);
+  document.getElementById('htmlOut').textContent=genHTML();
+}
+
+// ===== PRINT =====
+async function printNow(ev){
+  const b=ev.target; b.textContent='🔄'; b.disabled=true;
+  try{
+    const r=await fetch('/api/print/ticket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(genJSON())});
+    const j=await r.json();
+    b.textContent=j.ok?'✅ OK':'❌ '+j.error;
+    setTimeout(()=>{b.textContent='🖨 Imprimir';b.disabled=false},2000);
+  }catch(e){b.textContent='❌ Error';b.disabled=false;alert('Error: '+e.message)}
+}
+
+// ===== SAVE/LOAD =====
+function saveDesign(){
+  const d={printer:document.getElementById('pr').value,width:document.getElementById('pw').value,border:document.getElementById('tb').checked,ft:document.getElementById('ft').value,fb:document.getElementById('fb').value,ml:document.getElementById('tktML').value,mr:document.getElementById('tktMR').value,qr:document.getElementById('gqr').value,bar:document.getElementById('gbar').value,elements:E};
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:'application/json'}));
+  a.download='collatech-diseno.json'; a.click();
+}
+
+function loadDesign(ev){
+  const f=ev.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=e=>{
+    try{
+      const d=JSON.parse(e.target.result);
+      document.getElementById('pr').value=d.printer||'Demo'; document.getElementById('pw').value=d.width||'384';
+      document.getElementById('tb').checked=!!d.border; document.getElementById('ft').value=d.ft||0; document.getElementById('fb').value=d.fb||3;
+      document.getElementById('tktML').value=d.ml||0; document.getElementById('tktMR').value=d.mr||0;
+      document.getElementById('gqr').value=d.qr||''; document.getElementById('gbar').value=d.bar||'';
+      E=d.elements||[]; SI=-1; render();
+    }catch(err){alert('Error: '+err.message)}
+  }; r.readAsText(f);
+}
+
+// ===== TEMPLATES =====
+function tmpl(name){
+  E=[];
+  if(name=='simple'){
+    add('title',{text:'MI TIENDA'}); add('text',{text:'Gracias por tu compra',align:'center'});
+    add('separator'); add('text',{text:'Producto 1             Bs 20.00'}); add('text',{text:'Producto 2             Bs 15.00'});
+    add('separator'); add('text',{text:'TOTAL                  Bs 35.00',bold:true}); add('space',{gap:1});
+    add('table',{table:{border:true,header:true,columns:[{text:'CANT',width:5,align:'center'},{text:'PRODUCTO',width:14,align:'left'},{text:'PRECIO',width:8,align:'right'}],rows:[['2','Hamburguesa','20.00'],['1','Papa Frita','8.00']]}});
+  }else if(name=='factura'){
+    add('title',{text:'FACTURA'}); add('text',{text:'Cliente: Juan Perez'}); add('text',{text:new Date().toLocaleDateString(),align:'left'});
+    add('separator'); add('table',{table:{border:false,header:true,columns:[{text:'CANT',width:4,align:'center'},{text:'PRODUCTO',width:16,align:'left'},{text:'PRECIO',width:10,align:'right'}],rows:[['1','Producto A','50.00'],['2','Producto B','70.00']]}});
+    add('separator'); add('text',{text:'TOTAL              Bs 120.00',bold:true}); add('text',{text:'Gracias!',align:'center'});
+  }else if(name=='comanda'){
+    add('title',{text:'COMANDA'}); add('text',{text:'Mesa #5 - Juan Perez',align:'center'});
+    add('separator'); add('text',{text:'2x Hamburguesa'}); add('text',{text:'1x Papas Fritas'}); add('text',{text:'2x Malteada'});
+    add('separator'); add('text',{text:new Date().toLocaleTimeString(),align:'center'});
+  }
+  render();
+}
+
+function sw(t,b){
+  document.querySelectorAll('.tab-b button').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.tabc').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); document.getElementById('t'+t).classList.add('on');
+}
+
+// ===== IMPRESORAS =====
+async function loadPrinters(){
+  const list=document.getElementById('prList');
+  try{
+    const r=await fetch('/api/printers'); const j=await r.json();
+    const printers=j.data||[];
+    list.innerHTML=printers.map(p=>'<option value="'+esc(p.name)+'">').join('');
+  }catch(e){/* sin conexion al agente todavia */}
+}
+
+render();
+loadPrinters();
+</script>
+</body>
+</html>

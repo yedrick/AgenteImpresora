@@ -1,0 +1,22 @@
+# Binarios compilados
+*.exe
+*.bin
+cmd/installer/CollaTechAgent.bin
+
+# Dependencias y artefactos de build
+node_modules/
+collatech-sdk/dist/
+collatech-sdk/.npm-cache/
+collatech-sdk/*.tgz
+.gocache/
+
+# Estado en ejecucion (no debe versionarse ni entregarse)
+logs/*.jsonl
+storage/jobs.json
+ENTREGA_CLIENTE/logs/*.jsonl
+ENTREGA_CLIENTE/storage/jobs.json
+
+# Certificados
+certs/
+*.pem
+*.key

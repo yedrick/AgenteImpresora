@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CollaTech Agent - Prueba de impresion</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "Segoe UI", Arial, Helvetica, sans-serif;
+      color: #172033;
+      background: #eef2f7;
+      --panel: #ffffff;
+      --line: #d9e1ea;
+      --muted: #64748b;
+      --text: #172033;
+      --brand: #0f766e;
+      --brand-dark: #115e59;
+      --nav: #243244;
+      --warn: #b45309;
+      --shadow: 0 14px 38px rgba(15, 23, 42, .08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px;
+      background:
+        linear-gradient(180deg, #e8f3f1 0, rgba(232, 243, 241, 0) 260px),
+        #eef2f7;
+    }
+
+    main {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      margin-bottom: 14px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+
+    .status {
+      min-width: 170px;
+      padding: 9px 12px;
+      border: 1px solid #ccd3da;
+      border-radius: 6px;
+      background: #f8fafc;
+      font-size: 14px;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    section {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      margin-bottom: 16px;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, .04);
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    select,
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid #bdc7d1;
+      border-radius: 6px;
+      padding: 10px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    button {
+      min-height: 42px;
+      border: 0;
+      border-radius: 6px;
+      padding: 0 14px;
+      color: #fff;
+      background: var(--brand);
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--brand-dark);
+    }
+
+    button.secondary {
+      background: var(--nav);
+    }
+
+    button.warn {
+      background: var(--warn);
+    }
+
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    pre {
+      overflow: auto;
+      min-height: 120px;
+      margin: 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0f172a;
+      color: #dbeafe;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    .hint {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 14px 0 0;
+    }
+
+    nav a {
+      border: 1px solid #bdc7d1;
+      border-radius: 6px;
+      padding: 9px 12px;
+      color: #0f172a;
+      background: #fff;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .92);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      margin-bottom: 14px;
+    }
+
+    .tab-button {
+      min-height: 44px;
+      color: #334155;
+      background: #f1f5f9;
+      border: 1px solid transparent;
+    }
+
+    .tab-button:hover,
+    .tab-button.active {
+      color: #fff;
+      background: var(--brand);
+      border-color: var(--brand);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .section-head h2 {
+      margin-bottom: 2px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      color: #0f766e;
+      background: #ccfbf1;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .toast-stack {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: min(360px, calc(100vw - 36px));
+    }
+
+    .toast {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #172033;
+      color: #fff;
+      box-shadow: var(--shadow);
+      font-size: 14px;
+      font-weight: 600;
+      opacity: 0;
+      transform: translateY(-8px);
+      transition: opacity .18s ease, transform .18s ease;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast-success {
+      background: #15803d;
+    }
+
+    .toast-error {
+      background: #b91c1c;
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding: 14px;
+      }
+
+      header,
+      .grid {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+
+      .tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .status {
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="toastStack" class="toast-stack" role="status" aria-live="polite"></div>
+  <main>
+    <header>
+      <div>
+        <h1>CollaTech Agent</h1>
+        <p class="hint">Panel local de conexion e impresion de prueba</p>
+        <nav>
+          <a href="/panel">Pruebas</a>
+          <a href="/designer">Disenador</a>
+          <a href="/diagnostico">Diagnostico</a>
+        </nav>
+      </div>
+      <div id="health" class="status">Verificando...</div>
+    </header>
+
+    <div class="tabs" role="tablist" aria-label="Panel CollaTech">
+      <button class="tab-button active" data-tab="overview" type="button">Estado</button>
+      <button class="tab-button" data-tab="printers" type="button">Impresoras</button>
+      <button class="tab-button" data-tab="stations" type="button">Estaciones</button>
+      <button class="tab-button" data-tab="tests" type="button">Pruebas</button>
+      <button class="tab-button" data-tab="logs" type="button">Logs</button>
+    </div>
+
+    <section class="tab-panel active" data-tab-panel="overview">
+      <div class="section-head">
+        <div>
+          <h2>Acceso en red</h2>
+          <p class="hint">Para otras PCs o celulares en la misma red, usa una de estas rutas. La ruta por nombre de PC suele seguir funcionando aunque cambie la IP.</p>
+        </div>
+        <span class="badge">LAN</span>
+      </div>
+      <div class="actions">
+        <button id="refreshNetwork" class="secondary">Actualizar rutas</button>
+      </div>
+      <pre id="network">Cargando rutas de red...</pre>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="printers">
+      <div class="section-head">
+        <div>
+          <h2>Impresora</h2>
+          <p class="hint">Selecciona una impresora real o escribe una ruta TCP/COM manual.</p>
+        </div>
+        <span class="badge">ESC/POS</span>
+      </div>
+      <div class="grid">
+        <div>
+          <label for="printerSelect">Detectadas</label>
+          <select id="printerSelect"></select>
+          <p class="hint">Tambien puedes usar TCP: 192.168.1.50:9100 o COM3.</p>
+        </div>
+        <div>
+          <label for="printerManual">Nombre manual</label>
+          <input id="printerManual" placeholder="EPSON TM-T20, COM3 o 192.168.1.50:9100">
+          <p class="hint">Si escribes aqui, se usara este valor.</p>
+        </div>
+        <div>
+          <label for="paperWidth">Papel</label>
+          <select id="paperWidth">
+            <option value="384">58mm / 384 px</option>
+            <option value="576">80mm / 576 px</option>
+          </select>
+          <p class="hint">Usa 58mm para COM comunes pequenas; 80mm para Epson grandes.</p>
+        </div>
+        <div>
+          <label for="imageScale">Imagen/logo</label>
+          <select id="imageScale">
+            <option value="70">Pequeno / 70%</option>
+            <option value="80" selected>Normal / 80%</option>
+            <option value="90">Grande / 90%</option>
+            <option value="100">Completo / 100%</option>
+          </select>
+          <p class="hint">Siempre centrado. 80% suele salir mejor para logos anchos.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="refreshPrinters" class="secondary">Buscar impresoras</button>
+        <button id="refreshStatus" class="secondary">Ver estado</button>
+        <button id="saveSettings" class="secondary">Guardar configuracion</button>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="stations">
+      <div class="section-head">
+        <div>
+          <h2>Estaciones de impresion</h2>
+          <p class="hint">Usa alias como cocina, recepcion, facturas o pagos. Para imprimir en varias al mismo tiempo, separa impresoras con coma: cocina=EPSON Cocina,EPSON Barra.</p>
+        </div>
+        <span class="badge">Multi impresora</span>
+      </div>
+      <label for="aliasConfig">Alias por linea</label>
+      <textarea id="aliasConfig" placeholder="cocina=EPSON Cocina,EPSON Barra|Pedidos de cocina y barra&#10;facturas=EPSON Caja|Facturacion"></textarea>
+      <div class="grid" style="margin-top:14px">
+        <div>
+          <label for="stationTest">Estacion para prueba</label>
+          <input id="stationTest" placeholder="cocina">
+          <p class="hint">Puede ser alias o lista directa: EPSON Cocina,EPSON Barra.</p>
+        </div>
+        <div>
+          <label for="stationCopies">Copias rapidas</label>
+          <input id="stationCopies" type="number" min="1" max="5" value="1">
+          <p class="hint">Sirve para medir cola y velocidad sin armar JSON manual.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="refreshAliases" class="secondary">Cargar estaciones</button>
+        <button id="saveAliases" class="secondary">Guardar estaciones</button>
+        <button id="testStation">Probar estacion</button>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="tests">
+      <div class="section-head">
+        <div>
+          <h2>Texto de prueba</h2>
+          <p class="hint">Prueba texto, tickets, factura, QR, codigos, imagen y caja.</p>
+        </div>
+        <span class="badge">Rapido</span>
+      </div>
+      <textarea id="testText">COLLATECH AGENT
+Prueba de impresion ESC/POS
+Fecha: {{date}}
+Gracias por usar CollaTech</textarea>
+      <div class="actions">
+        <button id="printText">Imprimir texto</button>
+        <button id="printTicket">Imprimir ticket QR</button>
+        <button id="printHTML">Imprimir factura limpia</button>
+        <button id="openDrawer" class="warn">Abrir caja</button>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="tests">
+      <h2>Prueba rapida</h2>
+      <p class="hint">Estos botones mandan ejemplos listos para probar texto, QR, codigos, imagen y templates.</p>
+      <div class="actions">
+        <button id="quickInvoice">Factura</button>
+        <button id="quickReceipt">Recibo</button>
+        <button id="quickText">Texto</button>
+        <button id="quickQR">QR</button>
+        <button id="quickBarcode">Barcode</button>
+        <button id="quickImage">Imagen</button>
+        <button id="quickLogo">Logo PNG</button>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="logs">
+      <div class="section-head">
+        <div>
+          <h2>Respuesta</h2>
+          <p class="hint">Aqui aparece la respuesta JSON de la ultima accion.</p>
+        </div>
+        <span class="badge">API</span>
+      </div>
+      <pre id="output">Esperando accion...</pre>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="logs">
+      <div class="section-head">
+        <div>
+          <h2>Logs del agente</h2>
+          <p class="hint">Mira aqui si el trabajo queda Failed, si el nombre de impresora no existe o si Windows devuelve error.</p>
+        </div>
+        <span class="badge">Diagnostico</span>
+      </div>
+      <div class="actions">
+        <button id="refreshLogs" class="secondary">Actualizar logs</button>
+        <button id="clearView" class="secondary">Limpiar vista</button>
+      </div>
+      <pre id="logs">Sin logs cargados...</pre>
+    </section>
+  </main>
+
+  <script>
+    const API_BASE = location.protocol === "file:" ? "http://localhost:18743" : "";
+    const $ = (id) => document.getElementById(id);
+    const output = $("output");
+    const logs = $("logs");
+    const network = $("network");
+    const health = $("health");
+    const aliasConfig = $("aliasConfig");
+
+    function selectedPrinter() {
+      return $("printerManual").value.trim() || $("printerSelect").value;
+    }
+
+    function selectedWidth() {
+      return Number($("paperWidth").value || 384);
+    }
+
+    function selectedScale() {
+      return Number($("imageScale").value || 80);
+    }
+
+    function show(data) {
+      output.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    }
+
+    const toastStack = $("toastStack");
+
+    function toast(message, type = "info") {
+      const el = document.createElement("div");
+      el.className = `toast toast-${type}`;
+      el.textContent = message;
+      toastStack.appendChild(el);
+      requestAnimationFrame(() => el.classList.add("show"));
+      setTimeout(() => {
+        el.classList.remove("show");
+        setTimeout(() => el.remove(), 200);
+      }, 3600);
+    }
+
+    function notify(data, successMessage) {
+      show(data);
+      if (data && data.ok === false) {
+        toast(data.error || "Ocurrio un error", "error");
+      } else {
+        toast(successMessage, "success");
+      }
+      return data;
+    }
+
+    function notifyError(error, fallbackMessage) {
+      show(error);
+      toast((error && error.error) || fallbackMessage || "Ocurrio un error", "error");
+    }
+
+    function activateTab(tab) {
+      document.querySelectorAll(".tab-button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.tab === tab);
+      });
+      document.querySelectorAll(".tab-panel").forEach((panel) => {
+        panel.classList.toggle("active", panel.dataset.tabPanel === tab);
+      });
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(API_BASE + path, {
+        headers: { "Content-Type": "application/json" },
+        ...options
+      });
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
+      if (!response.ok) throw data;
+      return data;
+    }
+
+    async function checkHealth() {
+      try {
+        const data = await api("/health");
+        health.textContent = data.ok ? "Agente conectado" : "Sin conexion";
+        health.style.borderColor = data.ok ? "#16a34a" : "#dc2626";
+      } catch (error) {
+        health.textContent = "Agente no disponible";
+        health.style.borderColor = "#dc2626";
+      }
+    }
+
+    async function loadPrinters() {
+      try {
+        const data = await api("/api/printers");
+        const printers = data.data || [];
+        $("printerSelect").innerHTML = "";
+        for (const printer of printers) {
+          const option = document.createElement("option");
+          option.value = printer.name;
+          option.textContent = `${printer.name} (${printer.type})`;
+          $("printerSelect").appendChild(option);
+        }
+        if (!printers.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No se detectaron impresoras";
+          $("printerSelect").appendChild(option);
+        }
+        show(data);
+      } catch (error) {
+        show(error);
+      }
+    }
+
+    async function loadSettings() {
+      try {
+        const data = await api("/api/settings");
+        const settings = data.data || {};
+        if (settings.default_printer) $("printerManual").value = settings.default_printer;
+        if (settings.paper_width) $("paperWidth").value = String(settings.paper_width);
+        if (settings.image_scale) $("imageScale").value = String(settings.image_scale);
+      } catch (error) {
+        show(error);
+      }
+    }
+
+    async function loadNetwork() {
+      try {
+        const data = await api("/api/network");
+        const info = data.data || {};
+        const lines = [];
+        lines.push(`Servidor: ${info.allow_remote ? "Red local habilitada" : "Solo esta PC"}`);
+        lines.push(`Host interno: ${info.host}:${info.port}`);
+        lines.push("");
+        lines.push("Rutas para abrir desde otros equipos:");
+        for (const url of info.urls || []) {
+          lines.push(url);
+        }
+        lines.push("");
+        lines.push("Si no abre desde otra PC, ejecuta ABRIR_FIREWALL_LAN.bat como administrador.");
+        network.textContent = lines.join("\n");
+      } catch (error) {
+        network.textContent = JSON.stringify(error, null, 2);
+      }
+    }
+
+    async function saveSettings() {
+      try {
+        const data = await api("/api/settings", {
+          method: "POST",
+          body: JSON.stringify({
+            default_printer: selectedPrinter(),
+            paper_width: selectedWidth(),
+            image_scale: selectedScale()
+          })
+        });
+        notify(data, "Configuracion guardada");
+      } catch (error) {
+        notifyError(error, "No se pudo guardar la configuracion");
+      }
+    }
+
+    function aliasesToText(aliases) {
+      return (aliases || []).map((alias) => {
+        const line = `${alias.name || ""}=${alias.printer || ""}`;
+        return alias.description ? `${line}|${alias.description}` : line;
+      }).join("\n");
+    }
+
+    function textToAliases() {
+      return aliasConfig.value
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const [left, description = ""] = line.split("|");
+          const [name = "", printer = ""] = left.split("=");
+          return {
+            name: name.trim().toLowerCase(),
+            printer: printer.trim(),
+            description: description.trim()
+          };
+        })
+        .filter((alias) => alias.name && alias.printer);
+    }
+
+    function firstAliasName() {
+      const aliases = textToAliases();
+      return aliases.length ? aliases[0].name : "";
+    }
+
+    async function loadAliases() {
+      try {
+        const data = await api("/api/printer-aliases");
+        aliasConfig.value = aliasesToText(data.data || []);
+        if (!$("stationTest").value.trim()) {
+          $("stationTest").value = firstAliasName() || "cocina";
+        }
+      } catch (error) {
+        show(error);
+      }
+    }
+
+    async function saveAliases() {
+      try {
+        const data = await api("/api/printer-aliases", {
+          method: "POST",
+          body: JSON.stringify(textToAliases())
+        });
+        notify(data, "Estaciones guardadas");
+        aliasConfig.value = aliasesToText(data.data || []);
+        if (!$("stationTest").value.trim()) {
+          $("stationTest").value = firstAliasName() || "cocina";
+        }
+      } catch (error) {
+        notifyError(error, "No se pudieron guardar las estaciones");
+      }
+    }
+
+    async function loadLogs() {
+      try {
+        const data = await api("/api/logs?limit=120");
+        const items = data.data || [];
+        logs.textContent = items.length
+          ? items.map((item) => JSON.stringify(item, null, 2)).join("\n")
+          : "Todavia no hay logs.";
+      } catch (error) {
+        logs.textContent = JSON.stringify(error, null, 2);
+      }
+    }
+
+    async function refreshAfterPrint() {
+      await loadLogs();
+      setTimeout(loadLogs, 1500);
+      setTimeout(loadLogs, 4000);
+    }
+
+    async function requirePrinter() {
+      const printer = selectedPrinter();
+      if (!printer) {
+        throw { ok: false, error: "Selecciona o escribe una impresora primero." };
+      }
+      return printer;
+    }
+
+    $("refreshPrinters").addEventListener("click", loadPrinters);
+    $("refreshStatus").addEventListener("click", async () => show(await api("/api/status")));
+    $("refreshNetwork").addEventListener("click", loadNetwork);
+    $("saveSettings").addEventListener("click", saveSettings);
+    document.querySelectorAll(".tab-button").forEach((button) => {
+      button.addEventListener("click", () => activateTab(button.dataset.tab));
+    });
+    $("refreshAliases").addEventListener("click", loadAliases);
+    $("saveAliases").addEventListener("click", saveAliases);
+    $("testStation").addEventListener("click", async () => {
+      try {
+        const printer = $("stationTest").value.trim() || firstAliasName() || selectedPrinter();
+        if (!printer) {
+          throw { ok: false, error: "Escribe una estacion o selecciona una impresora." };
+        }
+        const copies = Math.max(1, Math.min(5, Number($("stationCopies").value || 1)));
+        const responses = [];
+        const started = performance.now();
+        for (let i = 1; i <= copies; i++) {
+          responses.push(await api("/api/print/text", {
+            method: "POST",
+            body: JSON.stringify({
+              printer,
+              text: `COLLATECH AGENT\nPrueba estacion: ${printer}\nCopia: ${i}/${copies}\n${new Date().toLocaleString()}`,
+              cut: true
+            })
+          }));
+        }
+        notify({
+          ok: true,
+          message: "prueba de estacion enviada",
+          printer,
+          copies,
+          enqueue_ms: Math.round(performance.now() - started),
+          responses
+        }, `Enviado a ${printer}`);
+        refreshAfterPrint();
+      } catch (error) {
+        notifyError(error, "No se pudo probar la estacion");
+        loadLogs();
+      }
+    });
+    $("refreshLogs").addEventListener("click", loadLogs);
+    $("clearView").addEventListener("click", () => {
+      output.textContent = "Vista limpiada.";
+      logs.textContent = "Sin logs cargados...";
+    });
+
+    $("printText").addEventListener("click", async () => {
+      try {
+        const printer = await requirePrinter();
+        const text = $("testText").value.replace("{{date}}", new Date().toLocaleString());
+        notify(await api("/api/print/text", {
+          method: "POST",
+          body: JSON.stringify({ printer, text, cut: true })
+        }), "Texto enviado a imprimir");
+        refreshAfterPrint();
+      } catch (error) {
+        notifyError(error, "No se pudo imprimir el texto");
+        loadLogs();
+      }
+    });
+
+    $("printTicket").addEventListener("click", async () => {
+      try {
+        const printer = await requirePrinter();
+        notify(await api("/api/print/ticket", {
+          method: "POST",
+          body: JSON.stringify({
+            printer,
+            title: "COLLATECH",
+            lines: [
+              { text: "Ticket de prueba", align: "center", bold: true },
+              { text: new Date().toLocaleString(), align: "center" },
+              { text: "Producto Demo              Bs 10.00" },
+              { text: "TOTAL                      Bs 10.00", bold: true }
+            ],
+            qr: "https://kollatek.com",
+            barcode: "123456789",
+            cut: true
+          })
+        }), "Ticket enviado a imprimir");
+        refreshAfterPrint();
+      } catch (error) {
+        notifyError(error, "No se pudo imprimir el ticket");
+        loadLogs();
+      }
+    });
+
+    $("printHTML").addEventListener("click", async () => {
+      try {
+        const printer = await requirePrinter();
+        notify(await api("/api/print/template", {
+          method: "POST",
+          body: JSON.stringify({
+            printer,
+            template: "factura.html",
+            width: 576,
+            cut: true,
+            data: {
+              empresa: "CollaTech",
+              cliente: "Demo",
+              items: [{ nombre: "Producto Demo", precio: "Bs 10.00" }],
+              total: "Bs 10.00",
+              mensaje: "Factura limpia ESC/POS"
+            }
+          })
+        }), "Factura enviada a imprimir");
+        refreshAfterPrint();
+      } catch (error) {
+        notifyError(error, "No se pudo imprimir la factura");
+        loadLogs();
+      }
+    });
+
+    $("openDrawer").addEventListener("click", async () => {
+      try {
+        const printer = await requirePrinter();
+        notify(await api("/api/print/ticket", {
+          method: "POST",
+          body: JSON.stringify({ printer, drawer: true, lines: [{ text: "Apertura de caja" }] })
+        }), "Caja abierta");
+        refreshAfterPrint();
+      } catch (error) {
+        notifyError(error, "No se pudo abrir la caja");
+        loadLogs();
+      }
+    });
+
+    async function printTemplate(template, data) {
+      const printer = await requirePrinter();
+      notify(await api("/api/print/template", {
+        method: "POST",
+        body: JSON.stringify({ printer, template, data, width: 576, cut: true })
+      }), "Enviado a imprimir");
+      refreshAfterPrint();
+    }
+
+    $("quickInvoice").addEventListener("click", async () => {
+      try {
+        await printTemplate("factura.html", {
+          empresa: "CollaTech Store",
+          cliente: "Cliente Demo",
+          items: [
+            { nombre: "Producto A", precio: "Bs 50.00" },
+            { nombre: "Producto B", precio: "Bs 70.00" }
+          ],
+          total: "Bs 120.00",
+          mensaje: "Gracias por su compra"
+        });
+      } catch (error) {
+        notifyError(error);
+        loadLogs();
+      }
+    });
+
+    $("quickReceipt").addEventListener("click", async () => {
+      try {
+        await printTemplate("recibo.html", {
+          empresa: "CollaTech",
+          cliente: "Cliente Demo",
+          total: "Bs 120.00",
+          mensaje: "Pago recibido"
+        });
+      } catch (error) {
+        notifyError(error);
+        loadLogs();
+      }
+    });
+
+    $("quickText").addEventListener("click", async () => {
+      try {
+        await printTemplate("texto.html", {
+          empresa: "CollaTech Agent",
+          mensaje: "Texto desde template de prueba",
+          fecha: new Date().toLocaleString()
+        });
+      } catch (error) {
+        notifyError(error);
+        loadLogs();
+      }
+    });
+
+    $("quickQR").addEventListener("click", async () => {
+      try {
+        const printer = await requirePrinter();
+        notify(await api("/api/print/ticket", {
+          method: "POST",
+          body: JSON.stringify({
+            printer,
+            title: "QR TEST",
+            lines: [{ text: "https://kollatek.com", align: "center" }],
+            qr: "https://kollatek.com",
+            cut: true
+          })
+        }), "QR enviado a imprimir");
+        refreshAfterPrint();
+      } catch (error) {
+        notifyError(error);
+        loadLogs();
+      }
+    });
+
+    $("quickBarcode").addEventListener("click", async () => {
+      try {
+        const printer = await requirePrinter();
+        notify(await api("/api/print/ticket", {
+          method: "POST",
+          body: JSON.stringify({
+            printer,
+            title: "BARCODE TEST",
+            barcode: "123456789012",
+            cut: true
+          })
+        }), "Codigo de barras enviado a imprimir");
+        refreshAfterPrint();
+      } catch (error) {
+        notifyError(error);
+        loadLogs();
+      }
+    });
+
+    $("quickImage").addEventListener("click", async () => {
+      try {
+        const printer = await requirePrinter();
+        const canvas = document.createElement("canvas");
+        canvas.width = 384;
+        canvas.height = 180;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#111";
+        ctx.fillRect(18, 18, 348, 4);
+        ctx.fillRect(18, 158, 348, 4);
+        ctx.font = "bold 34px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("COLLATECH", 192, 82);
+        ctx.font = "20px Arial";
+        ctx.fillText("Imagen de prueba", 192, 120);
+        notify(await api("/api/print/image", {
+          method: "POST",
+          body: JSON.stringify({ printer, image: canvas.toDataURL("image/png"), width: selectedWidth(), scale: selectedScale(), cut: true })
+        }), "Imagen enviada a imprimir");
+        refreshAfterPrint();
+      } catch (error) {
+        notifyError(error);
+        loadLogs();
+      }
+    });
+
+    $("quickLogo").addEventListener("click", async () => {
+      try {
+        const printer = await requirePrinter();
+        notify(await api("/api/print/logo", {
+          method: "POST",
+          body: JSON.stringify({ printer, width: selectedWidth(), scale: selectedScale(), cut: true })
+        }), "Logo enviado a imprimir");
+        refreshAfterPrint();
+      } catch (error) {
+        notifyError(error);
+        loadLogs();
+      }
+    });
+
+    checkHealth();
+    loadNetwork();
+    loadSettings().then(loadPrinters);
+    loadAliases();
+    loadLogs();
+  </script>
+</body>
+</html>

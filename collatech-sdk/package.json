@@ -1,0 +1,55 @@
+{
+  "name": "collatech-sdk",
+  "version": "1.1.0",
+  "description": "Official SDK for CollaTech Agent – print receipts, invoices, tickets, QR codes, and barcodes from any JavaScript/TypeScript app",
+  "keywords": [
+    "collatech",
+    "escpos",
+    "printer",
+    "receipt",
+    "invoice",
+    "ticket",
+    "thermal-printer",
+    "pos",
+    "sdk"
+  ],
+  "author": "CollaTech",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "npm run build:esm && npm run build:cjs && npm run build:cjs-pkg",
+    "build:esm": "tsc -p tsconfig.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:cjs-pkg": "echo \"{\\\"type\\\":\\\"commonjs\\\"}\" > dist/cjs/package.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

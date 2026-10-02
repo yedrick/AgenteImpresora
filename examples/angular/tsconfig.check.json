@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "lib": ["ES2020", "DOM"],
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": "../..",
+    "paths": {
+      "collatech-sdk": ["collatech-sdk/src/index.ts"]
+    }
+  },
+  "files": ["angular-core-shim.d.ts", "collatech-print.service.ts"]
+}

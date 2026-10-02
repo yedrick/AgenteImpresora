@@ -1,0 +1,27 @@
+{
+  "default_printer": "POS1",
+  "paper_width": 576,
+  "image_scale": 70,
+  "aliases": [
+    {
+      "name": "cocina",
+      "printer": "POS1",
+      "description": "Pedidos de cocina"
+    },
+    {
+      "name": "recepcion",
+      "printer": "POS1",
+      "description": "Recepcion y caja"
+    },
+    {
+      "name": "facturas",
+      "printer": "POS1",
+      "description": "Facturas"
+    },
+    {
+      "name": "pagos",
+      "printer": "POS1",
+      "description": "Pagos y recibos"
+    }
+  ]
+}

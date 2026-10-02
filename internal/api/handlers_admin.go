@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"collatech-agent/internal/config"
+	"collatech-agent/internal/printers"
 	"collatech-agent/internal/settings"
 )
 
@@ -191,4 +192,11 @@ func (s *Server) savePrinterAliases(w http.ResponseWriter, r *http.Request) {
 		out = append(out, settings.Alias{Name: p.Name, Printer: p.Target, Description: p.Description})
 	}
 	writeJSON(w, http.StatusOK, response{OK: true, Message: "impresoras guardadas", Data: out})
+}
+
+// listModels devuelve el catalogo de modelos conocidos, con sus capacidades
+// y, para el unico caso que lo necesita, el enlace oficial del fabricante.
+// El agente no descarga ni instala nada: solo informa.
+func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, response{OK: true, Data: printers.Catalog})
 }

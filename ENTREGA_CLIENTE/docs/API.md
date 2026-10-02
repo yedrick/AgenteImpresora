@@ -61,8 +61,9 @@ documento**: `width`, `cut` (`partial`/`full`/`none` o `true`/`false`),
 |---|---|
 | `/health` | `{"ok":true,"message":"healthy"}`. **No trae `data`** |
 | `/api/status` | `service`, `time` y `jobs[]` de la cola |
-| `/api/printers` | `name`, `type`, `address`, `online`, `status` |
+| `/api/printers` | `name`, `type`, `address`, `online`, `status`, y `model`/`model_name`/`paper_width` si se reconoce el modelo |
 | `/api/templates` | Nombres de las plantillas integradas |
+| `/api/models` | Catálogo de modelos conocidos: ancho, corte, si admite imágenes y si necesita driver |
 | `/api/network` | `hostname`, `host`, `port`, `allow_remote`, `urls[]` |
 | `/api/settings` | `default_printer`, `paper_width`, `image_scale`, `aliases[]` |
 | `/api/printer-aliases` | Solo `aliases[]` |

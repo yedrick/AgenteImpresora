@@ -78,6 +78,39 @@ Windows, empareja la impresora y mira qué puerto COM saliente le asigna
 sistema; `USB001` es un puerto del spooler, no un destino. En Linux puedes
 usar `device:///dev/usb/lp0` directamente.
 
+## Modelos conocidos
+
+`GET /api/models` devuelve el catálogo. Cada entrada trae lo que hace falta
+para configurar bien la impresora:
+
+```json
+{
+  "id": "star-tsp100",
+  "brand": "Star Micronics",
+  "name": "TSP100 / TSP143 (futurePRNT)",
+  "paper_width": 576,
+  "widths": [576, 384],
+  "cut": "partial",
+  "drawer": true,
+  "raster": true,
+  "driver": "si",
+  "driver_url": "https://starmicronics.com/support/",
+  "notes": "Caso especial. Por USB en Windows exige el driver futurePRNT..."
+}
+```
+
+| Campo | Qué dice |
+|---|---|
+| `paper_width` / `widths` | Ancho en puntos por defecto y los que admite |
+| `cut` | Modo de corte recomendado |
+| `drawer` | Si lleva conector para el cajón de dinero |
+| `raster` | Si entiende `GS v 0`. **Si es `false`, no imprime logos ni QR** |
+| `driver` | `nunca`, `usb-windows` (basta el genérico) o `si` (exige el del fabricante) |
+| `driver_url` | Página oficial. El agente no descarga nada |
+
+`GET /api/printers` reconoce el modelo de lo que detecta y añade `model`,
+`model_name` y `paper_width`.
+
 ## Impresoras dadas de alta
 
 En vez de repetir el ancho de papel y el modo de corte en cada llamada, das
@@ -401,6 +434,7 @@ bytes ASCII y de control pasan tal cual).
 | `GET /api/status` | Servicio, hora y los trabajos en cola |
 | `GET /api/printers` | Impresoras detectadas, con `online` y `status` |
 | `GET /api/templates` | Nombres de las plantillas integradas |
+| `GET /api/models` | Catálogo de modelos: ancho, corte, imágenes y driver |
 | `GET /api/network` | Hostname, IPs y URLs del panel |
 | `GET /api/settings` | Ancho de papel, escala y alias |
 | `GET /api/printer-aliases` | Solo los alias |

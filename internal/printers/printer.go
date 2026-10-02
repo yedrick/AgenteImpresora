@@ -57,6 +57,13 @@ type Info struct {
 	Address string `json:"address,omitempty"`
 	Online  bool   `json:"online"`
 	Status  string `json:"status,omitempty"`
+
+	// Model es el modelo reconocido en el catalogo, si se reconoce. Sirve
+	// para proponer el ancho de papel y el modo de corte sin que el operador
+	// tenga que saberselos.
+	Model      string `json:"model,omitempty"`
+	ModelName  string `json:"model_name,omitempty"`
+	PaperWidth int    `json:"paper_width,omitempty"`
 }
 
 type Manager struct {
@@ -81,6 +88,13 @@ func (m *Manager) List() []Info {
 	out := append(enumSpoolerPrinters(), detectDevices()...)
 	if out == nil {
 		out = []Info{}
+	}
+	for i := range out {
+		if m, ok := MatchModel(out[i].Name); ok {
+			out[i].Model = m.ID
+			out[i].ModelName = m.Brand + " " + m.Name
+			out[i].PaperWidth = m.PaperWidth
+		}
 	}
 	m.listCopy, m.listAt = out, time.Now()
 	return out

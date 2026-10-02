@@ -111,6 +111,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/printer-aliases", s.savePrinterAliases)
 	mux.HandleFunc("GET /api/templates", s.listTemplates)
 	mux.HandleFunc("GET /api/printers", s.listPrinters)
+	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("POST /api/print/text", s.printText)
 	mux.HandleFunc("POST /api/print/ticket", s.printTicket)
 	mux.HandleFunc("POST /api/print/logo", s.printLogo)

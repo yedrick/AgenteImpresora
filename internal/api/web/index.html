@@ -427,7 +427,7 @@
         <table id="printerTable">
           <thead>
             <tr>
-              <th>Nombre</th><th>Destino</th><th>Papel</th><th>Corte</th>
+              <th>Nombre</th><th>Destino</th><th>Modelo</th><th>Papel</th><th>Corte</th>
               <th title="Imprimir girado 180 grados">Girar</th><th>Fuente</th><th>Descripcion</th><th></th>
             </tr>
           </thead>
@@ -437,6 +437,7 @@
       <div class="actions" style="margin-top:10px">
         <button id="addPrinter" class="secondary" type="button">+ Anadir impresora</button>
       </div>
+      <div id="avisoModelo" class="hint" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px"></div>
       <details style="margin-top:12px">
         <summary class="hint">Que puedo poner en Destino</summary>
         <ul class="hint" style="margin:8px 0 0 18px">
@@ -664,7 +665,12 @@ Gracias por usar CollaTech</textarea>
         for (const printer of printers) {
           const option = document.createElement("option");
           option.value = printer.name;
-          option.textContent = `${printer.name} (${printer.type})`;
+          // Si se reconoce el modelo se dice, para que el operador sepa que
+          // el agente ya sabe su ancho de papel.
+          const extra = printer.model_name
+            ? `${printer.model_name}`
+            : printer.status || printer.type;
+          option.textContent = `${printer.name} — ${extra}`;
           $("printerSelect").appendChild(option);
         }
         if (!printers.length) {
@@ -734,6 +740,60 @@ Gracias por usar CollaTech</textarea>
 
     let impresoras = [];
 
+    // El catalogo lo sirve el agente: elegir el modelo rellena el ancho de
+    // papel y el corte, que es lo que de verdad hace que el ticket salga
+    // bien. El agente no descarga ni instala drivers; para el unico caso que
+    // lo necesita se muestra el enlace oficial.
+    let catalogo = [];
+
+    async function cargarCatalogo() {
+      try {
+        const data = await api("/api/models");
+        catalogo = data.data || [];
+      } catch (e) {
+        catalogo = [];
+      }
+    }
+
+    function opcionesModelo(actual) {
+      const items = [["", "Sin especificar"]].concat(
+        catalogo.map((m) => [m.id, `${m.brand} ${m.name}`])
+      );
+      return opciones(items, actual);
+    }
+
+    function modelo(id) {
+      return catalogo.find((m) => m.id === id);
+    }
+
+    // Al elegir modelo se rellenan sus valores y se avisa de lo que haga
+    // falta saber antes de conectarla.
+    function aplicarModelo(fila, id) {
+      const m = modelo(id);
+      if (!m) { mostrarAvisoModelo(null); return; }
+      const sel = (campo) => fila.querySelector(`[data-campo="${campo}"]`);
+      sel("paper_width").value = String(m.paper_width || "");
+      sel("cut").value = m.cut || "";
+      mostrarAvisoModelo(m);
+    }
+
+    function mostrarAvisoModelo(m) {
+      const caja = $("avisoModelo");
+      if (!m) { caja.style.display = "none"; return; }
+      const partes = [`<b>${esc(m.brand)} ${esc(m.name)}</b> &middot; ${m.paper_width} puntos (${m.paper_width >= 576 ? 48 : m.paper_width >= 512 ? 42 : 32} columnas)`];
+      if (m.notes) partes.push(esc(m.notes));
+      if (!m.raster) partes.push("<b>Atencion:</b> este modelo no imprime imagenes ni codigos QR con el comando moderno.");
+      if (m.driver === "si") {
+        partes.push(`<b>Necesita el driver del fabricante</b> por USB en Windows. Descargalo de <a href="${esc(m.driver_url)}" target="_blank" rel="noopener">la pagina oficial</a>. Por red no hace falta.`);
+      } else if (m.driver === "usb-windows") {
+        let t = "Por USB en Windows hace falta una cola de impresion; el driver <b>Generic / Text Only</b> del sistema suele bastar. Por red, serie o Bluetooth no hace falta ninguno.";
+        if (m.driver_url) t += ` Si prefieres el del fabricante: <a href="${esc(m.driver_url)}" target="_blank" rel="noopener">pagina oficial</a>.`;
+        partes.push(t);
+      }
+      caja.innerHTML = partes.join("<br>");
+      caja.style.display = "";
+    }
+
     const PAPELES = [["", "General"], ["384", "58 mm"], ["512", "72 mm"], ["576", "80 mm"]];
     const CORTES = [["", "General"], ["partial", "Parcial"], ["full", "Completo"], ["none", "Sin corte"]];
     const FUENTES = [["", "Normal"], ["a", "A normal"], ["b", "B condensada"]];
@@ -747,13 +807,14 @@ Gracias por usar CollaTech</textarea>
     function pintarImpresoras() {
       const tbody = $("printerRows");
       if (!impresoras.length) {
-        tbody.innerHTML = `<tr class="vacio"><td colspan="8">Ninguna impresora dada de alta. Puedes imprimir usando el nombre directo, o anadir una aqui para fijarle su papel y su corte.</td></tr>`;
+        tbody.innerHTML = `<tr class="vacio"><td colspan="9">Ninguna impresora dada de alta. Puedes imprimir usando el nombre directo, o anadir una aqui para fijarle su papel y su corte.</td></tr>`;
         return;
       }
       tbody.innerHTML = impresoras.map((p, i) => `
         <tr data-i="${i}">
           <td><input type="text" data-campo="name" value="${esc(p.name)}" placeholder="caja"></td>
           <td><input type="text" data-campo="target" value="${esc(p.target)}" placeholder="tcp://192.168.1.50:9100"></td>
+          <td><select data-campo="modelo">${opcionesModelo(p.modelo)}</select></td>
           <td><select data-campo="paper_width">${opciones(PAPELES, p.paper_width)}</select></td>
           <td><select data-campo="cut">${opciones(CORTES, p.cut)}</select></td>
           <td style="text-align:center"><input type="checkbox" data-campo="upside_down"${p.upside_down ? " checked" : ""}></td>
@@ -776,6 +837,7 @@ Gracias por usar CollaTech</textarea>
         return {
           name: (dato("name").value || "").trim().toLowerCase(),
           target: (dato("target").value || "").trim(),
+          modelo: dato("modelo") ? dato("modelo").value : "",
           paper_width: Number(dato("paper_width").value || 0),
           cut: dato("cut").value || "",
           upside_down: dato("upside_down").checked,
@@ -821,10 +883,15 @@ Gracias por usar CollaTech</textarea>
 
     $("addPrinter").addEventListener("click", () => {
       impresoras = leerTabla();
-      impresoras.push({ name: "", target: "", paper_width: 0, cut: "", upside_down: false, font: "", description: "" });
+      impresoras.push({ name: "", target: "", modelo: "", paper_width: 0, cut: "", upside_down: false, font: "", description: "" });
       pintarImpresoras();
       const filas = $("printerRows").querySelectorAll('input[data-campo="name"]');
       if (filas.length) filas[filas.length - 1].focus();
+    });
+
+    $("printerRows").addEventListener("change", (ev) => {
+      if (ev.target.dataset.campo !== "modelo") return;
+      aplicarModelo(ev.target.closest("tr"), ev.target.value);
     });
 
     $("printerRows").addEventListener("click", (ev) => {
@@ -1168,8 +1235,8 @@ Gracias por usar CollaTech</textarea>
     checkHealth();
     showLocalToken();
     loadNetwork();
+    cargarCatalogo().then(loadAliases);
     loadSettings().then(loadPrinters);
-    loadAliases();
     loadLogs();
   </script>
 </body>

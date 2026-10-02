@@ -307,6 +307,52 @@ salen del perfil, así que puedes tener una de 58 mm en cocina y una de 80 mm
 en caja sin repetirlo en cada llamada. Un destino con varias impresoras
 separadas por coma saca una copia en cada una.
 
+## ¿Hace falta el driver del fabricante?
+
+**Casi nunca.** El agente habla ESC/POS directamente con la impresora:
+
+| Conexión | Driver |
+|---|---|
+| Red (`tcp://host:9100`) | **No** |
+| Puerto serie | **No** |
+| Bluetooth | **No** (solo emparejarla en el sistema) |
+| USB en Linux (`/dev/usb/lp0`) | **No** |
+| USB en Windows | Hace falta una cola de impresión, y el driver **Generic / Text Only** del sistema suele bastar |
+
+La excepción conocida es la **Star TSP100 / TSP143**: por USB en Windows sí
+exige el driver futurePRNT de Star, y de fábrica no habla ESC/POS — hay que
+activarle la emulación con la *TSP100 Configuration Utility*. Las versiones
+LAN funcionan por `tcp://` sin nada.
+
+### Catálogo de modelos
+
+Lo que sí cambia de un modelo a otro, y hace que el ticket salga bien o
+torcido, es el ancho de papel, si lleva cuchilla y si entiende el comando de
+imagen moderno. El agente trae un catálogo con eso:
+
+```bash
+curl http://localhost:18743/api/models
+```
+
+Cubre Epson TM (T20, T82, T88, m30, U220), Star (TSP100, TSP650, mC-Print3),
+Bixolon (SRP-350, SRP-330, SRP-E300), Xprinter (XP-58, XP-80), Gprinter
+(GP-58, GP-80), 3nStar, Rongta y los genéricos de 58, 72 y 80 mm.
+
+En el panel, al dar de alta una impresora eliges el modelo y se rellenan
+solos el ancho y el corte. `GET /api/printers` además **reconoce el modelo**
+de las impresoras detectadas por su nombre.
+
+El catálogo avisa de los casos que dan problemas. Por ejemplo, la **Epson
+TM-U220 no es térmica**: es de impacto, así que los logos y los QR no salen.
+Saberlo antes ahorra una tarde.
+
+> El agente **no descarga ni instala drivers**. Para el único caso que lo
+> necesita muestra el enlace a la página oficial del fabricante y tú decides.
+> Automatizarlo significaría ejecutar un instalador bajado de internet con
+> permisos de administrador, y las URLs de los fabricantes cambian cada poco:
+> de los seis enlaces que comprobé al montar esto, tres estaban rotos y el de
+> Epson redirigía a la sección de proyectores.
+
 ## Control de la impresión
 
 Todos los endpoints de impresión aceptan estas opciones:

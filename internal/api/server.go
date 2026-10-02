@@ -3,9 +3,11 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -17,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -65,6 +68,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/network", s.network)
 	mux.HandleFunc("GET /api/diagnostico", s.diagnosticReport)
 	mux.HandleFunc("GET /api/logs", s.readLogs)
+	mux.HandleFunc("GET /api/token", s.readToken)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.saveSettings)
 	mux.HandleFunc("GET /api/printer-aliases", s.getPrinterAliases)
@@ -78,10 +82,87 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/print/html", s.printHTML)
 	mux.HandleFunc("POST /api/print/image", s.printImage)
 	mux.HandleFunc("POST /api/print/raw", s.printRaw)
-	if s.cfg.AllowRemote {
-		return s.recoverPanics(s.cors(mux))
+	// El orden importa: CORS tiene que responder el preflight OPTIONS antes
+	// que el guardia, porque un preflight no puede llevar cabecera de
+	// autorizacion.
+	var h http.Handler = mux
+	h = s.guard(h)
+	if !s.cfg.AllowRemote {
+		h = s.localhostOnly(h)
 	}
-	return s.recoverPanics(s.localhostOnly(s.cors(mux)))
+	h = s.cors(h)
+	h = s.recoverPanics(h)
+	return h
+}
+
+// adminPaths son endpoints que exponen configuracion, diagnostico del equipo
+// o el historial: se atienden solo desde la propia PC del agente, pase lo que
+// pase con allow_remote. /api/diagnostico llegaba a volcar la salida completa
+// de netstat -ano a cualquiera en la red.
+var adminPaths = map[string]bool{
+	"/api/diagnostico": true,
+	"/api/logs":        true,
+	"/api/token":       true,
+}
+
+// adminWritePaths son cambios de configuracion: nunca desde la red.
+var adminWritePaths = map[string]bool{
+	"/api/settings":        true,
+	"/api/printer-aliases": true,
+}
+
+func (s *Server) isAdminRequest(r *http.Request) bool {
+	if adminPaths[r.URL.Path] {
+		return true
+	}
+	return r.Method == http.MethodPost && adminWritePaths[r.URL.Path]
+}
+
+// guard aplica el control de acceso a /api/*. Las paginas del panel y /health
+// quedan fuera para que se puedan abrir desde un movil; las llamadas que esas
+// paginas hacen si pasan por aqui.
+func (s *Server) guard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		local := isLocalRequest(r)
+		if s.isAdminRequest(r) && !local {
+			writeJSON(w, http.StatusForbidden, response{OK: false,
+				Error: "este endpoint solo esta disponible desde la PC donde corre el agente"})
+			return
+		}
+		if !local && s.cfg.AuthToken != "" && !tokenMatches(r, s.cfg.AuthToken) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="CollaTech Agent"`)
+			writeJSON(w, http.StatusUnauthorized, response{OK: false,
+				Error: "token ausente o incorrecto: envia la cabecera 'Authorization: Bearer <token>'"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isLocalRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// tokenMatches compara en tiempo constante para no filtrar el token por el
+// tiempo de respuesta.
+func tokenMatches(r *http.Request, want string) bool {
+	got := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if got == "" {
+		got = strings.TrimSpace(r.Header.Get("X-CollaTech-Token"))
+	}
+	if got == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 // recoverPanics evita que un payload malformado tumbe la conexion sin dejar
@@ -224,8 +305,8 @@ func (s *Server) diagnosticReport(w http.ResponseWriter, r *http.Request) {
 		"firewall": firewallDiagnostics(port, exe),
 		"config": map[string]any{
 			"path":   filepath.Join(cwd, "configs", "config.json"),
-			"active": s.cfg,
-			"raw":    configRaw,
+			"active": redactConfig(s.cfg),
+			"raw":    redactRawConfig(configRaw),
 		},
 		"advice": diagnosticAdvice(s.cfg, ips),
 	}
@@ -278,6 +359,16 @@ func (s *Server) readLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response{OK: true, Data: lines})
+}
+
+// readToken devuelve el token de acceso a la red. Es admin, asi que solo
+// responde a peticiones desde la propia PC: sirve para que el operador lo
+// copie del panel y lo configure en las demas estaciones.
+func (s *Server) readToken(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, response{OK: true, Data: map[string]any{
+		"required": s.cfg.AllowRemote && s.cfg.AuthToken != "",
+		"token":    s.cfg.AuthToken,
+	}})
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -559,40 +650,45 @@ type htmlRequest struct {
 	Cut     bool   `json:"cut"`
 }
 
+// sanitizeTicket arma el evento de log SIN el contenido del ticket. Antes se
+// volcaba el texto de cada linea, asi que nombres de clientes, articulos e
+// importes quedaban en claro en logs/*.jsonl, que GET /api/logs sirve tal cual.
+// Para diagnosticar basta con la forma del ticket, no con lo que dice.
 func sanitizeTicket(r ticketRequest) map[string]any {
 	m := map[string]any{
 		"printer": r.Printer, "width": r.Width, "scale": r.Scale,
 		"cut": r.Cut, "drawer": r.Drawer, "border": r.Border,
 		"feed_top": r.FeedTop, "feed_bottom": r.FeedBottom,
 		"margin_left": r.MarginLeft, "margin_right": r.MarginRight,
+		"lines": len(r.Lines),
 	}
 	if r.Title != "" {
-		m["title"] = r.Title
+		m["title_len"] = len([]rune(r.Title))
 	}
 	if r.QR != "" {
-		m["qr"] = r.QR
+		m["qr_len"] = len(r.QR)
 	}
 	if r.Barcode != "" {
-		m["barcode"] = r.Barcode
+		m["barcode_len"] = len(r.Barcode)
 	}
 	if r.Logo != "" {
-		m["logo"] = "base64:" + fmt.Sprint(len(r.Logo))
+		m["logo_len"] = len(r.Logo)
 	}
-	lines := make([]map[string]any, len(r.Lines))
-	for i, l := range r.Lines {
-		lm := map[string]any{"text": l.Text, "type": l.Type, "align": l.Align, "bold": l.Bold}
+	var tables, boxes int
+	for _, l := range r.Lines {
 		if l.Table != nil {
-			lm["table"] = l.Table
+			tables++
 		}
-		if l.Gap > 0 {
-			lm["gap"] = l.Gap
+		if l.Box {
+			boxes++
 		}
-		if l.Size != "" {
-			lm["size"] = l.Size
-		}
-		lines[i] = lm
 	}
-	m["lines"] = lines
+	if tables > 0 {
+		m["tables"] = tables
+	}
+	if boxes > 0 {
+		m["boxes"] = boxes
+	}
 	return m
 }
 
@@ -776,7 +872,17 @@ func (s *Server) enqueue(w http.ResponseWriter, printer string, payload []byte) 
 		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: "printer is required"})
 		return
 	}
-	jobs := s.queue.EnqueueMany(resolvedPrinters, payload)
+	jobs, err := s.queue.EnqueueMany(resolvedPrinters, payload)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, queue.ErrQueueFull) {
+			// 503 en vez de dejar la peticion colgada hasta el WriteTimeout.
+			status = http.StatusServiceUnavailable
+		}
+		s.logger.Error("print_enqueue", map[string]any{"error": err.Error(), "printer": printer})
+		writeJSON(w, status, response{OK: false, Error: err.Error()})
+		return
+	}
 	for _, job := range jobs {
 		event := map[string]any{"printer": job.Printer, "requested_printer": printer, "size": len(payload), "job_id": job.ID}
 		if alias != "" {
@@ -812,8 +918,7 @@ func (s *Server) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 
 func (s *Server) localhostOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.RemoteAddr
-		if !(strings.HasPrefix(host, "127.0.0.1:") || strings.HasPrefix(host, "[::1]:") || strings.HasPrefix(host, "localhost:")) {
+		if !isLocalRequest(r) {
 			writeJSON(w, http.StatusForbidden, response{OK: false, Error: "local connections only"})
 			return
 		}
@@ -842,9 +947,12 @@ func (s *Server) cors(next http.Handler) http.Handler {
 	})
 }
 
+// originAllowed compara el origen completo. Antes usaba HasPrefix, asi que
+// con "http://localhost" en la lista tambien pasaba
+// "http://localhost.atacante.com".
 func (s *Server) originAllowed(origin string) bool {
 	for _, allowed := range s.cfg.AllowedCORS {
-		if allowed == "*" || strings.HasPrefix(origin, allowed) {
+		if allowed == "*" || strings.EqualFold(strings.TrimRight(allowed, "/"), strings.TrimRight(origin, "/")) {
 			return true
 		}
 	}
@@ -1530,6 +1638,26 @@ func readTextFile(path string, max int64) map[string]any {
 	return out
 }
 
+// redactConfig tapa el token antes de incluir la configuracion en el informe
+// de diagnostico, que esta pensado para enviarse a soporte.
+func redactConfig(cfg config.Config) config.Config {
+	if cfg.AuthToken != "" {
+		cfg.AuthToken = "***"
+	}
+	return cfg
+}
+
+var authTokenRe = regexp.MustCompile(`("auth_token"\s*:\s*)"[^"]*"`)
+
+func redactRawConfig(raw map[string]any) map[string]any {
+	text, ok := raw["text"].(string)
+	if !ok {
+		return raw
+	}
+	raw["text"] = authTokenRe.ReplaceAllString(text, `${1}"***"`)
+	return raw
+}
+
 func diagnosticAdvice(cfg config.Config, ips []string) []string {
 	var advice []string
 	if cfg.Host == "127.0.0.1" || strings.EqualFold(cfg.Host, "localhost") {
@@ -1537,6 +1665,9 @@ func diagnosticAdvice(cfg config.Config, ips []string) []string {
 	}
 	if !cfg.AllowRemote {
 		advice = append(advice, "allow_remote esta desactivado. Las peticiones externas seran bloqueadas por el agente.")
+	}
+	if cfg.AllowRemote && cfg.AuthToken == "" {
+		advice = append(advice, "El acceso desde la red esta abierto SIN token. Cualquier equipo de la red puede imprimir. Reinicia el agente para que genere uno.")
 	}
 	if cfg.TLS.Enabled {
 		advice = append(advice, "TLS/HTTPS esta activado. Debes probar con https:// y un certificado valido o desactivar TLS para red local.")

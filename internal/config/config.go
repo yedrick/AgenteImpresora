@@ -2,20 +2,27 @@ package config
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 )
 
 type Config struct {
-	Host         string   `json:"host"`
-	Port         int      `json:"port"`
-	LogLevel     string   `json:"log_level"`
-	AllowedCORS  []string `json:"allowed_cors"`
-	AllowRemote  bool     `json:"allow_remote"`
-	MaxPrintSize int64    `json:"max_print_size"`
-	Queue        Queue    `json:"queue"`
-	TLS          TLS      `json:"tls"`
+	Host        string   `json:"host"`
+	Port        int      `json:"port"`
+	LogLevel    string   `json:"log_level"`
+	AllowedCORS []string `json:"allowed_cors"`
+	AllowRemote bool     `json:"allow_remote"`
+	// AuthToken se exige en /api/* a las peticiones que no vienen de la propia
+	// PC. Si allow_remote esta activo y esta vacio, el agente genera uno al
+	// arrancar: hasta ahora cualquiera en la LAN podia imprimir sin mas.
+	AuthToken    string `json:"auth_token"`
+	MaxPrintSize int64  `json:"max_print_size"`
+	Queue        Queue  `json:"queue"`
+	TLS          TLS    `json:"tls"`
 }
 
 type Queue struct {
@@ -70,4 +77,32 @@ func Load(path string) (Config, error) {
 		cfg.Queue.MaxRetries = 2
 	}
 	return cfg, nil
+}
+
+// Save reescribe el archivo de configuracion. Se usa para persistir el token
+// generado automaticamente la primera vez que se arranca en modo LAN.
+func Save(path string, cfg Config) error {
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// NewToken genera un token compartido de 32 caracteres hexadecimales.
+func NewToken() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }

@@ -86,6 +86,24 @@ func startServer() (*agent, error) {
 		return nil, fmt.Errorf("create logger: %w", err)
 	}
 
+	// En modo LAN hace falta un token: hasta ahora cualquiera en la red podia
+	// imprimir, abrir el cajon de dinero y reescribir la configuracion. Si no
+	// hay ninguno se genera y se guarda, para no dejar la instalacion abierta
+	// ni obligar a editar el JSON a mano.
+	if cfg.AllowRemote && cfg.AuthToken == "" {
+		token, tokenErr := config.NewToken()
+		if tokenErr != nil {
+			logger.Error("auth_token_failed", map[string]any{"error": tokenErr.Error()})
+		} else {
+			cfg.AuthToken = token
+			if saveErr := config.Save("configs/config.json", cfg); saveErr != nil {
+				logger.Error("auth_token_save_failed", map[string]any{"error": saveErr.Error()})
+			}
+			logger.Info("auth_token_generated", nil)
+			log.Printf("Se genero un token de acceso para la red. Mira http://localhost:%d/panel para copiarlo.", cfg.Port)
+		}
+	}
+
 	manager := printers.NewManager(logger)
 	queueManager := queue.NewManager(manager, logger, cfg.Queue.Workers, cfg.Queue.MaxRetries)
 	queueManager.Start()

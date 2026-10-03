@@ -181,6 +181,9 @@ func startServer(paths config.Paths, opts options) (*agent, error) {
 	}
 
 	manager := printers.NewManager(logger)
+	// Los destinos con ruta relativa cuentan desde la carpeta de datos, no
+	// desde la del ejecutable, que es donde deja el Chdir de mas arriba.
+	manager.SetBaseDir(paths.DataDir)
 	queueManager := queue.New(queue.Options{
 		Printers:   manager,
 		Logger:     logger,

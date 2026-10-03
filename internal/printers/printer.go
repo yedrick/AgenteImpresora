@@ -72,10 +72,37 @@ type Manager struct {
 	listMu   sync.Mutex
 	listAt   time.Time
 	listCopy []Info
+
+	// baseDir es contra que se resuelven los destinos con ruta relativa.
+	baseDir string
 }
 
 func NewManager(logger *logs.Logger) *Manager {
 	return &Manager{logger: logger}
+}
+
+// SetBaseDir fija la carpeta contra la que se resuelven los destinos
+// relativos, que es la de datos.
+//
+// Hace falta porque el agente hace Chdir al directorio del ejecutable al
+// arrancar, para que los gestores de servicios encuentren configs/ y
+// storage/. Sin esto, un destino como "device://./salida.bin" apuntaba a la
+// carpeta del binario y no a la del usuario: el trabajo fallaba con "no such
+// file or directory" senalando una ruta que, desde donde mira quien lo
+// configuro, si existe.
+func (m *Manager) SetBaseDir(dir string) { m.baseDir = dir }
+
+// resolver convierte un destino relativo en absoluto. Una ruta ya absoluta
+// (/dev/usb/lp0, C:\...) se devuelve igual.
+func (m *Manager) resolver(destino string) string {
+	if destino == "" || m.baseDir == "" || filepath.IsAbs(destino) {
+		return destino
+	}
+	// Un puerto COM de Windows no es una ruta de archivo.
+	if strings.HasPrefix(destino, `\\`) {
+		return destino
+	}
+	return filepath.Join(m.baseDir, destino)
 }
 
 // List enumera las impresoras disponibles, con el resultado cacheado.
@@ -143,7 +170,7 @@ func (m *Manager) Get(name string) (Printer, error) {
 	case strings.HasPrefix(lower, "bt://"):
 		return newBluetoothPrinter(name[len("bt://"):])
 	case strings.HasPrefix(lower, "device://"):
-		return newDevicePrinter(name[len("device://"):], "device"), nil
+		return newDevicePrinter(m.resolver(name[len("device://"):]), "device"), nil
 	case comPortRe.MatchString(name):
 		return newDevicePrinter(devicePath(name), "com"), nil
 	case strings.HasPrefix(name, "/dev/"):

@@ -59,5 +59,19 @@ export type {
   LayoutItem,
   LayoutSize,
   LogEntry,
+  // Tipos auxiliares: son campos de las opciones de arriba, asi que sin
+  // exportarlos no se podia declarar una variable intermedia con su tipo.
+  DocumentOptions,
+  PrinterProfile,
+  PaperWidth,
+  CutMode,
+  FontSize,
+  PrinterFont,
+  QRSpec,
+  QRErrorCorrection,
+  BarcodeSpec,
+  BarcodeKind,
+  TicketTable,
+  TableColumn,
 } from "./types.js";
 export type { PoolAgentConfig, PoolHealthResult, PoolPrintResult } from "./pool.js";

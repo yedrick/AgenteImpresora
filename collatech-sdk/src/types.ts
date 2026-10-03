@@ -171,6 +171,13 @@ export interface PrinterProfile {
   line_spacing?: number;
   font?: PrinterFont;
   feed_bottom?: number;
+  /**
+   * Identificador del catalogo de modelos, si se eligio uno (por ejemplo
+   * "epson-tm-t20"). El agente lo guarda para que el panel pueda volver a
+   * mostrarlo; los ajustes concretos ya quedan copiados en los campos de
+   * arriba, asi que no cambia nada de la impresion.
+   */
+  model?: string;
   description?: string;
 }
 

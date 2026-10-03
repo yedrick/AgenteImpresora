@@ -15,10 +15,10 @@ Copialo a tu proyecto Angular:
 src/app/services/collatech-print.service.ts
 ```
 
-Instala el SDK:
+Instala el SDK (en la entrega va empaquetado como `.tgz`):
 
 ```bash
-npm install ./collatech-sdk
+npm install ./collatech-sdk-1.5.0.tgz
 ```
 
 Uso rapido desde un componente:
@@ -83,11 +83,12 @@ cd mi-tienda
 
 ## Paso 2: Copiar SDK a tu proyecto
 
-Copia la carpeta `collatech-sdk` dentro de `mi-tienda/`:
+Copia `collatech-sdk-1.5.0.tgz` (esta en la carpeta `angular/` de la entrega)
+dentro de `mi-tienda/`:
 
 ```
 mi-tienda/
-├── collatech-sdk/    <-- COPIAR AQUI
+├── collatech-sdk-1.5.0.tgz    <-- COPIAR AQUI
 ├── src/
 ├── angular.json
 └── package.json
@@ -96,8 +97,11 @@ mi-tienda/
 ## Paso 3: Instalar dependencias
 
 ```bash
-npm install ./collatech-sdk
+npm install ./collatech-sdk-1.5.0.tgz
 ```
+
+Queda en tu `package.json` como `"collatech-sdk": "file:collatech-sdk-1.5.0.tgz"`.
+Al pasar a una version nueva, copia el `.tgz` nuevo y repite el `npm install`.
 
 ## Paso 4: Crear servicio de impresion
 
@@ -120,6 +124,9 @@ export class PrinterService {
   constructor() {
     this.client = new CollaTech({
       baseUrl: 'http://localhost:18743',
+      // Solo hace falta si tu app NO corre en la misma PC que el agente.
+      // Lo muestra el instalador al terminar, y el panel en la pestana Estado.
+      token: (window as any).__COLLATECH_TOKEN__ || '',
     });
   }
 
@@ -150,7 +157,7 @@ export class PrinterService {
   async printHTML(data: {
     printer: string;
     html: string;
-    width?: number;
+    width?: 384 | 512 | 576;   // los tres anchos que entiende el agente
     cut?: boolean;
   }) {
     return this.client.printHTML(data);
@@ -509,11 +516,127 @@ Abre `http://localhost:4200`
 
 ---
 
+## Novedades de la 1.5.0
+
+### El agente exige `Content-Type: application/json`
+
+Es el unico cambio que rompe compatibilidad. **Si usas el SDK no tienes que
+hacer nada**: ya lo manda en todas sus peticiones. Solo te afecta si ademas
+llamabas a la API con `fetch` a mano; en ese caso una peticion sin esa
+cabecera responde ahora `415`:
+
+```typescript
+// Antes colaba. Ahora no.
+fetch('http://localhost:18743/api/print/text', { method: 'POST', body: json });
+
+// Asi si:
+fetch('http://localhost:18743/api/print/text', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: json,
+});
+```
+
+El motivo es que un `POST` sin cabeceras es una *peticion simple* para el
+navegador: no pide permiso al agente antes de enviarla. Cualquier web que
+abriera el cajero podia imprimir y **abrir el cajon de dinero** desde una
+pestana cualquiera. Exigir `application/json` obliga al navegador a pedir
+permiso primero.
+
+### Impresoras dadas de alta
+
+Cada impresora guarda su ancho de papel, su modo de corte y si imprime
+girada, asi que ya no hay que repetirlo en cada impresion:
+
+```typescript
+await this.print.savePrinterProfiles([
+  {
+    name: 'caja',                    // como la llamas al imprimir
+    target: 'EPSON TM-T20',          // el nombre real en Windows, o tcp://192.168.1.50:9100
+    paper_width: 576,                // 384 (58 mm), 512 o 576 (80 mm)
+    cut: 'partial',
+    model: 'epson-tm-t20',           // opcional: del catalogo del panel
+  },
+  {
+    name: 'cocina',
+    target: 'EPSON TM-T88',
+    paper_width: 384,
+    cut: 'none',
+    upside_down: true,               // la impresora esta montada al reves
+  },
+]);
+
+const impresoras = await this.print.printerProfiles();
+```
+
+`savePrinterProfiles()` solo responde desde la propia PC del agente: es
+configuracion, no impresion.
+
+### Bloques maquetados: el QR al costado
+
+Una termica imprime linea a linea, asi que nativamente no se puede poner un
+QR al lado de un texto: el comando de QR imprime y avanza el papel. Un
+**bloque** describe esa zona como una rejilla de filas y columnas, y el
+agente la compone como una sola imagen:
+
+```typescript
+await this.print.printLayout('caja', {
+  padding: 6,
+  rows: [
+    {
+      align: 'middle',
+      cols: [
+        { weight: 1, items: [{ text: 'Factura A-00142', bold: true }] },
+        { dots: 150, align: 'right', items: [{ qr: 'https://pago/A-00142' }] },
+      ],
+    },
+  ],
+});
+```
+
+Una columna se mide con `weight` (reparte el sitio que sobra) o con `dots`
+(puntos fijos). El servicio de ejemplo trae `printInvoiceWithQR()` ya
+armado, con la tabla con bordes y el total resaltado.
+
+Cuesta mas que el texto nativo —unos 14 KB frente a 200 bytes—, asi que
+conviene usarlo solo en la zona que lo necesita y dejar el resto en texto.
+
+### Vista previa sin gastar papel
+
+La compone el mismo codigo que imprime, asi que lo que se ve es lo que sale:
+
+```typescript
+const png = await this.print.previewLayout(bloque);
+this.urlPrevia = URL.createObjectURL(png);  // <img [src]="urlPrevia">
+```
+
+Acuerdate de `URL.revokeObjectURL()` al cambiar de previa, o el navegador
+va acumulando los PNG en memoria.
+
+El diseñador visual del panel (`http://localhost:18743/designer`) arma estos
+bloques a golpe de raton y te da el JSON listo para pegar aqui.
+
+### Leer el resultado de una impresion
+
+Todo lo que imprime devuelve `PrintResult`, que es **un trabajo o una lista**:
+una impresora puede tener varios destinos (`target: 'Caja,Respaldo'`) y
+entonces sale una copia en cada uno, con un trabajo por copia.
+
+```typescript
+const r = await this.print.printLayout('caja', bloque);
+const trabajos = Array.isArray(r) ? r : [r];
+console.log(trabajos.map((t) => t.id));
+```
+
+Son `202 Accepted`: el agente **encola** y responde enseguida, no espera a que
+salga el papel. El trabajo nace `Pending`. Para saber como acabo, consulta
+`lastJobs()`, que es lo que hace el panel.
+
 ## Estructura final
 
 ```
 mi-tienda/
-├── collatech-sdk/
+├── collatech-sdk-1.5.0.tgz
 ├── src/
 │   ├── app/
 │   │   ├── services/

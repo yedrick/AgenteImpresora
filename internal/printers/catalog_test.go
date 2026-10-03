@@ -143,3 +143,25 @@ func TestLaU220AvisaDeQueNoEsTermica(t *testing.T) {
 		t.Fatal("la nota deberia avisar de que no es termica")
 	}
 }
+
+// TestNingunModeloExigeDriverEnLinux deja por escrito lo que se comprobo con
+// una Epson TM-T88V en Ubuntu 64 bits: el agente no necesita el driver de
+// ningun fabricante en Linux.
+//
+// O se crea una cola raw de CUPS con lpadmin, o se escribe directo a
+// /dev/usb/lp0. El driver del fabricante, cuando existe, solo sirve para que
+// la impresora salga en el dialogo de Impresoras del escritorio. Si alguien
+// marca un modelo como que lo exige, esta prueba lo para: seria mandar a un
+// cliente a instalar algo que no le hace falta.
+func TestNingunModeloExigeDriverEnLinux(t *testing.T) {
+	for _, m := range Catalog {
+		if m.DriverLinux != DriverNunca {
+			t.Errorf("%s dice que en Linux necesita driver (%q): en Linux basta una cola raw",
+				m.ID, m.DriverLinux)
+		}
+	}
+	if len(Catalog) == 0 {
+		t.Fatal("el catalogo esta vacio: la prueba no comprueba nada")
+	}
+	t.Logf("%d modelos, ninguno necesita driver en Linux", len(Catalog))
+}

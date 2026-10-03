@@ -29,7 +29,7 @@ func TestSDKEmpaquetadoEnElBinario(t *testing.T) {
 // negro y el diagnostico no tenia modo oscuro. Al moverse entre paginas
 // cambiaban los colores, y el selector del menu no mandaba sobre todas.
 func TestPaginasUsanElTemaCompartido(t *testing.T) {
-	for _, nombre := range []string{"index.html", "designer.html", "diagnostico.html", "sdk.html", "impresoras.html"} {
+	for _, nombre := range []string{"index.html", "designer.html", "diagnostico.html", "sdk.html", "impresoras.html", "docs.html"} {
 		t.Run(nombre, func(t *testing.T) {
 			b, err := webFS.ReadFile("web/" + nombre)
 			if err != nil {
@@ -64,7 +64,7 @@ func TestNingunaVariableDeColorSinDefinir(t *testing.T) {
 		definidas[m[1]] = true
 	}
 
-	for _, nombre := range []string{"index.html", "designer.html", "diagnostico.html", "sdk.html", "impresoras.html"} {
+	for _, nombre := range []string{"index.html", "designer.html", "diagnostico.html", "sdk.html", "impresoras.html", "docs.html"} {
 		b, err := webFS.ReadFile("web/" + nombre)
 		if err != nil {
 			t.Fatal(err)

@@ -45,6 +45,21 @@ Para comprobar que la descarga llego entera:
 sha256sum -c SHA256SUMS.txt
 ```
 
+## Conectar la impresora
+
+| Sistema | Guia |
+|---|---|
+| **Ubuntu y Linux** | [docs/UBUNTU.md](docs/UBUNTU.md) — probado con una Epson TM-T88V por USB |
+| **Windows** | [la misma guia, al final](docs/UBUNTU.md#y-en-windows) |
+
+Resumen: **por red no hace falta driver en ningun sistema**. Por USB en Linux
+basta una cola raw de CUPS o escribir a `/dev/usb/lp0`; en Windows, el
+driver *Generic / Text Only* que ya trae el sistema.
+
+Con el agente en marcha, la pagina **http://localhost:18743/impresoras** trae
+el catalogo de modelos, el destino que hay que poner en cada conexion y los
+enlaces de descarga oficiales.
+
 ## Compilar desde el codigo
 
 Solo hace falta Go 1.22 o superior.

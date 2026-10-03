@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CollaTech Agent - Guia</title>
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.65 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 24px 18px 70px; }
+  article {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radio); box-shadow: var(--sombra); padding: 30px 32px;
+  }
+  h1 { font-size: 26px; margin: 0 0 18px; line-height: 1.25; }
+  h2 {
+    font-size: 19px; margin: 30px 0 10px; padding-top: 18px;
+    border-top: 1px solid var(--line2);
+  }
+  h3 { font-size: 15.5px; margin: 20px 0 8px; }
+  p { margin: 11px 0; }
+  ul, ol { margin: 11px 0; padding-left: 24px; }
+  li { margin: 5px 0; }
+  a { color: var(--brand); }
+  strong { font-weight: 650; }
+
+  code {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 5px; font: 13px ui-monospace, Menlo, Consolas, monospace;
+  }
+  pre {
+    margin: 13px 0; padding: 14px 16px; border-radius: var(--radio-s); overflow-x: auto;
+    background: var(--consola); color: var(--consola-tx);
+  }
+  pre code { background: none; border: 0; padding: 0; color: inherit; font-size: 12.5px; line-height: 1.6; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 11px; border-bottom: 1px solid var(--line2); vertical-align: top; }
+  th { color: var(--text2); font-weight: 650; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  tr:last-child td { border-bottom: 0; }
+
+  .bajar {
+    display: inline-block; margin-bottom: 16px; padding: 8px 13px;
+    border: 1px solid var(--line); border-radius: var(--radio-s);
+    background: var(--panel); color: var(--text); text-decoration: none;
+    font-size: 13px; font-weight: 600;
+  }
+  .bajar:hover { background: var(--panel2); }
+  @media (max-width: 600px) { article { padding: 20px 17px; } h1 { font-size: 22px; } }
+</style>
+</head>
+<body>
+<div id="ct-menu"></div>
+<main>
+  <a class="bajar" href="/docs/ubuntu.md" download="CollaTech-Ubuntu.md">Descargar esta guia</a>
+  <article id="doc">Cargando...</article>
+</main>
+<script>
+(function () {
+  "use strict";
+
+  function esc(s) {
+    return s.replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; });
+  }
+
+  // Lo de dentro de una linea: codigo primero, para que un ** dentro de
+  // `codigo` no se coma como negrita.
+  function linea(t) {
+    var trozos = [];
+    t = esc(t).replace(/`([^`]+)`/g, function (_, c) {
+      return "\u0000" + (trozos.push("<code>" + c + "</code>") - 1) + "\u0000";
+    });
+    t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+         .replace(/(^|\s)\*([^*]+)\*/g, "$1<em>$2</em>")
+         .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    return t.replace(/\u0000(\d+)\u0000/g, function (_, i) { return trozos[i]; });
+  }
+
+  function aHTML(md) {
+    var out = [], i = 0, filas = md.split("\n");
+    while (i < filas.length) {
+      var f = filas[i];
+
+      if (/^```/.test(f)) {                      // bloque de codigo
+        var cuerpo = [];
+        for (i++; i < filas.length && !/^```/.test(filas[i]); i++) cuerpo.push(filas[i]);
+        i++;
+        out.push("<pre><code>" + esc(cuerpo.join("\n")) + "</code></pre>");
+        continue;
+      }
+
+      if (/^\|/.test(f) && /^\|[\s:|-]+\|$/.test(filas[i + 1] || "")) {   // tabla
+        var celdas = function (l) {
+          return l.replace(/^\||\|$/g, "").split("|").map(function (c) { return linea(c.trim()); });
+        };
+        var t = "<table><tr>" + celdas(f).map(function (c) { return "<th>" + c + "</th>"; }).join("") + "</tr>";
+        for (i += 2; i < filas.length && /^\|/.test(filas[i]); i++) {
+          t += "<tr>" + celdas(filas[i]).map(function (c) { return "<td>" + c + "</td>"; }).join("") + "</tr>";
+        }
+        out.push(t + "</table>");
+        continue;
+      }
+
+      var h = f.match(/^(#{1,4})\s+(.*)$/);
+      if (h) { out.push("<h" + h[1].length + ">" + linea(h[2]) + "</h" + h[1].length + ">"); i++; continue; }
+
+      if (/^[-*]\s+/.test(f) || /^\d+\.\s+/.test(f)) {                     // lista
+        var ord = /^\d+\.\s+/.test(f), li = [];
+        while (i < filas.length && (/^[-*]\s+/.test(filas[i]) || /^\d+\.\s+/.test(filas[i]))) {
+          li.push("<li>" + linea(filas[i].replace(/^([-*]|\d+\.)\s+/, "")) + "</li>");
+          i++;
+        }
+        out.push((ord ? "<ol>" : "<ul>") + li.join("") + (ord ? "</ol>" : "</ul>"));
+        continue;
+      }
+
+      if (!f.trim()) { i++; continue; }
+
+      var par = [];                                                        // parrafo
+      while (i < filas.length && filas[i].trim() &&
+             !/^(#{1,4}\s|```|\||[-*]\s|\d+\.\s)/.test(filas[i])) {
+        par.push(filas[i]); i++;
+      }
+      if (par.length) out.push("<p>" + linea(par.join(" ")) + "</p>");
+    }
+    return out.join("\n");
+  }
+
+  fetch("/docs/ubuntu.md")
+    .then(function (r) { if (!r.ok) throw new Error("no esta"); return r.text(); })
+    .then(function (md) {
+      document.getElementById("doc").innerHTML = aHTML(md);
+      document.title = "CollaTech Agent - " + (md.match(/^#\s+(.*)/m) || [, "Guia"])[1];
+    })
+    .catch(function () {
+      document.getElementById("doc").innerHTML =
+        "<p>No se pudo cargar la guia. Esta tambien en <code>docs/UBUNTU.md</code>.</p>";
+    });
+})();
+</script>
+</body>
+</html>

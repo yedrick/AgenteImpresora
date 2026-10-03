@@ -54,7 +54,12 @@ version-check:
 	fi; \
 	echo "version $(VERSION) en el agente y en el SDK"
 
-check: fmt vet version-check test
+# La guia de Ubuntu se pinta en el navegador con un conversor propio; esto
+# comprueba que sigue produciendo el HTML esperado.
+guia:
+	@node examples/comprobar-guia.js
+
+check: fmt vet version-check test guia
 	@echo "todo en orden"
 
 # Los seis destinos que el codigo soporta. El ejecutable de Windows va sin

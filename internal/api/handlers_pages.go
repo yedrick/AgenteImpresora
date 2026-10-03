@@ -26,6 +26,26 @@ func (s *Server) impresoras(w http.ResponseWriter, r *http.Request) {
 	s.serveHTML(w, "web/impresoras.html")
 }
 
+// docUbuntu sirve la guia de Ubuntu. Se guarda en Markdown porque la misma
+// guia se entrega como archivo en docs/, y la pagina la convierte en el
+// navegador con un conversor propio de treinta lineas. No se carga ninguna
+// libreria de fuera a proposito: la PC de una caja no suele tener internet,
+// y una pagina que depende de un CDN ahi no se ve.
+func (s *Server) docUbuntu(w http.ResponseWriter, r *http.Request) {
+	s.serveHTML(w, "web/docs.html")
+}
+
+// docFuente entrega el Markdown crudo, que es lo que pinta la pagina.
+func (s *Server) docFuente(w http.ResponseWriter, r *http.Request) {
+	b, err := webFS.ReadFile("web/docs-ubuntu.md")
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, response{OK: false, Error: "la guia no esta en este binario"})
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Write(b)
+}
+
 func (s *Server) sdk(w http.ResponseWriter, r *http.Request) {
 	s.serveHTML(w, "web/sdk.html")
 }

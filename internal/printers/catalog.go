@@ -51,8 +51,22 @@ type Model struct {
 	// Notes es lo que conviene saber antes de conectarla.
 	Notes string `json:"notes,omitempty"`
 
+	// Driver es la necesidad por USB en Windows, que es donde cambia de un
+	// modelo a otro.
 	Driver    DriverNeed `json:"driver"`
 	DriverURL string     `json:"driver_url,omitempty"`
+
+	// DriverLinux es aparte porque la respuesta no es la misma en los dos
+	// sistemas y mezclarlas confunde.
+	//
+	// En Linux el agente no necesita driver de nadie: o se crea una cola raw
+	// de CUPS con lpadmin, o se escribe directo a /dev/usb/lp0. El driver
+	// del fabricante, cuando existe, solo sirve para que la impresora salga
+	// en el dialogo de Impresoras del escritorio o para imprimir desde otros
+	// programas. Comprobado con una Epson TM-T88V en Ubuntu 64 bits.
+	DriverLinux DriverNeed `json:"driver_linux"`
+	// DriverLinuxURL solo se pone si el fabricante publica driver de CUPS.
+	DriverLinuxURL string `json:"driver_linux_url,omitempty"`
 }
 
 // Columns son las columnas de texto con la fuente normal.
@@ -87,34 +101,44 @@ var Catalog = []Model{
 		ID: "epson-tm-t20", Brand: "Epson", Name: "TM-T20 / T20II / T20III / T20X",
 		Match:      []string{"tm-t20", "tm t20", "tmt20"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver:    DriverUSBWindows,
-		DriverURL: anchoEpson,
-		Notes:     "Por USB en Windows basta con el driver 'Generic / Text Only' del sistema; el APD de Epson es opcional. Por red o serie no hace falta ninguno.",
+		Driver:         DriverUSBWindows,
+		DriverLinux:    DriverNunca,
+		DriverLinuxURL: "https://download.epson-biz.com/modules/pos/",
+		DriverURL:      anchoEpson,
+		Notes:          "Por USB en Windows basta con el driver 'Generic / Text Only' del sistema; el APD de Epson es opcional. Por red o serie no hace falta ninguno.",
 	},
 	{
 		ID: "epson-tm-t82", Brand: "Epson", Name: "TM-T82 / T82II / T82III",
 		Match:      []string{"tm-t82", "tm t82"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoEpson,
+		Driver:         DriverUSBWindows,
+		DriverLinux:    DriverNunca,
+		DriverLinuxURL: "https://download.epson-biz.com/modules/pos/", DriverURL: anchoEpson,
 	},
 	{
 		ID: "epson-tm-t88", Brand: "Epson", Name: "TM-T88 IV / V / VI / VII",
 		Match:      []string{"tm-t88", "tm t88"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoEpson,
+		Driver:         DriverUSBWindows,
+		DriverLinux:    DriverNunca,
+		DriverLinuxURL: "https://download.epson-biz.com/modules/pos/", DriverURL: anchoEpson,
 	},
 	{
 		ID: "epson-tm-m30", Brand: "Epson", Name: "TM-m30 / m30II / m30III",
 		Match:      []string{"tm-m30", "tm m30"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoEpson,
+		Driver:         DriverUSBWindows,
+		DriverLinux:    DriverNunca,
+		DriverLinuxURL: "https://download.epson-biz.com/modules/pos/", DriverURL: anchoEpson,
 		Notes: "Lleva Bluetooth y WiFi segun version. Por red no necesita driver.",
 	},
 	{
 		ID: "epson-tm-u220", Brand: "Epson", Name: "TM-U220 (matricial)",
 		Match:      []string{"tm-u220", "tm u220"},
 		PaperWidth: 384, Widths: []int{384}, Cut: "partial", Drawer: true, Raster: false,
-		Driver: DriverUSBWindows, DriverURL: anchoEpson,
+		Driver:         DriverUSBWindows,
+		DriverLinux:    DriverNunca,
+		DriverLinuxURL: "https://download.epson-biz.com/modules/pos/", DriverURL: anchoEpson,
 		Notes: "NO es termica: es de impacto, con cinta. No entiende el comando de imagen moderno, asi que logos y QR no salen o salen muy lentos. Para tickets de texto va bien.",
 	},
 
@@ -123,21 +147,24 @@ var Catalog = []Model{
 		ID: "star-tsp100", Brand: "Star Micronics", Name: "TSP100 / TSP143 (futurePRNT)",
 		Match:      []string{"tsp100", "tsp143", "tsp 100", "tsp 143"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverSiempre, DriverURL: anchoStar,
+		Driver:      DriverSiempre,
+		DriverLinux: DriverNunca, DriverURL: anchoStar,
 		Notes: "Caso especial. Por USB en Windows exige el driver futurePRNT de Star. Ademas, de fabrica NO habla ESC/POS: hay que activar la emulacion en la 'TSP100 Configuration Utility' antes de que este agente pueda imprimir. Las versiones LAN si funcionan por tcp:// sin driver.",
 	},
 	{
 		ID: "star-tsp650", Brand: "Star Micronics", Name: "TSP650 / TSP650II",
 		Match:      []string{"tsp650", "tsp 650"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoStar,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoStar,
 		Notes: "Viene en modo Star Line. Hay que ponerla en emulacion ESC/POS con los microinterruptores o la utilidad de configuracion.",
 	},
 	{
 		ID: "star-mcprint3", Brand: "Star Micronics", Name: "mC-Print3",
 		Match:      []string{"mc-print3", "mcprint3"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoStar,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoStar,
 		Notes: "Admite emulacion ESC/POS. Por red no necesita driver.",
 	},
 
@@ -146,19 +173,22 @@ var Catalog = []Model{
 		ID: "bixolon-srp-350", Brand: "Bixolon", Name: "SRP-350 / 350II / 350III / 350plus",
 		Match:      []string{"srp-350", "srp350"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoBixolon,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoBixolon,
 	},
 	{
 		ID: "bixolon-srp-330", Brand: "Bixolon", Name: "SRP-330 / 330II",
 		Match:      []string{"srp-330", "srp330"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoBixolon,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoBixolon,
 	},
 	{
 		ID: "bixolon-srp-e300", Brand: "Bixolon", Name: "SRP-E300",
 		Match:      []string{"srp-e300", "srpe300"},
 		PaperWidth: 576, Widths: []int{576}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoBixolon,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoBixolon,
 	},
 
 	// --- Xprinter ------------------------------------------------------
@@ -166,14 +196,16 @@ var Catalog = []Model{
 		ID: "xprinter-58", Brand: "Xprinter", Name: "XP-58 (58IIH / 58IIL / T58)",
 		Match:      []string{"xp-58", "xp58", "pos58", "pos-58"},
 		PaperWidth: 384, Widths: []int{384}, Cut: "none", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoXprinter,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoXprinter,
 		Notes: "58 mm, 384 puntos por linea. Muchas variantes de 58 mm no llevan cuchilla: si la tuya si, cambia el corte a parcial.",
 	},
 	{
 		ID: "xprinter-80", Brand: "Xprinter", Name: "XP-80 / XP-80C / XP-Q200",
 		Match:      []string{"xp-80", "xp80", "pos80", "pos-80", "xp-q200"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoXprinter,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoXprinter,
 	},
 
 	// --- Gprinter / Gainscha --------------------------------------------
@@ -181,14 +213,16 @@ var Catalog = []Model{
 		ID: "gprinter-58", Brand: "Gprinter", Name: "GP-58 (serie 58 mm)",
 		Match:      []string{"gp-58", "gp58"},
 		PaperWidth: 384, Widths: []int{384}, Cut: "none", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoGainscha,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoGainscha,
 		Notes: "Si tu modelo lleva cuchilla, cambia el corte a parcial.",
 	},
 	{
 		ID: "gprinter-80", Brand: "Gprinter", Name: "GP-80 (serie 80 mm)",
 		Match:      []string{"gp-80", "gp80", "gp-l80"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoGainscha,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoGainscha,
 	},
 
 	// --- Otros ----------------------------------------------------------
@@ -196,32 +230,37 @@ var Catalog = []Model{
 		ID: "3nstar-rpt", Brand: "3nStar", Name: "RPT-008 / RPT-010",
 		Match:      []string{"rpt-008", "rpt008", "rpt-010", "rpt010", "3nstar"},
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: ancho3nStar,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: ancho3nStar,
 	},
 	{
 		ID: "rongta-rp58", Brand: "Rongta", Name: "RP58 (serie 58 mm)",
 		Match:      []string{"rp58", "rp-58", "rongta"},
 		PaperWidth: 384, Widths: []int{384}, Cut: "none", Drawer: false, Raster: true,
-		Driver: DriverUSBWindows, DriverURL: anchoRongta,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca, DriverURL: anchoRongta,
 	},
 
 	// --- Genericos -------------------------------------------------------
 	{
 		ID: "generico-58", Brand: "Generico", Name: "Termica 58 mm",
 		PaperWidth: 384, Widths: []int{384}, Cut: "none", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows,
-		Notes:  "Punto de partida para cualquier termica de 58 mm. Si imprime bien pero no corta, tu modelo no lleva cuchilla.",
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca,
+		Notes:       "Punto de partida para cualquier termica de 58 mm. Si imprime bien pero no corta, tu modelo no lleva cuchilla.",
 	},
 	{
 		ID: "generico-72", Brand: "Generico", Name: "Termica 72 mm",
 		PaperWidth: 512, Widths: []int{512}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows,
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca,
 	},
 	{
 		ID: "generico-80", Brand: "Generico", Name: "Termica 80 mm",
 		PaperWidth: 576, Widths: []int{576, 384}, Cut: "partial", Drawer: true, Raster: true,
-		Driver: DriverUSBWindows,
-		Notes:  "Punto de partida para cualquier termica de 80 mm.",
+		Driver:      DriverUSBWindows,
+		DriverLinux: DriverNunca,
+		Notes:       "Punto de partida para cualquier termica de 80 mm.",
 	},
 }
 

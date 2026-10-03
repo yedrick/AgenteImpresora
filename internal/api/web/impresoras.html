@@ -93,6 +93,22 @@
   .alta .fila button { flex: none; }
   .alta .error { color: var(--bad); font-size: 12.5px; }
 
+  .guia {
+    margin-top: 14px; padding: 14px; border-radius: var(--radio-s);
+    background: var(--panel2); border: 1px solid var(--line);
+  }
+  .guia h3 { margin: 0 0 8px; font-size: 14px; }
+  .guia p { margin: 7px 0; font-size: 13px; color: var(--text2); }
+  .guia ol { margin: 7px 0; padding-left: 20px; font-size: 13px; color: var(--text2); }
+  .guia li { margin: 3px 0; }
+  .guia code {
+    display: block; margin: 8px 0; padding: 10px 12px; border-radius: 6px;
+    background: var(--consola); color: var(--consola-tx);
+    font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace;
+    overflow-x: auto; white-space: pre;
+  }
+  .guia .mas { margin-top: 10px; font-weight: 600; color: var(--text); }
+
   .vacio { color: var(--text2); padding: 24px; text-align: center; }
   a { color: var(--brand); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -143,25 +159,63 @@ bt:///dev/rfcomm0     (Linux)</code>
   <section class="tarjeta">
     <h2>Driver: cuando hace falta</h2>
     <table>
-      <tr><th>Conexion</th><th>Windows</th><th>Linux y macOS</th></tr>
+      <tr><th>Conexion</th><th>Windows</th><th>Ubuntu y Linux</th><th>macOS</th></tr>
       <tr>
         <td><strong>Red</strong></td>
-        <td colspan="2" style="color: var(--ok); font-weight: 600;">Nunca. El agente habla directo con la impresora.</td>
+        <td colspan="3" style="color: var(--ok); font-weight: 600;">Nunca. El agente habla directo con la impresora.</td>
       </tr>
       <tr>
         <td><strong>Serie / Bluetooth</strong></td>
-        <td colspan="2" style="color: var(--ok); font-weight: 600;">Nunca.</td>
+        <td colspan="3" style="color: var(--ok); font-weight: 600;">Nunca.</td>
       </tr>
       <tr>
         <td><strong>USB</strong></td>
-        <td>Hace falta una cola de impresion. Para casi todas basta el
+        <td>Hace falta una cola. Para casi todas basta el
             <strong>Generic / Text Only</strong> que ya trae Windows.</td>
-        <td>Una cola de CUPS en modo <strong>raw</strong>, o escribir directo
-            a <code>/dev/usb/lp0</code> sin driver.</td>
+        <td>Una cola <strong>raw</strong> de CUPS hecha con <code>lpadmin</code>,
+            o escribir directo a <code>/dev/usb/lp0</code>.
+            <strong>Sin driver de nadie.</strong></td>
+        <td>Igual que Linux: cola raw de CUPS.</td>
       </tr>
     </table>
-    <p class="hint" style="margin-top:12px">El driver del fabricante solo se necesita en los modelos marcados abajo.
-       Bajarlo de la pagina oficial es lo seguro: los que circulan en buscadores suelen traer sorpresas.</p>
+
+    <div class="guia">
+      <h3>Ubuntu en cuatro ordenes</h3>
+      <p>Comprobado con una Epson TM-T88V por USB en Ubuntu 64 bits. El driver
+         de Epson para Linux existe, pero <strong>es opcional</strong>: el agente
+         no lo usa.</p>
+      <code>lsusb | grep -i epson                      # ver que Ubuntu la detecta
+lpinfo -v                                 # copiar la URI usb://...
+sudo lpadmin -p TM-T88V -E -v "usb://EPSON/TM-T88V?serial=XXXX" -m raw
+lpstat -p                                 # debe decir "inactiva y activada"</code>
+      <p>Probar antes de meterla en el agente:</p>
+      <code>printf '\x1b@Prueba\n\n\n\n\x1d\x56\x00' | lp -d TM-T88V -o raw</code>
+      <p>Si sale papel, el destino en el agente es el nombre de la cola:
+         <code style="display:inline;padding:2px 6px">TM-T88V</code></p>
+      <p><strong>El dialogo de Impresoras de GNOME no encuentra estas impresoras USB.</strong>
+         Hay que crear la cola por terminal, como arriba. No es un fallo tuyo.</p>
+      <p class="mas"><a href="/docs/ubuntu">Guia completa de Ubuntu</a> &middot;
+         con el camino sin CUPS, el driver de Epson paso a paso y que hacer cuando falla.</p>
+    </div>
+
+    <div class="guia">
+      <h3>Windows, por USB</h3>
+      <p>No descargues nada todavia: el driver que ya trae Windows sirve para
+         casi todas.</p>
+      <ol>
+        <li>Configuracion &rarr; Bluetooth y dispositivos &rarr; Impresoras y escaneres</li>
+        <li>Agregar dispositivo &rarr; <em>Agregar manualmente</em></li>
+        <li>Agregar una impresora local &rarr; puerto <strong>USB001</strong></li>
+        <li>Fabricante <strong>Generic</strong>, impresora <strong>Generic / Text Only</strong></li>
+        <li>El nombre que le pongas es el destino en el agente</li>
+      </ol>
+      <p>Solo los modelos marcados abajo como <span class="chapa warn">Driver obligatorio</span>
+         necesitan el del fabricante.</p>
+    </div>
+
+    <p class="hint" style="margin-top:12px">Baja los drivers de la pagina oficial. Los que
+       aparecen en buscadores suelen traer sorpresas, y una caja es mala PC para
+       averiguarlo.</p>
   </section>
 
   <section class="tarjeta">
@@ -191,10 +245,12 @@ bt:///dev/rfcomm0     (Linux)</code>
   "use strict";
   var modelos = [];
 
+  // Lo que hace falta en Windows por USB. En Linux nunca hace falta ninguno,
+  // asi que esa chapa es fija.
   var DRIVER = {
-    "nunca":       { txt: "Sin driver",            clase: "ok"   },
-    "usb-windows": { txt: "Driver solo USB+Win",   clase: ""     },
-    "si":          { txt: "Driver obligatorio",    clase: "warn" },
+    "nunca":       { txt: "sin driver",         clase: "ok"   },
+    "usb-windows": { txt: "el generico basta",  clase: ""     },
+    "si":          { txt: "driver obligatorio", clase: "warn" },
   };
 
   function tarjeta(m) {
@@ -211,7 +267,8 @@ bt:///dev/rfcomm0     (Linux)</code>
                 (m.cut === "none" ? "Sin cuchilla" : "Corte " + esc(m.cut)) + "</span>" +
               (m.drawer ? '<span class="chapa ok">Cajon</span>' : "") +
               (m.raster ? "" : '<span class="chapa bad">Sin imagenes</span>') +
-              '<span class="chapa ' + d.clase + '">' + d.txt + "</span>" +
+              '<span class="chapa ' + d.clase + '">Win: ' + d.txt + "</span>" +
+              '<span class="chapa ok">Linux: sin driver</span>' +
             "</div>";
 
     if (m.notes) {

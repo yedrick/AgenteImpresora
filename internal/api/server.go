@@ -103,6 +103,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /tema.css", s.asset)
 	mux.HandleFunc("GET /tema.js", s.asset)
 	mux.HandleFunc("GET /impresoras", s.impresoras)
+	mux.HandleFunc("GET /docs/ubuntu", s.docUbuntu)
+	mux.HandleFunc("GET /docs/ubuntu.md", s.docFuente)
 	mux.HandleFunc("GET /sdk", s.sdk)
 	mux.HandleFunc("GET /sdk/collatech-sdk.tgz", s.sdkPaquete)
 	mux.HandleFunc("GET /health", s.health)

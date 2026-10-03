@@ -186,6 +186,19 @@
       </div>`;
     }
 
+    // Delegacion para los botones de copiar. Antes era un onclick inline
+    // con el valor escapado como HTML, pero el navegador decodifica las
+    // entidades del atributo antes de pasarlo al parser de JavaScript, asi
+    // que ese escapado no protegia nada.
+    document.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-copiar]");
+      if (!b) return;
+      navigator.clipboard.writeText(b.dataset.copiar).then(
+        () => { b.textContent = "Copiado"; },
+        () => { b.textContent = "Copialo a mano"; }
+      );
+    });
+
     function render(report) {
       const data = report.data;
       lastReport = data;
@@ -222,7 +235,7 @@
           </div>
           <div class="card full">
             <h2>URLs correctas</h2>
-            <div class="list">${urls.map(u => `<div class="url"><span>${esc(u)}</span><button onclick="navigator.clipboard.writeText('${esc(u)}')">Copiar</button></div>`).join("")}</div>
+            <div class="list">${urls.map(u => `<div class="url"><span>${esc(u)}</span><button data-copiar="${esc(u)}">Copiar</button></div>`).join("")}</div>
           </div>
           <div class="card">
             <h2>Prueba 127.0.0.1</h2>
@@ -254,8 +267,20 @@
     async function load() {
       app.innerHTML = `<div class="loading">Cargando diagnostico...</div>`;
       try {
-        const res = await fetch("/api/diagnostico", { cache: "no-store" });
-        const json = await res.json();
+        // Se manda el token, por si el panel se abre desde otro equipo, y se
+      // comprueba el estado: sin esto, un 403 acababa en "Cannot read
+      // properties of undefined" en vez del motivo real.
+      let token = "";
+      try { token = localStorage.getItem("collatech.token") || ""; } catch (e) { /* modo privado */ }
+      const res = await fetch("/api/diagnostico", {
+        cache: "no-store",
+        headers: token ? { Authorization: "Bearer " + token } : {},
+      });
+        const json = await res.json().catch(() => null);
+      if (!res.ok || !json || !json.data) {
+        const motivo = (json && json.error) || `El agente respondio HTTP ${res.status}.`;
+        throw new Error(motivo);
+      }
         render(json);
       } catch (err) {
         app.innerHTML = `<div class="card full"><h2>Error</h2><pre>${esc(err.message)}</pre></div>`;

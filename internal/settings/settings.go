@@ -31,6 +31,10 @@ type Printer struct {
 	Font string `json:"font,omitempty"`
 	// FeedBottom son las lineas que se avanzan al cortar en esta impresora.
 	FeedBottom int `json:"feed_bottom,omitempty"`
+	// Model es el identificador del catalogo, si se eligio uno. Se guarda
+	// para que el panel pueda volver a mostrarlo; los ajustes concretos ya
+	// quedan copiados en los campos de arriba.
+	Model string `json:"model,omitempty"`
 	// Description es para que el operador sepa cual es.
 	Description string `json:"description,omitempty"`
 }
@@ -193,6 +197,7 @@ func normalize(cfg Settings) Settings {
 		} else {
 			p.Font = ""
 		}
+		p.Model = strings.ToLower(strings.TrimSpace(p.Model))
 		p.Description = strings.TrimSpace(p.Description)
 		out = append(out, p)
 	}

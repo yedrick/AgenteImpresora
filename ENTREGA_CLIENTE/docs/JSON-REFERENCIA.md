@@ -24,6 +24,18 @@ Authorization: Bearer <token>
 El token lo muestra el instalador al terminar y el panel local en la pestaña
 *Estado*. Desde la propia PC del agente no hace falta.
 
+## Cabeceras obligatorias
+
+Todo `POST` debe enviar:
+
+```http
+Content-Type: application/json
+```
+
+Sin ella la respuesta es `415`. Es lo que obliga al navegador a hacer la
+comprobación previa de CORS; sin ese requisito, cualquier página web podía
+imprimir en el agente del cliente.
+
 ## Respuesta
 
 Todos los endpoints responden con el mismo sobre:
@@ -413,7 +425,140 @@ si no, se imprime el que trae el agente incorporado.
 { "printer": "EPSON TM-T20", "width": 576, "scale": 80, "cut": true }
 ```
 
-## 7. ESC/POS crudo — `POST /api/print/raw`
+## 7. Bloque maquetado — `POST /api/print/layout`
+
+Para lo que una impresora de líneas no puede hacer sola: **un QR al costado
+del texto**, tablas con bordes de verdad, un total en negativo a la derecha,
+el logo junto a la dirección.
+
+Una impresora ESC/POS imprime línea a línea y el comando nativo de QR
+imprime y avanza el papel, así que no hay forma de colocar dos cosas una al
+lado de la otra. El agente resuelve esa zona componiéndola como **imagen**.
+
+```json
+{
+  "printer": "caja",
+  "width": 576,
+  "cut": "partial",
+  "layout": {
+    "padding": 6,
+    "border": false,
+    "rows": [
+      { "cols": [ { "weight": 1, "align": "center", "items": [
+        { "text": "CAFETERIA CENTRAL", "size": "xl", "bold": true } ] } ] },
+
+      { "align": "middle", "cols": [
+        { "weight": 1, "items": [
+          { "text": "Factura #F-000123", "bold": true },
+          { "text": "Cliente: Ana Peña" } ] },
+        { "dots": 150, "align": "right", "items": [
+          { "qr": "https://kollatek.com/f/000123", "qr_ec": "M" } ] }
+      ] },
+
+      { "cols": [
+        { "weight": 3, "pad": 4, "border": true, "items": [ { "text": "Café con leche", "mono": true } ] },
+        { "dots": 130, "pad": 4, "border": true, "align": "right", "items": [ { "text": "24.00", "mono": true } ] }
+      ] }
+    ]
+  }
+}
+```
+
+### Estructura
+
+Un bloque es una pila de **filas**; cada fila se parte en **columnas**; cada
+columna lleva **elementos**, uno debajo de otro.
+
+**Bloque**
+
+| Campo | Qué hace |
+|---|---|
+| `padding` | Margen interior en puntos |
+| `border` | Marco alrededor de todo |
+| `gap` | Separación entre filas. Omitirlo usa 6; **`0` las pega** |
+| `rows` | Las filas |
+
+**Fila**
+
+| Campo | Qué hace |
+|---|---|
+| `cols` | Las columnas |
+| `align` | Alineación vertical de las columnas más bajas: `top`, `middle`, `bottom` |
+| `gap` | Separación entre columnas. `0` las pega |
+| `border` | Marco alrededor de la fila |
+| `min_height` | Alto mínimo en puntos |
+
+**Columna**
+
+| Campo | Qué hace |
+|---|---|
+| `dots` | Ancho **fijo** en puntos. Es lo que se usa para el QR del costado |
+| `weight` | Reparte el ancho sobrante entre las columnas sin `dots`. Por defecto 1 |
+| `align` | `left`, `center` o `right` |
+| `pad` | Margen interior |
+| `border` | Marco alrededor de la columna |
+| `items` | Los elementos |
+
+**Elemento**
+
+El campo `type` decide qué se dibuja; si se omite, se deduce del campo que
+venga relleno (`qr`, `barcode`, `image` o `text`).
+
+| `type` | Campos propios |
+|---|---|
+| `text` | `text`, `size`, `size_px`, `bold`, `mono`, `invert` |
+| `qr` | `qr`, `qr_size` (1-16, 0 = ajustar), `qr_ec` (`L`/`M`/`Q`/`H`) |
+| `barcode` | `barcode`, `bar_height` |
+| `image` | `image` (base64 o data URI), `height` |
+| `rule` | `height` (grosor) |
+| `space` | `height` |
+
+Comunes a todos: `align` y `gap` (separación debajo).
+
+Tamaños de texto: `xs`, `s`, `m` (por defecto), `l`, `xl`, `xxl`. O
+`size_px` para el valor exacto.
+
+### Lo que cuesta
+
+Un bloque de 576×200 son unos **14 KB** de ráster frente a los ~200 bytes
+del mismo texto en nativo. Por USB o red no se nota; por serie lento sí.
+**No conviene maquetar el ticket entero por costumbre**: lo normal es texto
+nativo y solo la zona que lo necesita como bloque.
+
+También se puede meter como un elemento más de un ticket normal:
+
+```json
+{ "printer": "caja", "lines": [
+  { "text": "Linea nativa, rapida" },
+  { "type": "layout", "layout": { "rows": [ ... ] } },
+  { "text": "Otra linea nativa" }
+]}
+```
+
+### Vista previa — `POST /api/preview`
+
+Devuelve el bloque como **PNG**, compuesto por el mismo código que imprime:
+lo que se ve es lo que sale.
+
+```json
+{ "width": 576, "scale": 2, "layout": { "rows": [ ... ] } }
+```
+
+`scale` (1-4) solo agranda para la pantalla; a 203 ppp un ticket se ve
+diminuto en un monitor.
+
+### Diseñador visual
+
+Para armarlo sin escribir JSON a mano:
+
+```text
+http://localhost:18743/designer
+```
+
+Se diseña con el ratón, la vista previa es exacta y el botón **Ver JSON** da
+el cuerpo listo para enviar.
+
+## 8. ESC/POS crudo — `POST /api/print/raw`
 
 Los campos son **`data`** y **`base64`**.
 

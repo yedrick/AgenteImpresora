@@ -42,10 +42,13 @@ type TLS struct {
 
 func Default() Config {
 	return Config{
-		Host:         "127.0.0.1",
-		Port:         DefaultPort,
-		LogLevel:     "info",
-		AllowedCORS:  []string{"http://localhost", "http://127.0.0.1", "null"},
+		Host:     "127.0.0.1",
+		Port:     DefaultPort,
+		LogLevel: "info",
+		// Sin "null": ese origen lo manda cualquier iframe con sandbox, asi
+		// que admitirlo dejaba que una web cualquiera leyera /api/token y se
+		// llevara el token de la red.
+		AllowedCORS:  []string{"http://localhost", "http://127.0.0.1"},
 		AllowRemote:  false,
 		MaxPrintSize: 2 * 1024 * 1024,
 		Queue:        Queue{Workers: 1, MaxRetries: 2},

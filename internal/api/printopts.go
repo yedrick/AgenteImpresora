@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -20,6 +21,13 @@ type CutSetting struct {
 }
 
 func (c *CutSetting) UnmarshalJSON(b []byte) error {
+	// null es "no indicado", no "no cortar". Sin esto, cualquier cliente que
+	// serialice los opcionales ausentes como null (lo normal en C#, Java o
+	// Python) dejaba de cortar los tickets para siempre y sin ningun aviso,
+	// pisando ademas el modo de corte de la impresora.
+	if string(bytes.TrimSpace(b)) == "null" {
+		return nil
+	}
 	var asBool bool
 	if err := json.Unmarshal(b, &asBool); err == nil {
 		c.Set = true
@@ -39,8 +47,11 @@ func (c *CutSetting) UnmarshalJSON(b []byte) error {
 		c.Mode = escpos.CutPartial
 	case "full", "total", "completo":
 		c.Mode = escpos.CutFull
-	case "none", "no", "ninguno", "":
+	case "none", "no", "ninguno":
 		c.Mode = escpos.CutNone
+	case "":
+		// Cadena vacia tambien es "no indicado".
+		return nil
 	default:
 		return fmt.Errorf("cut %q no valido: usa partial, full o none", asText)
 	}

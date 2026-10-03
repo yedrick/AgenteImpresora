@@ -15,6 +15,26 @@ import (
 // falta, para no generarlo dos veces al dibujar.
 func measureItem(fs *fontSet, it Item, width int) (measuredItem, error) {
 	m := measuredItem{item: it}
+
+	// Un elemento recien anadido y todavia sin contenido no es un error: en
+	// el disenador, tratarlo como tal borraba la vista previa del ticket
+	// entero por un hueco que el usuario aun no habia rellenado. Se queda en
+	// nada y ya.
+	switch itemType(it) {
+	case "qr":
+		if strings.TrimSpace(it.QR) == "" {
+			return m, nil
+		}
+	case "barcode":
+		if strings.TrimSpace(it.Barcode) == "" {
+			return m, nil
+		}
+	case "image":
+		if strings.TrimSpace(it.Image) == "" {
+			return m, nil
+		}
+	}
+
 	switch itemType(it) {
 	case "space":
 		m.height = pick(it.Height, defaultGap)
@@ -127,7 +147,7 @@ func drawItem(fs *fontSet, c *canvas, m measuredItem, col Col, x, y, w int) {
 
 	case "qr", "barcode", "image":
 		if m.rendered == nil {
-			return
+			return // sin contenido todavia
 		}
 		iw := m.rendered.Bounds().Dx()
 		dx := 0
@@ -140,7 +160,9 @@ func drawItem(fs *fontSet, c *canvas, m measuredItem, col Col, x, y, w int) {
 		if dx < 0 {
 			dx = 0
 		}
-		c.blit(m.rendered, x+dx, y)
+		// Recortado al ancho de la columna: un simbolo mas ancho se metia en
+		// la columna de al lado.
+		c.blitClip(m.rendered, x+dx, y, w-dx)
 		return
 	}
 
@@ -161,6 +183,10 @@ func drawItem(fs *fontSet, c *canvas, m measuredItem, col Col, x, y, w int) {
 	}
 }
 
+// maxImagePixels acota la imagen antes de descomprimirla: un PNG en blanco
+// de 20000x20000 ocupa 400 KB comprimido y cientos de MB en memoria.
+const maxImagePixels = 12_000_000
+
 func decodeImage(src string) (image.Image, error) {
 	src = strings.TrimSpace(src)
 	if i := strings.Index(src, ","); strings.HasPrefix(src, "data:") && i >= 0 {
@@ -169,6 +195,14 @@ func decodeImage(src string) (image.Image, error) {
 	raw, err := base64.StdEncoding.DecodeString(src)
 	if err != nil {
 		return nil, fmt.Errorf("no es base64 valido")
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("no se reconoce el formato: debe ser PNG, JPEG o GIF")
+	}
+	if px := cfg.Width * cfg.Height; px <= 0 || px > maxImagePixels {
+		return nil, fmt.Errorf("la imagen mide %dx%d; el maximo son %d megapixeles",
+			cfg.Width, cfg.Height, maxImagePixels/1_000_000)
 	}
 	img, _, err := image.Decode(bytes.NewReader(raw))
 	return img, err

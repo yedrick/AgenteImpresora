@@ -174,6 +174,103 @@ export interface PrinterProfile {
   description?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Bloque maquetado
+//
+// Una impresora ESC/POS imprime linea a linea, asi que nativamente no se
+// puede poner un QR al costado de un texto. Un bloque describe esa zona como
+// una rejilla y el agente la compone como imagen.
+// ---------------------------------------------------------------------------
+
+/** Tamanos de texto dentro de un bloque maquetado. */
+export type LayoutSize = "xs" | "s" | "m" | "l" | "xl" | "xxl";
+
+/** Un elemento dentro de una columna. */
+export interface LayoutItem {
+  /** Si se omite, se deduce del campo que venga relleno. */
+  type?: "text" | "qr" | "barcode" | "image" | "rule" | "space";
+
+  text?: string;
+  /** Tamano por nombre. */
+  size?: LayoutSize;
+  /** Altura exacta de la fuente en puntos; manda sobre `size`. */
+  size_px?: number;
+  bold?: boolean;
+  /** Ancho fijo, util para alinear importes. */
+  mono?: boolean;
+  /** Blanco sobre negro. */
+  invert?: boolean;
+
+  /** Contenido del QR. */
+  qr?: string;
+  /** Lado de cada punto, 1 a 16. Con 0 se ajusta al ancho de la columna. */
+  qr_size?: number;
+  qr_ec?: QRErrorCorrection;
+
+  barcode?: string;
+  /** Alto del codigo de barras en puntos. */
+  bar_height?: number;
+
+  /** Imagen en base64 o data URI. */
+  image?: string;
+
+  /** Alto en puntos, para `rule` y `space`. */
+  height?: number;
+
+  align?: TextAlign;
+  /** Separacion debajo del elemento, en puntos. */
+  gap?: number;
+}
+
+/** Una columna dentro de una fila. */
+export interface LayoutCol {
+  /**
+   * Ancho FIJO en puntos. Es lo que se usa para el QR del costado: pon unos
+   * 150 aqui y deja la otra columna flexible.
+   */
+  dots?: number;
+  /** Reparte el ancho sobrante entre las columnas sin `dots`. Por defecto 1. */
+  weight?: number;
+  align?: TextAlign;
+  /** Margen interior en puntos. */
+  pad?: number;
+  border?: boolean;
+  items: LayoutItem[];
+}
+
+/** Una franja horizontal del bloque. */
+export interface LayoutRow {
+  cols: LayoutCol[];
+  /** Alineacion vertical de las columnas mas bajas. */
+  align?: "top" | "middle" | "bottom";
+  /** Separacion entre columnas. Omitirlo usa la del bloque; 0 las pega. */
+  gap?: number;
+  border?: boolean;
+  min_height?: number;
+}
+
+/** Un bloque maquetado: una pila de filas. */
+export interface LayoutBlock {
+  rows: LayoutRow[];
+  /** Margen interior del bloque. */
+  padding?: number;
+  border?: boolean;
+  /** Separacion entre filas. Omitirlo usa 6; 0 las pega. */
+  gap?: number;
+}
+
+export interface PrintLayoutOptions extends DocumentOptions {
+  layout: LayoutBlock;
+}
+
+export interface PreviewOptions {
+  layout: LayoutBlock;
+  /** Ancho del papel en puntos. */
+  width?: PaperWidth;
+  /** Aumento para la pantalla, 1 a 4. No afecta a lo que se imprime. */
+  scale?: number;
+}
+
 /** Niveles de correccion de errores de un QR. */
 export type QRErrorCorrection = "L" | "M" | "Q" | "H";
 
@@ -229,6 +326,11 @@ export interface TicketLine {
   barcode?: BarcodeSpec;
   /** Imagen en base64 o data URI. */
   image?: string;
+  /**
+   * Bloque maquetado en dos dimensiones. Lo habitual es texto nativo, que es
+   * rapido, y solo la zona que lo necesita como bloque.
+   */
+  layout?: LayoutBlock;
   /** Caracter con el que se dibuja una linea separadora. */
   rule?: string;
   /** Lineas en blanco de un elemento de tipo feed. */

@@ -219,8 +219,23 @@ func redactConfig(cfg config.Config) config.Config {
 
 var authTokenRe = regexp.MustCompile(`("auth_token"\s*:\s*)"[^"]*"`)
 
-// redactTokenText tapa el token en un texto de configuracion.
+// redactTokenText tapa el token de un texto de configuracion.
+//
+// Se intenta primero analizando el JSON y volviendolo a escribir: una
+// expresion regular sobre el texto crudo no veia un "auth_token" escrito con
+// escapes, que para el analizador es el mismo campo, y el token se colaba en
+// el informe. La expresion queda solo de respaldo por si el archivo no es
+// JSON valido.
 func redactTokenText(text string) string {
+	var crudo map[string]any
+	if err := json.Unmarshal(bytes.TrimPrefix([]byte(text), []byte{0xEF, 0xBB, 0xBF}), &crudo); err == nil {
+		if _, ok := crudo["auth_token"]; ok {
+			crudo["auth_token"] = "***"
+		}
+		if b, err := json.MarshalIndent(crudo, "", "  "); err == nil {
+			return string(b)
+		}
+	}
 	return authTokenRe.ReplaceAllString(text, `${1}"***"`)
 }
 

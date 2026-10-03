@@ -33,23 +33,27 @@ func renderQR(data string, moduleSize, maxWidth int, ec string) (image.Image, er
 	const quiet = 4
 	modulos := code.Size + 2*quiet
 
-	if moduleSize <= 0 {
-		if maxWidth <= 0 {
-			maxWidth = 160
-		}
-		moduleSize = maxWidth / modulos
+	if maxWidth <= 0 {
+		maxWidth = 160
 	}
-	if moduleSize < 1 {
-		moduleSize = 1
+	// El tamano se acota comparando por division: con moduleSize*modulos el
+	// producto desbordaba el entero, la guarda quedaba en falso y se acababa
+	// pidiendo una imagen de dimensiones absurdas o negativas.
+	cabe := maxWidth / modulos
+	if cabe < 1 {
+		cabe = 1
 	}
-	if maxWidth > 0 && moduleSize*modulos > maxWidth {
-		moduleSize = maxWidth / modulos
-		if moduleSize < 1 {
-			moduleSize = 1
-		}
+	if moduleSize <= 0 || moduleSize > cabe {
+		moduleSize = cabe
+	}
+	if moduleSize > maxQRModule {
+		moduleSize = maxQRModule
 	}
 
 	lado := modulos * moduleSize
+	if lado > maxWidth {
+		return nil, fmt.Errorf("el QR necesita %d puntos y solo hay %d: acorta el contenido o dale mas ancho", lado, maxWidth)
+	}
 	img := image.NewGray(image.Rect(0, 0, lado, lado))
 	for i := range img.Pix {
 		img.Pix[i] = 255
@@ -136,26 +140,34 @@ func renderBarcode(data string, height, moduleWidth, maxWidth int) (image.Image,
 			modulos += int(d - '0')
 		}
 	}
-	if moduleWidth <= 0 {
-		if maxWidth <= 0 {
-			maxWidth = 400
-		}
-		moduleWidth = maxWidth / modulos
+	if maxWidth <= 0 {
+		maxWidth = 400
 	}
-	if moduleWidth < 1 {
-		moduleWidth = 1
+	// Igual que en el QR: comparar dividiendo para no desbordar.
+	cabe := maxWidth / modulos
+	if cabe < 1 {
+		cabe = 1
 	}
-	if maxWidth > 0 && moduleWidth*modulos > maxWidth {
-		moduleWidth = maxWidth / modulos
-		if moduleWidth < 1 {
-			moduleWidth = 1
-		}
+	if moduleWidth <= 0 || moduleWidth > cabe {
+		moduleWidth = cabe
+	}
+	if moduleWidth > 6 {
+		moduleWidth = 6
 	}
 	if height <= 0 {
 		height = 70
 	}
+	// Tope duro: un alto enorme hacia que image.NewGray pidiera cientos de
+	// GB y el proceso moria con un fatal error del runtime, que no se puede
+	// recuperar. Una sola peticion tumbaba el agente.
+	if height > maxBarHeight {
+		height = maxBarHeight
+	}
 
 	ancho := modulos * moduleWidth
+	if ancho > maxWidth {
+		return nil, fmt.Errorf("el codigo de barras necesita %d puntos y solo hay %d: acorta el contenido o dale mas ancho", ancho, maxWidth)
+	}
 	img := image.NewGray(image.Rect(0, 0, ancho, height))
 	for i := range img.Pix {
 		img.Pix[i] = 255

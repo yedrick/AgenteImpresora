@@ -21,6 +21,12 @@ import type {
   PrintImageOptions,
   PrintLogoOptions,
   PrintRawOptions,
+  PrintLayoutOptions,
+  PreviewOptions,
+  LayoutBlock,
+  LayoutRow,
+  LayoutCol,
+  LayoutItem,
   LogEntry,
   PaperWidth,
   PrinterProfile,
@@ -510,6 +516,46 @@ export class CollaTech {
    * });
    * ```
    */
+  /**
+   * Imprime un bloque maquetado en dos dimensiones: QR al costado del texto,
+   * tablas con bordes, columnas. Lo que una impresora de lineas no puede
+   * hacer sola, porque imprime linea a linea.
+   *
+   * @example
+   * ```ts
+   * await printer.printLayout({
+   *   printer: "caja",
+   *   width: 576,
+   *   layout: { rows: [
+   *     { align: "middle", cols: [
+   *       { weight: 1, items: [{ text: "Factura #123", bold: true }] },
+   *       { dots: 150, items: [{ qr: "https://ejemplo.com/f/123" }] },
+   *     ] },
+   *   ] },
+   * });
+   * ```
+   */
+  async printLayout(options: PrintLayoutOptions): Promise<PrintResult> {
+    return this.post<PrintResult>("/api/print/layout", options);
+  }
+
+  /**
+   * Devuelve el bloque como PNG, compuesto por el mismo codigo que imprime.
+   * Sirve para ensenar al usuario como va a quedar antes de gastar papel.
+   */
+  async previewLayout(options: PreviewOptions): Promise<Blob> {
+    const res = await this._fetch(`${this.baseUrl}/api/preview`, {
+      method: "POST",
+      headers: this.headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify(options),
+    });
+    if (!res.ok) {
+      const detalle = await res.json().catch(() => null);
+      throw new ApiError(res.status, detalle?.error ?? "no se pudo componer la vista previa");
+    }
+    return res.blob();
+  }
+
   async printRaw(options: PrintRawOptions): Promise<PrintResult> {
     return this.post<PrintResult>("/api/print/raw", {
       printer: options.printer,

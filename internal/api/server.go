@@ -127,6 +127,7 @@ func (s *Server) Routes() http.Handler {
 	var h http.Handler = mux
 	h = s.guard(h)
 	h = s.rateLimit(h)
+	h = s.requireJSON(h)
 	if !s.cfg.AllowRemote {
 		h = s.localhostOnly(h)
 	}

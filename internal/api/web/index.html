@@ -643,12 +643,24 @@ Gracias por usar CollaTech</textarea>
     }
 
     async function request(path, options) {
+      // El agente exige application/json en los POST: es lo que obliga al
+      // navegador a hacer la comprobacion previa y que CORS proteja de
+      // verdad.
       const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
       const token = storedToken();
       if (token) headers["Authorization"] = "Bearer " + token;
       const response = await fetch(API_BASE + path, { ...options, headers });
       const text = await response.text();
-      return { response, data: text ? JSON.parse(text) : {} };
+      // Si la respuesta no es JSON (un proxy, una pagina de error, un portal
+      // cautivo), antes reventaba aqui y ni siquiera se llegaba a pedir el
+      // token.
+      let data = {};
+      try {
+        if (text) data = JSON.parse(text);
+      } catch (e) {
+        data = { ok: false, error: `El agente devolvio algo que no es JSON (HTTP ${response.status}).` };
+      }
+      return { response, data };
     }
 
     async function api(path, options = {}) {
@@ -855,7 +867,7 @@ Gracias por usar CollaTech</textarea>
         <tr data-i="${i}">
           <td><input type="text" data-campo="name" value="${esc(p.name)}" placeholder="caja"></td>
           <td><input type="text" data-campo="target" value="${esc(p.target)}" placeholder="tcp://192.168.1.50:9100"></td>
-          <td><select data-campo="modelo">${opcionesModelo(p.modelo)}</select></td>
+          <td><select data-campo="modelo">${opcionesModelo(p.model)}</select></td>
           <td><select data-campo="paper_width">${opciones(PAPELES, p.paper_width)}</select></td>
           <td><select data-campo="cut">${opciones(CORTES, p.cut)}</select></td>
           <td style="text-align:center"><input type="checkbox" data-campo="upside_down"${p.upside_down ? " checked" : ""}></td>
@@ -872,20 +884,38 @@ Gracias por usar CollaTech</textarea>
 
     // Se lee la tabla entera al guardar, para no perder lo que el usuario
     // haya escrito y aun no haya disparado un evento.
+    //
+    // No se filtran aqui las filas incompletas: el indice data-i apunta a
+    // este array, asi que filtrar desplazaba los indices y la × borraba la
+    // fila equivocada. Y al anadir una fila se perdia lo que estuviera a
+    // medio escribir. El filtrado se hace solo al enviar.
     function leerTabla() {
-      return Array.from($("printerRows").querySelectorAll("tr[data-i]")).map((tr) => {
+      return Array.from($("printerRows").querySelectorAll("tr[data-i]")).map((tr, i) => {
         const dato = (campo) => tr.querySelector(`[data-campo="${campo}"]`);
+        // Se parte del objeto original para conservar los ajustes que la
+        // tabla no muestra (line_spacing, feed_bottom), que si no se
+        // borraban al guardar.
+        const previo = impresoras[i] || {};
         return {
-          name: (dato("name").value || "").trim().toLowerCase(),
+          ...previo,
+          name: (dato("name").value || "").trim(),
           target: (dato("target").value || "").trim(),
-          modelo: dato("modelo") ? dato("modelo").value : "",
+          model: dato("modelo") ? dato("modelo").value : (previo.model || ""),
           paper_width: Number(dato("paper_width").value || 0),
           cut: dato("cut").value || "",
           upside_down: dato("upside_down").checked,
           font: dato("font").value || "",
           description: (dato("description").value || "").trim()
         };
-      }).filter((p) => p.name && p.target);
+      });
+    }
+
+    // Lo que se manda al agente: ya sin las filas a medio rellenar y con el
+    // nombre en minusculas, que es como las busca el servidor.
+    function tablaParaGuardar() {
+      return leerTabla()
+        .filter((p) => p.name && p.target)
+        .map((p) => ({ ...p, name: p.name.toLowerCase() }));
     }
 
     function primeraImpresora() {
@@ -909,7 +939,7 @@ Gracias por usar CollaTech</textarea>
       try {
         const data = await api("/api/printers-config", {
           method: "POST",
-          body: JSON.stringify(leerTabla())
+          body: JSON.stringify(tablaParaGuardar())
         });
         notify(data, "Impresoras guardadas");
         impresoras = data.data || [];
@@ -924,7 +954,7 @@ Gracias por usar CollaTech</textarea>
 
     $("addPrinter").addEventListener("click", () => {
       impresoras = leerTabla();
-      impresoras.push({ name: "", target: "", modelo: "", paper_width: 0, cut: "", upside_down: false, font: "", description: "" });
+      impresoras.push({ name: "", target: "", model: "", paper_width: 0, cut: "", upside_down: false, font: "", description: "" });
       pintarImpresoras();
       const filas = $("printerRows").querySelectorAll('input[data-campo="name"]');
       if (filas.length) filas[filas.length - 1].focus();
@@ -991,7 +1021,13 @@ Gracias por usar CollaTech</textarea>
     }
 
     $("refreshPrinters").addEventListener("click", loadPrinters);
-    $("refreshStatus").addEventListener("click", async () => show(await api("/api/status")));
+    $("refreshStatus").addEventListener("click", async () => {
+      try {
+        show(await api("/api/status"));
+      } catch (error) {
+        notifyError(error, "No se pudo leer el estado");
+      }
+    });
     $("refreshNetwork").addEventListener("click", loadNetwork);
     $("saveSettings").addEventListener("click", saveSettings);
     document.querySelectorAll(".tab-button").forEach((button) => {

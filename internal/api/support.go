@@ -5,12 +5,14 @@ package api
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,11 +25,13 @@ const maxBundleLogDays = 7
 // Antes habia que explicarle al cliente por telefono que archivos buscar.
 func (s *Server) supportBundle(w http.ResponseWriter, r *http.Request) {
 	nombre := fmt.Sprintf("collatech-soporte-%s.zip", time.Now().Format("2006-01-02-1504"))
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+nombre+`"`)
 
-	z := zip.NewWriter(w)
-	defer z.Close()
+	// El zip se arma en memoria y se manda entero. Antes se escribian las
+	// cabeceras y se iba emitiendo: si el informe tardaba (el diagnostico
+	// lanza varios netsh con espera), el WriteTimeout cortaba el archivo a
+	// medias y el operador recibia un zip corrupto presentado como exito.
+	var buf bytes.Buffer
+	z := zip.NewWriter(&buf)
 
 	add := func(path string, data []byte) {
 		f, err := z.Create(path)
@@ -67,7 +71,18 @@ func (s *Server) supportBundle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	add("LEEME.txt", []byte(bundleReadme(nombre)))
-	s.logger.Info("support_bundle", map[string]any{"archivo": nombre})
+
+	if err := z.Close(); err != nil {
+		s.logger.Error("support_bundle", map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, response{OK: false,
+			Error: "no se pudo generar el paquete de soporte"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+nombre+`"`)
+	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
+	_, _ = w.Write(buf.Bytes())
+	s.logger.Info("support_bundle", map[string]any{"archivo": nombre, "bytes": buf.Len()})
 }
 
 // recentLogFiles devuelve los archivos de registro mas recientes.

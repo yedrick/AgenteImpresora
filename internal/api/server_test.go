@@ -3,7 +3,9 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image"
 	"image/png"
 	"io"
 	"net/http"
@@ -159,6 +161,7 @@ func TestImprimirDesdeLaRedExigeToken(t *testing.T) {
 	body := `{"printer":"P","text":"hola","cut":true}`
 
 	req := httptest.NewRequest(http.MethodPost, "/api/print/text", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "192.168.1.77:5000"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -167,6 +170,7 @@ func TestImprimirDesdeLaRedExigeToken(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/print/text", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "192.168.1.77:5000"
 	req.Header.Set("Authorization", "Bearer equivocado")
 	rec = httptest.NewRecorder()
@@ -176,6 +180,7 @@ func TestImprimirDesdeLaRedExigeToken(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/print/text", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "192.168.1.77:5000"
 	req.Header.Set("Authorization", "Bearer secreto")
 	rec = httptest.NewRecorder()
@@ -843,5 +848,205 @@ func TestVistaPreviaConBloqueInvalido(t *testing.T) {
 	body := `{"width":576,"layout":{"rows":[{"cols":[{"items":[{"type":"image","image":"xx"}]}]}]}}`
 	if rec := post(t, h, "/api/preview", body, ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("esperaba 400, obtuve %d", rec.Code)
+	}
+}
+
+// --- Regresiones de seguridad ----------------------------------------------
+
+// Un iframe con sandbox manda Origin: null. Admitirlo dejaba que cualquier
+// web leyera /api/token y se llevara el token de la red.
+func TestElOrigenNullNoSeAutoriza(t *testing.T) {
+	h := newTestServer(t, func(c *config.Config) {
+		c.AllowRemote = true
+		c.AuthToken = "SECRETO"
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/token", nil)
+	req.Header.Set("Origin", "null")
+	req.RemoteAddr = "127.0.0.1:5000"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("se autorizo el origen null: %q", got)
+	}
+}
+
+func TestElOrigenNullTampocoEstaEnLaConfigPorDefecto(t *testing.T) {
+	for _, o := range config.Default().AllowedCORS {
+		if strings.EqualFold(o, "null") {
+			t.Fatal("la configuracion por defecto no debe admitir el origen null")
+		}
+	}
+}
+
+// Un POST con text/plain es una peticion "simple" para el navegador: no
+// dispara comprobacion previa, asi que CORS no lo frena. Sin exigir JSON,
+// cualquier web que abriera el cajero podia imprimir y abrir el cajon.
+func TestUnPOSTSinJSONSeRechaza(t *testing.T) {
+	h := newTestServer(t, nil)
+	cuerpo := `{"printer":"P","drawer":true,"lines":[{"text":"hola"}]}`
+	for _, tipo := range []string{"text/plain", "application/x-www-form-urlencoded", "multipart/form-data", ""} {
+		req := httptest.NewRequest(http.MethodPost, "/api/print/ticket", strings.NewReader(cuerpo))
+		if tipo != "" {
+			req.Header.Set("Content-Type", tipo)
+		}
+		req.RemoteAddr = "127.0.0.1:5000"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnsupportedMediaType {
+			t.Fatalf("Content-Type %q: esperaba 415, obtuve %d", tipo, rec.Code)
+		}
+	}
+	// Con el tipo correcto si pasa, incluido el juego de caracteres.
+	for _, tipo := range []string{"application/json", "application/json; charset=utf-8"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/print/ticket", strings.NewReader(cuerpo))
+		req.Header.Set("Content-Type", tipo)
+		req.RemoteAddr = "127.0.0.1:5000"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("Content-Type %q: esperaba 202, obtuve %d", tipo, rec.Code)
+		}
+	}
+}
+
+// /api/network devuelve el nombre del equipo y todas sus IPv4.
+func TestLaInformacionDeRedEsSoloLocal(t *testing.T) {
+	h := newTestServer(t, func(c *config.Config) {
+		c.AllowRemote = true
+		c.AuthToken = "secreto"
+	})
+	if rec := get(t, h, "/api/network", "192.168.1.77:5000", "secreto"); rec.Code != http.StatusForbidden {
+		t.Fatalf("esperaba 403 desde la red, obtuve %d", rec.Code)
+	}
+	if rec := get(t, h, "/api/network", "127.0.0.1:5000", ""); rec.Code != http.StatusOK {
+		t.Fatalf("en local deberia responder, obtuve %d", rec.Code)
+	}
+}
+
+// La vista previa es el endpoint mas caro: rasteriza y luego amplia.
+func TestLaVistaPreviaTambienTieneLimite(t *testing.T) {
+	h := newTestServer(t, nil)
+	body := `{"width":384,"layout":{"rows":[{"cols":[{"items":[{"text":"x"}]}]}]}}`
+	var frenadas int
+	for i := 0; i < burstPorIP+20; i++ {
+		if post(t, h, "/api/preview", body, "").Code == http.StatusTooManyRequests {
+			frenadas++
+		}
+	}
+	if frenadas == 0 {
+		t.Fatal("la vista previa deberia limitarse igual que imprimir")
+	}
+}
+
+// 55 bytes de JSON mataban el proceso: strings.Repeat con un margen enorme.
+func TestUnMargenEnormeNoTumbaElAgente(t *testing.T) {
+	h := newTestServer(t, nil)
+	casos := []string{
+		`{"printer":"P","lines":[{"text":"x","ml":1500000000}]}`,
+		`{"printer":"P","lines":[{"text":"x","mr":2000000000}]}`,
+		`{"printer":"P","lines":[{"text":"x","gap":20000000}]}`,
+		`{"printer":"P","lines":[{"text":"x","ml":9223372036854775807}]}`,
+		`{"printer":"P","lines":[{"type":"table","table":{"columns":[{"text":"A","width":1000000000}],"rows":[["x"]]}}]}`,
+	}
+	for _, body := range casos {
+		rec := post(t, h, "/api/print/ticket", body, "")
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("esperaba 202 (acotado), obtuve %d para %s", rec.Code, body[:50])
+		}
+	}
+}
+
+// Un PNG en blanco de 20000x20000 ocupa 400 KB comprimido y cientos de MB al
+// descomprimirlo.
+func TestUnaImagenEnormeSeRechazaAntesDeDescomprimirla(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, 9000, 9000))); err != nil {
+		t.Fatal(err)
+	}
+	datos := base64.StdEncoding.EncodeToString(buf.Bytes())
+	t.Logf("PNG de 9000x9000: %d KB comprimido", len(buf.Bytes())/1024)
+
+	if _, err := decodeImage(datos); err == nil {
+		t.Fatal("deberia rechazarse por tamano")
+	} else if !strings.Contains(err.Error(), "megapixeles") {
+		t.Fatalf("el error deberia explicar el motivo: %v", err)
+	}
+
+	// Una imagen normal sigue funcionando.
+	buf.Reset()
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, 400, 200))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeImage(base64.StdEncoding.EncodeToString(buf.Bytes())); err != nil {
+		t.Fatalf("una imagen normal deberia aceptarse: %v", err)
+	}
+}
+
+// null es "no indicado", no "no cortar": cualquier cliente que serialice los
+// opcionales ausentes como null dejaba de cortar los tickets.
+func TestCutNullNoDesactivaElCorte(t *testing.T) {
+	for _, raw := range []string{`null`, `""`} {
+		var c CutSetting
+		if err := json.Unmarshal([]byte(raw), &c); err != nil {
+			t.Fatalf("cut=%s: %v", raw, err)
+		}
+		if c.Set {
+			t.Fatalf("cut=%s no deberia contar como indicado (quedo %q)", raw, c.Mode)
+		}
+	}
+	// Y el perfil de la impresora sigue mandando.
+	dir := t.TempDir()
+	paths := config.DefaultPaths(dir)
+	os.MkdirAll(filepath.Dir(paths.Settings), 0o755)
+	s := &Server{cfg: config.Default(), paths: paths}
+	if _, err := s.saveSettingsFile(settings.Settings{
+		PaperWidth: 576,
+		Printers:   []settings.Printer{{Name: "caja", Target: "X", Cut: "full"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var req docRequest
+	if err := json.Unmarshal([]byte(`{"printer":"caja","cut":null}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.resolve(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Doc.Cut != escpos.CutFull {
+		t.Fatalf("con cut:null deberia mandar el perfil (full), quedo %q", res.Doc.Cut)
+	}
+}
+
+// El token se tapaba con una expresion sobre el texto crudo, que no veia un
+// "auth_token" escrito con escapes: para el analizador es el mismo campo, y
+// el token se colaba en el informe que el cliente manda a soporte.
+func TestElTokenSeTapaAunqueElJSONVengaConEscapes(t *testing.T) {
+	casos := []string{
+		`{"auth_token":"SECRETO","port":18743}`,
+		`{"auth_token":"SECRETO","port":18743}`,
+		`{ "auth_token" : "SECRETO" }`,
+	}
+	for _, raw := range casos {
+		if out := redactTokenText(raw); strings.Contains(out, "SECRETO") {
+			t.Fatalf("el token sigue visible en %q -> %q", raw, out)
+		}
+	}
+}
+
+// El paquete de soporte se arma entero antes de mandarlo: si falla, tiene
+// que salir un error, no un zip cortado presentado como exito.
+func TestElPaqueteDeSoporteLlevaContentLength(t *testing.T) {
+	h := newTestServer(t, nil)
+	rec := get(t, h, "/api/support-bundle", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP %d", rec.Code)
+	}
+	if rec.Header().Get("Content-Length") == "" {
+		t.Fatal("deberia llevar Content-Length: el zip se arma entero antes de enviarlo")
+	}
+	datos := rec.Body.Bytes()
+	if _, err := zip.NewReader(bytes.NewReader(datos), int64(len(datos))); err != nil {
+		t.Fatalf("el zip no es valido: %v", err)
 	}
 }

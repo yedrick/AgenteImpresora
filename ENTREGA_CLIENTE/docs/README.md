@@ -94,7 +94,15 @@ equipo. El panel pedirá el token la primera vez.
 - CORS con lista de orígenes exactos en `configs/config.json`. Evita `"*"`:
   con comodín, cualquier web que abra el cajero puede imprimir y abrir el
   cajón de dinero.
-- Payload máximo configurable con `max_print_size`.
+- **Todo `POST` debe enviar `Content-Type: application/json`** (si no, `415`).
+  No es un capricho: un POST con `text/plain` es una "petición simple" para
+  el navegador y no dispara comprobación previa, así que CORS no lo frena.
+  Sin esto, cualquier web que abriera el cajero podía imprimir y abrir el
+  cajón de dinero.
+- El origen `null` nunca se autoriza: lo manda cualquier iframe con
+  *sandbox*, y admitirlo dejaba leer el token desde cualquier página.
+- Payload máximo configurable con `max_print_size`. Las imágenes se rechazan
+  por megapíxeles **antes** de descomprimirlas.
 - Límite de 30 impresiones seguidas por equipo y 10 por segundo después, para
   que un bucle mal escrito no gaste el rollo entero.
 - TLS opcional. Para usarlo en red, genera el certificado con
@@ -190,8 +198,10 @@ Impresión (todos `POST`, responden **202 Accepted**):
 ```text
 /api/print/text      /api/print/ticket    /api/print/template
 /api/print/html      /api/print/image     /api/print/logo
-/api/print/raw
+/api/print/layout    /api/print/raw
 ```
+
+`POST /api/preview` devuelve un bloque maquetado como PNG para el diseñador.
 
 Consulta (`GET`):
 
@@ -370,6 +380,29 @@ Todos los endpoints de impresión aceptan estas opciones:
 
 El tamaño del QR y del código de barras **se calcula solo** según el ancho
 del papel y lo que ocupe el contenido, y también se puede fijar a mano.
+
+## Diseño libre: QR al costado, rejillas, tablas
+
+Una impresora ESC/POS imprime **línea a línea**, así que nativamente no se
+puede poner un QR al lado de un texto. Para eso está `POST /api/print/layout`:
+describes el ticket como una rejilla de filas y columnas, y el agente compone
+esa zona como imagen.
+
+```json
+{ "printer": "caja", "layout": { "rows": [
+  { "align": "middle", "cols": [
+    { "weight": 1,   "items": [ { "text": "Factura #F-000123", "bold": true } ] },
+    { "dots": 150,   "items": [ { "qr": "https://kollatek.com/f/123" } ] }
+  ] }
+] } }
+```
+
+El **diseñador visual** en `http://localhost:18743/designer` lo arma con el
+ratón, y su vista previa es exacta: la compone el mismo código que imprime.
+
+Un bloque cuesta unos 14 KB de ráster frente a 200 bytes del mismo texto en
+nativo, así que lo normal es texto nativo y solo la zona que lo necesita como
+bloque. Detalle completo en [JSON-REFERENCIA.md](JSON-REFERENCIA.md).
 
 ## Cómo se imprime HTML
 

@@ -174,6 +174,20 @@ func (m *Manager) EnqueueMany(printerNames []string, payload []byte) ([]*Job, er
 		return nil, fmt.Errorf("no hay impresoras de destino")
 	}
 
+	// Se comprueba el hueco ANTES de tocar el mapa. Antes se registraban
+	// todos y se enviaban uno a uno: si el canal se llenaba a mitad, los
+	// primeros se imprimian, el cliente recibia 503 y reintentaba (ticket
+	// duplicado), y los que faltaban se quedaban como Pending para siempre,
+	// porque la purga solo desaloja los terminados.
+	if cap(m.queue)-len(m.queue) < len(jobs) {
+		if m.logger != nil {
+			m.logger.Error("print_rejected", map[string]any{
+				"reason": "cola llena", "destinos": len(jobs),
+			})
+		}
+		return nil, ErrQueueFull
+	}
+
 	// Las copias para la respuesta se hacen aqui, con el lock tomado y antes
 	// de que ningun worker pueda ver los trabajos: clonarlos despues del
 	// envio al canal era una carrera de datos contra update().
@@ -186,15 +200,16 @@ func (m *Manager) EnqueueMany(printerNames []string, payload []byte) ([]*Job, er
 	m.pruneLocked()
 	m.mu.Unlock()
 
-	for _, job := range jobs {
+	for i, job := range jobs {
 		select {
 		case m.queue <- job:
 		case <-m.stop:
+			m.descartar(jobs[i:])
 			return nil, fmt.Errorf("el agente se esta deteniendo")
 		default:
-			m.mu.Lock()
-			delete(m.jobs, job.ID)
-			m.mu.Unlock()
+			// Carrera con otro encolado: se quitan del mapa los que no
+			// llegaron a enviarse, para no dejar fantasmas en Pending.
+			m.descartar(jobs[i:])
 			if m.logger != nil {
 				m.logger.Error("print_rejected", map[string]any{"printer": job.Printer, "reason": "cola llena"})
 			}
@@ -206,6 +221,15 @@ func (m *Manager) EnqueueMany(printerNames []string, payload []byte) ([]*Job, er
 	}
 	m.markDirty()
 	return out, nil
+}
+
+// descartar quita del mapa unos trabajos que no se llegaron a encolar.
+func (m *Manager) descartar(jobs []*Job) {
+	m.mu.Lock()
+	for _, j := range jobs {
+		delete(m.jobs, j.ID)
+	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) List() []Job {

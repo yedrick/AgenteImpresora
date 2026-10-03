@@ -20,8 +20,9 @@ const (
 )
 
 type bucket struct {
-	tokens float64
-	last   time.Time
+	tokens    float64
+	last      time.Time
+	ultimoLog time.Time
 }
 
 type rateLimiter struct {
@@ -72,6 +73,21 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 	return true
 }
 
+// shouldLog dice si toca registrar el rechazo de este origen.
+func (l *rateLimiter) shouldLog(key string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.clients[key]
+	if !ok {
+		return true
+	}
+	if now.Sub(b.ultimoLog) < time.Minute {
+		return false
+	}
+	b.ultimoLog = now
+	return true
+}
+
 // rateLimit se aplica solo a /api/print/*: las consultas de estado las hace
 // el panel cada pocos segundos y no tiene sentido frenarlas.
 func (s *Server) rateLimit(next http.Handler) http.Handler {
@@ -86,7 +102,12 @@ func (s *Server) rateLimit(next http.Handler) http.Handler {
 			host = r.RemoteAddr
 		}
 		if !limiter.allow(host, time.Now()) {
-			s.logger.Error("rate_limited", map[string]any{"origen": host, "ruta": r.URL.Path})
+			// Se registra como mucho una vez por minuto y origen: una
+			// inundacion escribia una linea por peticion rechazada, que a
+			// miles por segundo llena el disco.
+			if limiter.shouldLog(host, time.Now()) {
+				s.logger.Error("rate_limited", map[string]any{"origen": host, "ruta": r.URL.Path})
+			}
 			w.Header().Set("Retry-After", "1")
 			writeJSON(w, http.StatusTooManyRequests, response{OK: false,
 				Error: "demasiadas impresiones seguidas desde este equipo; reintenta en un momento"})
@@ -96,7 +117,13 @@ func (s *Server) rateLimit(next http.Handler) http.Handler {
 	})
 }
 
+// isPrintPath cubre lo que cuesta trabajo de verdad. La vista previa entra
+// aqui porque rasteriza el bloque entero y ademas lo amplia hasta cuatro
+// veces para la pantalla: es el endpoint mas caro del agente.
 func isPrintPath(path string) bool {
 	const prefix = "/api/print/"
-	return len(path) > len(prefix) && path[:len(prefix)] == prefix
+	if len(path) > len(prefix) && path[:len(prefix)] == prefix {
+		return true
+	}
+	return path == "/api/preview"
 }

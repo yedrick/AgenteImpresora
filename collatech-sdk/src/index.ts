@@ -51,6 +51,13 @@ export type {
   PrintImageOptions,
   PrintLogoOptions,
   PrintRawOptions,
+  PrintLayoutOptions,
+  PreviewOptions,
+  LayoutBlock,
+  LayoutRow,
+  LayoutCol,
+  LayoutItem,
+  LayoutSize,
   LogEntry,
 } from "./types.js";
 export type { PoolAgentConfig, PoolHealthResult, PoolPrintResult } from "./pool.js";

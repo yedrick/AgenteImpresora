@@ -48,12 +48,16 @@ Encolar no significa haber impreso. Para el resultado real, consulta
 | `/api/print/html` | `printer`, `html`, `width`, `cut` |
 | `/api/print/image` | `printer`, `image`, `width`, `scale`, `cut` |
 | `/api/print/logo` | `printer`, `width`, `scale`, `cut` |
+| `/api/print/layout` | `printer`, `layout` + opciones de documento. Bloque maquetado en 2D: QR al costado, tablas con bordes, columnas |
 | `/api/print/raw` | `printer`, `data`, `base64` |
 
 Todos los endpoints de impresión aceptan además las **opciones de
 documento**: `width`, `cut` (`partial`/`full`/`none` o `true`/`false`),
 `compact`, `line_spacing`, `upside_down`, `feed_top`, `feed_bottom`,
 `margin_dots`, `font` y `drawer`.
+
+`POST /api/preview` devuelve un bloque maquetado como PNG, compuesto por el
+mismo código que imprime. Lo usa el diseñador.
 
 ### Consulta — `GET`
 

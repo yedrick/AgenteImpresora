@@ -216,8 +216,8 @@ async function apiFetch(path, options = {}) {
 }
 
 function esc(v) {
-  return String(v == null ? "" : v).replace(/[&<>"]/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  return String(v == null ? "" : v).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // --- Modelo -----------------------------------------------------------------
@@ -329,15 +329,29 @@ function accion(d) {
   const f = Number(d.f), c = Number(d.c), i = Number(d.i);
   switch (d.acc) {
     case "subir":
-      if (f > 0) { [doc.rows[f - 1], doc.rows[f]] = [doc.rows[f], doc.rows[f - 1]]; sel = null; }
+      // La seleccion sigue a la fila movida, que es lo que uno espera.
+      if (f > 0) {
+        [doc.rows[f - 1], doc.rows[f]] = [doc.rows[f], doc.rows[f - 1]];
+        sel = { tipo: "fila", f: f - 1, c: null, i: null };
+      }
       break;
     case "bajar":
-      if (f < doc.rows.length - 1) { [doc.rows[f + 1], doc.rows[f]] = [doc.rows[f], doc.rows[f + 1]]; sel = null; }
+      if (f < doc.rows.length - 1) {
+        [doc.rows[f + 1], doc.rows[f]] = [doc.rows[f], doc.rows[f + 1]];
+        sel = { tipo: "fila", f: f + 1, c: null, i: null };
+      }
       break;
     case "delfila": doc.rows.splice(f, 1); sel = null; break;
     case "addcol": doc.rows[f].cols.push(colNueva()); break;
     case "delcol":
-      if (doc.rows[f].cols.length > 1) { doc.rows[f].cols.splice(c, 1); sel = null; }
+      if (doc.rows[f].cols.length > 1) {
+        doc.rows[f].cols.splice(c, 1);
+        sel = null;
+      } else {
+        // Una fila sin columnas no tiene sentido: se quita la fila entera.
+        doc.rows.splice(f, 1);
+        sel = null;
+      }
       break;
     case "additem":
       doc.rows[f].cols[c].items.push(itemNuevo(d.tipo));
@@ -355,8 +369,10 @@ function campoTexto(id, etiqueta, valor, placeholder = "") {
     <input id="${id}" value="${esc(valor)}" placeholder="${esc(placeholder)}"></div>`;
 }
 function campoNum(id, etiqueta, valor, extra = "") {
+  // Se escapa igual que los demas: el diseno se recupera de localStorage y
+  // puede traer cualquier cosa.
   return `<div><label for="${id}">${etiqueta}</label>
-    <input id="${id}" type="number" value="${valor == null ? "" : valor}" ${extra}></div>`;
+    <input id="${id}" type="number" value="${valor == null ? "" : esc(valor)}" ${extra}></div>`;
 }
 function campoSel(id, etiqueta, valor, opciones) {
   return `<div><label for="${id}">${etiqueta}</label><select id="${id}">${
@@ -407,7 +423,9 @@ function pintarProps() {
       para editarlo.</p>
     </div>`;
   }
-  caja.querySelectorAll("input,select").forEach((el) => {
+  // Incluye textarea: sin el, escribir el texto del ticket no hacia nada y
+  // se perdia al cambiar de seleccion.
+  caja.querySelectorAll("input,select,textarea").forEach((el) => {
     el.addEventListener("input", aplicarProps);
     el.addEventListener("change", aplicarProps);
   });
@@ -507,15 +525,35 @@ $("props").addEventListener("change", (ev) => {
   if (!f || !it) return;
   const r = new FileReader();
   r.onload = (e) => { it.image = e.target.result; cambiado(); };
+  r.onerror = () => {
+    $("errorPreview").innerHTML = `<div class="aviso err">No se pudo leer la imagen.</div>`;
+  };
   r.readAsDataURL(f);
 });
 
 // --- Vista previa -------------------------------------------------------------
 
 let temporizador = null;
+// Numero de peticion: con dos vistas previas solapadas, la que llegaba la
+// ultima ganaba aunque fuera la mas antigua, y una de las dos URL se
+// quedaba sin liberar.
+let previaN = 0;
 
+function soltarPrevia() {
+  const img = $("preview");
+  if (img.src && img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
+  img.removeAttribute("src");
+}
+
+// cambiado se llama tras tocar el modelo. Con soloPrevia solo se refresca la
+// imagen, que es lo que hace falta mientras se escribe en un campo; sin el se
+// repintan tambien el arbol Y las propiedades, porque si la seleccion cambio
+// el formulario anterior escribiria en el objeto equivocado.
 function cambiado(soloPrevia = false) {
-  if (!soloPrevia) pintarArbol();
+  if (!soloPrevia) {
+    pintarArbol();
+    pintarProps();
+  }
   guardar();
   clearTimeout(temporizador);
   temporizador = setTimeout(refrescarPrevia, 220);
@@ -553,30 +591,33 @@ async function refrescarPrevia() {
   const escala = Number($("zoom").value);
   $("errorPreview").innerHTML = "";
   if (!doc.rows.length) {
-    $("preview").removeAttribute("src");
+    soltarPrevia();
     $("medidas").textContent = "";
     return;
   }
+  const mia = ++previaN;
   try {
     const res = await apiFetch("/api/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ width: ancho, scale: escala, layout: cuerpoLayout() }),
     });
+    if (mia !== previaN) return; // llego una peticion mas nueva
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "error " + res.status }));
       $("errorPreview").innerHTML = `<div class="aviso err">${esc(err.error || "no se pudo componer")}</div>`;
       return;
     }
     const blob = await res.blob();
-    const anterior = $("preview").src;
+    if (mia !== previaN) return;
+    soltarPrevia();
     $("preview").src = URL.createObjectURL(blob);
-    if (anterior && anterior.startsWith("blob:")) URL.revokeObjectURL(anterior);
     $("preview").onload = () => {
       const alto = Math.round($("preview").naturalHeight / escala);
       $("medidas").textContent = `${ancho} x ${alto} puntos  ·  ${(alto / 8).toFixed(0)} mm de papel`;
     };
   } catch (e) {
+    if (mia !== previaN) return;
     $("errorPreview").innerHTML = `<div class="aviso err">No se pudo contactar con el agente.</div>`;
   }
 }
@@ -624,7 +665,6 @@ $("btnLimpiar").addEventListener("click", () => {
     doc = { padding: 6, border: false, rows: [] };
     sel = null;
     cambiado();
-    pintarProps();
   }
 });
 
@@ -632,7 +672,6 @@ $("addFila").addEventListener("click", () => {
   doc.rows.push(filaNueva());
   sel = { tipo: "fila", f: doc.rows.length - 1, c: null, i: null };
   cambiado();
-  pintarProps();
 });
 
 $("pw").addEventListener("change", refrescarPrevia);
@@ -712,7 +751,6 @@ $("btnPlantilla").addEventListener("click", () => {
       doc = PLANTILLAS[b.dataset.plantilla]();
       sel = null;
       cambiado();
-      pintarProps();
     });
   });
 });

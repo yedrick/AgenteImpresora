@@ -229,7 +229,9 @@ func (fs *fontSet) drawText(c *canvas, k *faceKey, s string, x, y, width int, al
 		Dot:  fixed.Point26_6{X: 0, Y: m.Ascent},
 	}
 	d.DrawString(s)
-	c.blit(mask, x+dx, y)
+	// Recortado al ancho: un glifo mas ancho que su columna se pintaba
+	// encima de la vecina.
+	c.blitClip(mask, x+dx, y, width-dx)
 	return w, alto
 }
 

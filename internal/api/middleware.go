@@ -19,6 +19,9 @@ import (
 // pase con allow_remote. /api/diagnostico llegaba a volcar la salida completa
 // de netstat -ano a cualquiera en la red.
 var adminPaths = map[string]bool{
+	// /api/network devuelve el nombre del equipo y todas sus IPv4: es el
+	// mismo tipo de dato que motivo mover /api/diagnostico aqui.
+	"/api/network":        true,
 	"/api/diagnostico":    true,
 	"/api/logs":           true,
 	"/api/token":          true,
@@ -37,6 +40,32 @@ func (s *Server) isAdminRequest(r *http.Request) bool {
 		return true
 	}
 	return r.Method == http.MethodPost && adminWritePaths[r.URL.Path]
+}
+
+// requireJSON exige Content-Type: application/json en todo POST.
+//
+// No es cosmetico: un POST con text/plain es una "peticion simple" para el
+// navegador, asi que no dispara comprobacion previa y CORS no lo frena. Sin
+// esto, cualquier web que abriera el cajero podia imprimir y abrir el cajon
+// de dinero con un fetch de tres lineas. Pedir JSON obliga al navegador a
+// preguntar antes, y ahi si se aplica la lista de origenes.
+func (s *Server) requireJSON(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			next.ServeHTTP(w, r)
+			return
+		}
+		tipo := r.Header.Get("Content-Type")
+		if i := strings.IndexByte(tipo, ';'); i >= 0 {
+			tipo = tipo[:i]
+		}
+		if !strings.EqualFold(strings.TrimSpace(tipo), "application/json") {
+			writeJSON(w, http.StatusUnsupportedMediaType, response{OK: false,
+				Error: "las peticiones POST deben enviar 'Content-Type: application/json'"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // guard aplica el control de acceso a /api/*. Las paginas del panel y /health
@@ -144,6 +173,12 @@ func (s *Server) cors(next http.Handler) http.Handler {
 // con "http://localhost" en la lista tambien pasaba
 // "http://localhost.atacante.com".
 func (s *Server) originAllowed(origin string) bool {
+	// "null" nunca es un origen legitimo para un agente local: lo manda
+	// cualquier iframe con sandbox, y aceptarlo permitia que una web
+	// cualquiera leyera la respuesta de /api/token.
+	if strings.EqualFold(strings.TrimSpace(origin), "null") {
+		return false
+	}
 	for _, allowed := range s.cfg.AllowedCORS {
 		if allowed == "*" || strings.EqualFold(strings.TrimRight(allowed, "/"), strings.TrimRight(origin, "/")) {
 			return true

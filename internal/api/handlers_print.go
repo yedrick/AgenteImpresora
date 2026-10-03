@@ -158,7 +158,9 @@ func (s *Server) printTicket(w http.ResponseWriter, r *http.Request) {
 		s.badRequest(w, fmt.Sprintf("el codigo de barras admite %d caracteres como maximo", escpos.MaxBarcodeLen-2))
 		return
 	}
-	s.logger.Info("print_ticket", sanitizeTicket(req))
+	resumen := sanitizeTicket(req)
+	resumen["cut"] = string(res.Doc.Cut) // el modo efectivo, no el que vino
+	s.logger.Info("print_ticket", resumen)
 
 	cols := res.Doc.Columns()
 	b := escpos.Begin(res.Doc)
@@ -215,7 +217,7 @@ func (s *Server) printTicket(w http.ResponseWriter, r *http.Request) {
 func sanitizeTicket(r ticketRequest) map[string]any {
 	m := map[string]any{
 		"printer": r.Printer, "width": r.Width, "scale": r.Scale,
-		"cut": string(r.Cut.Mode), "drawer": r.Drawer, "border": r.Border,
+		"drawer": r.Drawer, "border": r.Border,
 		"feed_top": r.FeedTop, "feed_bottom": r.FeedBottom,
 		"margin_left": r.MarginLeft, "margin_right": r.MarginRight,
 		"lines": len(r.Lines),
@@ -392,9 +394,15 @@ var (
 func loadLogoImage(path string) (image.Image, error) {
 	logoOnce.Do(func() {
 		if f, err := os.Open(path); err == nil {
-			defer f.Close()
-			logoImg, _, logoErr = image.Decode(f)
-			return
+			img, _, decErr := image.Decode(f)
+			f.Close()
+			if decErr == nil {
+				logoImg = img
+				return
+			}
+			// El archivo existe pero no se puede leer: antes se quedaba en
+			// error para siempre y todo /api/print/logo devolvia 500 hasta
+			// reiniciar. Se cae al logo incrustado.
 		}
 		data, err := webFS.ReadFile("web/LOGO.png")
 		if err != nil {
@@ -495,7 +503,7 @@ func (s *Server) printRaw(w http.ResponseWriter, r *http.Request) {
 
 	// Sin base64 el cuerpo llega como texto: se codifica en CP850 igual que
 	// el resto del agente. El ASCII y los bytes de control no cambian.
-	payload := escpos.EncodeCP850(req.Data)
+	var payload []byte
 	if req.Base64 {
 		raw, err := decodeBase64(req.Data)
 		if err != nil {
@@ -503,6 +511,8 @@ func (s *Server) printRaw(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		payload = raw
+	} else {
+		payload = escpos.EncodeCP850(req.Data)
 	}
 	// Los bytes crudos van tal cual: quien los manda controla la impresora
 	// entera, asi que no se le anade arranque ni cierre. El corte si se
@@ -575,10 +585,24 @@ func decodeBase64(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
 }
 
+// maxImagePixels acota la imagen ANTES de descomprimirla. Un PNG en blanco
+// de 20000x20000 ocupa 400 KB comprimido y 767 MB descomprimido: sin esta
+// comprobacion, una peticion que cabe de sobra en max_print_size dejaba al
+// agente sin memoria.
+const maxImagePixels = 12_000_000 // ~3000x4000, de sobra para un logo
+
 func decodeImage(data string) (image.Image, error) {
 	raw, err := decodeBase64(data)
 	if err != nil {
 		return nil, err
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("no se reconoce el formato: debe ser PNG, JPEG o GIF")
+	}
+	if px := cfg.Width * cfg.Height; px <= 0 || px > maxImagePixels {
+		return nil, fmt.Errorf("la imagen mide %dx%d; el maximo son %d megapixeles",
+			cfg.Width, cfg.Height, maxImagePixels/1_000_000)
 	}
 	img, _, err := image.Decode(bytes.NewReader(raw))
 	return img, err

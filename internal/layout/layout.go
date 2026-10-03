@@ -27,7 +27,7 @@ import (
 type Layout struct {
 	// Width es el ancho util en puntos. Lo fija el agente segun el papel.
 	Width int `json:"-"`
-	// Gap es la separacion por defecto entre filas, en puntos. Es un puntero
+	// Gap es la separacion VERTICAL entre filas, en puntos. Es un puntero
 	// para poder distinguir "no indicado" de "cero": con un int normal no
 	// habia forma de pedir filas pegadas.
 	Gap *int `json:"gap"`
@@ -41,8 +41,11 @@ type Layout struct {
 // Row es una franja horizontal dividida en columnas.
 type Row struct {
 	Cols []Col `json:"cols"`
-	// Gap entre columnas, en puntos. Omitirlo usa el del bloque; cero las
-	// pega.
+	// Gap es la separacion HORIZONTAL entre las columnas de esta fila, en
+	// puntos. Omitirlo usa 6; cero las pega.
+	//
+	// Antes este mismo campo servia tambien de hueco vertical despues de la
+	// fila, asi que separar dos columnas hacia crecer el alto del bloque.
 	Gap *int `json:"gap"`
 	// Align vertical de las columnas mas bajas: top, middle o bottom.
 	Align string `json:"align"`
@@ -115,14 +118,102 @@ const (
 	borderWidth    = 2
 )
 
-// MaxHeight acota la altura del bloque. Un raster muy alto puede desbordar
-// el buffer de las termicas baratas y gastar papel sin querer.
-const MaxHeight = 4000
+const (
+	// MaxHeight acota la altura del bloque. Un raster muy alto puede
+	// desbordar el buffer de las termicas baratas y gastar papel sin querer.
+	MaxHeight = 4000
+
+	// MaxWidth acota el ancho. La termica mas ancha de ticket son 576
+	// puntos; se deja margen para formatos raros, pero sin tope el lienzo
+	// podia llegar a cientos de MB y dejar el agente sin memoria.
+	MaxWidth = 1024
+)
+
+// Topes de los valores que llegan por JSON. Acotar solo por abajo no basta:
+// un bar_height de 2^30 hacia que image.NewGray pidiera 566 GB y el proceso
+// moria con "fatal error: out of memory", que es un error del runtime y NO
+// lo atrapa el recover del servidor. Una sola peticion tumbaba el agente.
+const (
+	maxPadding   = 200
+	maxGap       = 200
+	maxWeight    = 100
+	maxQRModule  = 16
+	maxBarHeight = 255
+	maxFontPx    = 200
+)
+
+// normalize acota los valores que llegan por JSON. Sin esto, un numero fuera
+// de rango no fallaba: hacia cosas peores y en silencio. Un `pad` negativo
+// daba a la columna mas ancho util que la propia columna, asi que el
+// contenido se dibujaba fuera de su caja; un `padding` negativo dejaba el
+// bloque en una imagen de un punto de alto, perdiendo todo el ticket; y los
+// valores enormes reventaban el proceso.
+// Devuelve una COPIA acotada. No se toca el original: Layout se pasa por
+// valor pero Rows es un slice, asi que mutarlo en sitio escribia en los datos
+// de quien llama. Componer dos veces el mismo diseno a la vez era una carrera
+// de datos, y ademas el bloque quedaba modificado despues de imprimirlo.
+func (l Layout) normalized() Layout {
+	out := l
+	out.Padding = clamp(l.Padding, 0, maxPadding)
+	out.Gap = clampPtr(l.Gap, maxGap)
+
+	out.Rows = make([]Row, len(l.Rows))
+	for i, r := range l.Rows {
+		fila := r
+		fila.MinHeight = clamp(r.MinHeight, 0, MaxHeight)
+		fila.Gap = clampPtr(r.Gap, maxGap)
+
+		fila.Cols = make([]Col, len(r.Cols))
+		for j, c := range r.Cols {
+			col := c
+			col.Pad = clamp(c.Pad, 0, maxPadding)
+			col.Dots = clamp(c.Dots, 0, MaxWidth)
+			col.Weight = clamp(c.Weight, 0, maxWeight)
+
+			col.Items = make([]Item, len(c.Items))
+			for k, it := range c.Items {
+				elem := it
+				elem.Gap = clamp(it.Gap, 0, maxGap)
+				elem.Height = clamp(it.Height, 0, MaxHeight)
+				elem.SizePx = clamp(it.SizePx, 0, maxFontPx)
+				elem.QRSize = clamp(it.QRSize, 0, maxQRModule)
+				elem.BarHeight = clamp(it.BarHeight, 0, maxBarHeight)
+				col.Items[k] = elem
+			}
+			fila.Cols[j] = col
+		}
+		out.Rows[i] = fila
+	}
+	return out
+}
+
+// clampPtr acota un puntero sin tocar el original.
+func clampPtr(p *int, max int) *int {
+	if p == nil {
+		return nil
+	}
+	v := clamp(*p, 0, max)
+	return &v
+}
+
+func clamp(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
 
 // Render compone el bloque y devuelve la imagen en blanco y negro.
 func Render(l Layout) (image.Image, error) {
+	l = l.normalized()
 	if l.Width <= 0 {
 		l.Width = 576
+	}
+	if l.Width > MaxWidth {
+		return nil, fmt.Errorf("el bloque mide %d puntos de ancho, el maximo son %d", l.Width, MaxWidth)
 	}
 	gapBloque := gapOr(l.Gap, defaultGap)
 	inner := l.Width - 2*l.Padding
@@ -149,7 +240,12 @@ func Render(l Layout) (image.Image, error) {
 		medidas = append(medidas, m)
 		total += m.height
 		if i < len(l.Rows)-1 {
-			total += gapOr(row.Gap, gapBloque)
+			total += gapBloque
+		}
+		// El alto se comprueba sobre la marcha: sumarlo todo y mirar al
+		// final podia desbordar el entero y saltarse el limite.
+		if total > MaxHeight {
+			return nil, fmt.Errorf("el bloque pasa de %d puntos de alto", MaxHeight)
 		}
 	}
 
@@ -176,7 +272,7 @@ func Render(l Layout) (image.Image, error) {
 		drawRow(fs, canvas, medidas[i], row, x, y, inner)
 		y += medidas[i].height
 		if i < len(l.Rows)-1 {
-			y += gapOr(row.Gap, gapBloque)
+			y += gapBloque
 		}
 	}
 	return canvas.gray(), nil
@@ -211,8 +307,18 @@ func measureRow(fs *fontSet, row Row, avail int) (rowLayout, error) {
 	if row.Border {
 		libre -= 2 * borderWidth
 	}
+	// Si no caben ni los minimos, se recorta el hueco antes que desbordar el
+	// papel: subir el presupuesto por encima de lo disponible dejaba la
+	// ultima columna fuera del ticket, sin avisar.
 	if libre < n*minColumnWidth {
-		libre = n * minColumnWidth
+		gap = 0
+		libre = avail
+		if row.Border {
+			libre -= 2 * borderWidth
+		}
+	}
+	if libre < n {
+		libre = n
 	}
 
 	// Primero las columnas de ancho fijo, luego se reparte lo que queda.

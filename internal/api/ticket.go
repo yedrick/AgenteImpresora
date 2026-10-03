@@ -18,12 +18,7 @@ func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml
 	if tbl == nil || len(tbl.Columns) == 0 {
 		return
 	}
-	if ml < 0 {
-		ml = 0
-	}
-	if mr < 0 {
-		mr = 0
-	}
+	ml, mr = clampCols(ml), clampCols(mr)
 	inner := cols - ml - mr
 	if inner < 8 {
 		inner = 8
@@ -352,9 +347,35 @@ func applyLine(b *escpos.Builder, line ticketLine, cols int, border bool, res re
 	return feedGap(b, line)
 }
 
+// maxTicketCols acota los valores que se cuentan en caracteres. Sin tope,
+// un margin_left de 1.500.000.000 hacia que strings.Repeat pidiera 1,5 GB y
+// el proceso moria con un fatal error del runtime, que recover no atrapa:
+// 55 bytes de JSON tumbaban el agente de impresion.
+const maxTicketCols = 200
+
+// maxTicketGap acota las lineas en blanco entre elementos.
+const maxTicketGap = 100
+
 func clampMin0(v int) int {
+	return clampCols(v)
+}
+
+func clampCols(v int) int {
 	if v < 0 {
 		return 0
+	}
+	if v > maxTicketCols {
+		return maxTicketCols
+	}
+	return v
+}
+
+func clampGap(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > maxTicketGap {
+		return maxTicketGap
 	}
 	return v
 }
@@ -374,7 +395,7 @@ func alignOf(b *escpos.Builder, align, def string) {
 }
 
 func feedGap(b *escpos.Builder, line ticketLine) error {
-	for i := 0; i < line.Gap; i++ {
+	for i := 0; i < clampGap(line.Gap); i++ {
 		b.Line()
 	}
 	return nil
@@ -413,14 +434,8 @@ func drawBoxLine(b *escpos.Builder, line ticketLine, r []rune, cols int, border 
 	if border {
 		inner = cols - 2
 	}
-	ml := line.ML
-	mr := line.MR
-	if ml < 0 {
-		ml = 0
-	}
-	if mr < 0 {
-		mr = 0
-	}
+	ml := clampCols(line.ML)
+	mr := clampCols(line.MR)
 	// El texto comparte el ancho interior con los margenes y con el marco
 	// ("│  " + " │" = 4 caracteres), asi que se trunca contando ya los
 	// margenes. Truncar antes de sumarlos dejaba la linea mas ancha que la
@@ -493,7 +508,7 @@ func drawBoxLine(b *escpos.Builder, line ticketLine, r []rune, cols int, border 
 	}
 
 	b.FontSize("normal").Bold(false)
-	for i := 0; i < line.Gap; i++ {
+	for i := 0; i < clampGap(line.Gap); i++ {
 		b.Line()
 	}
 }

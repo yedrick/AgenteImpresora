@@ -44,7 +44,7 @@ func (p *cupsPrinter) Print(data []byte) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cupsTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "lp", "-d", p.name, "-o", "raw", "-")
+	cmd := enC(ctx, "lp", "-d", p.name, "-o", "raw", "-")
 	cmd.Stdin = bytes.NewReader(data)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -95,6 +95,22 @@ func enumSpoolerPrinters() []Info {
 	return out
 }
 
+// enC prepara un comando de CUPS con el idioma forzado a C.
+//
+// Hace falta porque la salida de lpstat viene traducida: en un sistema en
+// espanol, "printer TM-T88V is idle" sale como "la impresora TM-T88V esta
+// inactiva". El filtro buscaba lineas que empezaran por "printer " y las
+// descartaba todas, asi que el panel no listaba NINGUNA impresora de CUPS
+// aunque estuviera instalada y funcionando. Comprobado con una Epson
+// TM-T88V en un Ubuntu en espanol.
+//
+// LC_ALL manda sobre LANG y sobre las demas LC_*, asi que con esa basta.
+func enC(ctx context.Context, nombre string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, nombre, args...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	return cmd
+}
+
 func runLpstat(args ...string) ([]string, error) {
 	if _, err := exec.LookPath("lpstat"); err != nil {
 		return nil, err
@@ -103,7 +119,7 @@ func runLpstat(args ...string) ([]string, error) {
 	defer cancel()
 	// lpstat devuelve codigo distinto de cero cuando no hay impresoras; eso
 	// no es un fallo, asi que se mira la salida y no el codigo.
-	out, _ := exec.CommandContext(ctx, "lpstat", args...).Output()
+	out, _ := enC(ctx, "lpstat", args...).Output()
 	var lines []string
 	for _, line := range strings.Split(string(out), "\n") {
 		if strings.HasPrefix(line, "printer ") {

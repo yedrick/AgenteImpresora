@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -72,9 +73,18 @@ func main() {
 		return
 	}
 
-	// Las rutas relativas (configs/, logs/, storage/) se resuelven junto al
-	// ejecutable. Importa sobre todo para los gestores de servicios, que
-	// arrancan con otro directorio de trabajo.
+	// Lo que venga en --config y --data-dir se resuelve contra el directorio
+	// desde el que se llamo, y hay que hacerlo ANTES del Chdir de abajo.
+	// Si no, "--data-dir ." apuntaba a la carpeta del ejecutable y el agente
+	// leia y escribia en otro sitio del que el usuario creia, sin decir nada.
+	if wd, err := os.Getwd(); err == nil {
+		opts.config = desde(wd, opts.config)
+		opts.dataDir = desde(wd, opts.dataDir)
+	}
+
+	// Las rutas relativas por defecto (configs/, logs/, storage/) si se
+	// resuelven junto al ejecutable. Importa sobre todo para los gestores de
+	// servicios, que arrancan con otro directorio de trabajo.
 	if dir := config.ExecutableDir(); dir != "" {
 		_ = os.Chdir(dir)
 	}
@@ -234,4 +244,13 @@ func (a *agent) shutdown() {
 	defer cancel()
 	_ = a.server.Shutdown(ctx)
 	a.logger.Info("server_stopped", nil)
+}
+
+// desde convierte una ruta relativa en absoluta contra base. Una ruta vacia
+// se deja igual: significa "usa el valor por defecto".
+func desde(base, p string) string {
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(base, p)
 }

@@ -20,6 +20,7 @@ import (
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response{OK: true, Data: map[string]any{
 		"service": "CollaTech Agent",
+		"version": s.Version,
 		"time":    time.Now().UTC().Format(time.RFC3339),
 		"jobs":    s.queue.List(),
 	}})

@@ -3,48 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CollaTech Agent - Prueba de impresion</title>
+  <title>CollaTech Agent - Panel</title>
+  <link rel="stylesheet" href="/tema.css">
+  <script src="/tema.js"></script>
   <style>
+    /* La paleta vive en /tema.css, compartida con el disenador y el
+       diagnostico. Aqui solo quedan los alias que usa esta pagina, para no
+       tener que renombrarlos uno a uno por todo el archivo. */
     :root {
-      color-scheme: light dark;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      color: #10141c;
-      background: #f5f6f8;
-      --bg: #f5f6f8;
-      --panel: #ffffff;
-      --panel2: #f0f2f5;
-      --line: #d8dde6;
-      --muted: #5c6678;
-      --text: #10141c;
-      --brand: #0f766e;
-      --brand-dark: #115e59;
-      --nav: #1c2433;
-      --warn: #b45309;
-      --shadow: 0 10px 30px rgba(15, 23, 42, .07);
-      --radio: 10px;
-      /* Alias: el disenador usa --text2 para el texto secundario. */
-      --text2: #5c6678;
-    }
-
-    /* El panel suele quedarse abierto todo el turno en la pantalla de la
-       caja: con el tema oscuro cansa menos la vista y no ilumina el local. */
-    @media (prefers-color-scheme: dark) {
-      :root {
-        color: #e6e9ef;
-        background: #0f1115;
-        --bg: #0f1115;
-        --panel: #161a21;
-        --panel2: #1c212b;
-        --line: #2a3140;
-        --muted: #8b94a7;
-        --text: #e6e9ef;
-        --brand: #14b8a6;
-        --brand-dark: #0d9488;
-        --nav: #11151c;
-        --warn: #d97706;
-        --shadow: 0 10px 30px rgba(0, 0, 0, .35);
-        --text2: #8b94a7;
-      }
+      --muted: var(--text2);
+      --brand-dark: var(--brand2);
+      --shadow: var(--sombra);
     }
 
     * {
@@ -68,6 +38,8 @@
 
     body {
       margin: 0;
+      color: var(--text);
+      background: var(--bg);
       min-height: 100vh;
       padding: 24px;
       background:
@@ -135,12 +107,12 @@
     input,
     textarea {
       width: 100%;
-      border: 1px solid #bdc7d1;
-      border-radius: 6px;
+      border: 1px solid var(--line);
+      border-radius: var(--radio-s);
       padding: 10px;
       font: inherit;
       color: var(--text);
-      background: #fff;
+      background: var(--panel);
     }
 
     textarea {
@@ -166,7 +138,7 @@
       border: 0;
       border-radius: 6px;
       padding: 0 14px;
-      color: #fff;
+      color: var(--brand-sv);
       background: var(--brand);
       font: inherit;
       font-weight: 700;
@@ -177,8 +149,16 @@
       background: var(--brand-dark);
     }
 
+    /* Secundario: contorno, no un bloque azul marino. Antes usaba una
+       variable que no seguia al tema y quedaba casi negro en tema claro. */
     button.secondary {
-      background: var(--nav);
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+    button.secondary:hover {
+      background: var(--panel2);
+      border-color: var(--text3);
     }
 
     button.warn {
@@ -197,8 +177,8 @@
       padding: 12px;
       border: 1px solid var(--line);
       border-radius: 6px;
-      background: #0f172a;
-      color: #dbeafe;
+      background: var(--consola);
+      color: var(--consola-tx);
       font-size: 13px;
       white-space: pre-wrap;
     }
@@ -217,11 +197,11 @@
     }
 
     nav a {
-      border: 1px solid #bdc7d1;
-      border-radius: 6px;
+      border: 1px solid var(--line);
+      border-radius: var(--radio-s);
       padding: 9px 12px;
-      color: #0f172a;
-      background: #fff;
+      color: var(--text);
+      background: var(--panel);
       font-weight: 700;
       text-decoration: none;
     }
@@ -244,14 +224,19 @@
 
     .tab-button {
       min-height: 44px;
-      color: #334155;
-      background: #f1f5f9;
-      border: 1px solid transparent;
+      color: var(--text2);
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      font-weight: 600;
     }
 
-    .tab-button:hover,
+    .tab-button:hover {
+      color: var(--text);
+      background: var(--line2);
+    }
+
     .tab-button.active {
-      color: #fff;
+      color: var(--brand-sv);
       background: var(--brand);
       border-color: var(--brand);
     }
@@ -306,8 +291,8 @@
       gap: 10px;
       padding: 12px 14px;
       border-radius: 8px;
-      background: #172033;
-      color: #fff;
+      background: var(--aviso);
+      color: var(--aviso-tx);
       box-shadow: var(--shadow);
       font-size: 14px;
       font-weight: 600;
@@ -360,17 +345,13 @@
   </style>
 </head>
 <body>
+  <div id="ct-menu"></div>
   <div id="toastStack" class="toast-stack" role="status" aria-live="polite"></div>
   <main>
     <header>
       <div>
         <h1>CollaTech Agent</h1>
         <p class="hint">Panel local de conexion e impresion de prueba</p>
-        <nav>
-          <a href="/panel">Pruebas</a>
-          <a href="/designer">Disenador</a>
-          <a href="/diagnostico">Diagnostico</a>
-        </nav>
       </div>
       <div id="health" class="status">Verificando...</div>
     </header>

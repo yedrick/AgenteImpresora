@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CollaTech Agent - SDK</title>
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 940px; margin: 0 auto; padding: 22px 16px 60px; }
+  h1 { font-size: 22px; margin: 6px 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { color: var(--text2); margin: 0 0 14px; font-size: 13px; }
+
+  .tarjeta {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radio); box-shadow: var(--sombra);
+    padding: 18px; margin-bottom: 14px;
+  }
+  .cabe { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chapa {
+    font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+    background: var(--brand-sw); color: var(--brand);
+  }
+
+  /* Bloque de codigo con boton de copiar */
+  .codigo { position: relative; margin: 10px 0; }
+  .codigo pre {
+    margin: 0; padding: 13px 54px 13px 14px; overflow-x: auto;
+    background: var(--consola); color: var(--consola-tx);
+    border-radius: var(--radio-s);
+    font: 12.5px/1.55 ui-monospace, Menlo, Consolas, monospace;
+  }
+  .codigo button {
+    position: absolute; top: 8px; right: 8px;
+    padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.22); border-radius: 6px;
+    background: rgba(255,255,255,.1); color: #fff;
+  }
+  .codigo button:hover { background: rgba(255,255,255,.2); }
+  .codigo button.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+  .pestanas { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+  .pestanas button {
+    padding: 7px 13px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--line); border-radius: var(--radio-s);
+    background: var(--panel2); color: var(--text2);
+  }
+  .pestanas button[aria-selected="true"] {
+    background: var(--brand); border-color: var(--brand); color: var(--brand-sv);
+  }
+  .hoja { display: none; }
+  .hoja.visible { display: block; }
+
+  .descarga {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 16px; border-radius: var(--radio-s); text-decoration: none;
+    background: var(--brand); color: var(--brand-sv); font-weight: 700;
+  }
+  .descarga:hover { background: var(--brand2); }
+
+  .datos { display: grid; grid-template-columns: max-content 1fr; gap: 7px 14px; font-size: 13px; }
+  .datos dt { color: var(--text2); }
+  .datos dd { margin: 0; font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
+
+  .aviso {
+    border-left: 3px solid var(--warn); background: var(--warn-sw);
+    padding: 11px 14px; border-radius: 0 var(--radio-s) var(--radio-s) 0;
+    font-size: 13px; margin: 12px 0;
+  }
+  ul { margin: 8px 0; padding-left: 20px; }
+  li { margin: 4px 0; }
+  a { color: var(--brand); }
+  @media (max-width: 560px) { .datos { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div id="ct-menu"></div>
+<main>
+  <h1>SDK para JavaScript, Node y Angular</h1>
+  <p class="hint">Para que tu aplicacion imprima llamando al agente, sin construir el JSON a mano.</p>
+
+  <section class="tarjeta">
+    <div class="cabe"><h2>1. Instalar</h2><span class="chapa" id="version">...</span></div>
+    <div class="pestanas" role="tablist">
+      <button role="tab" data-hoja="local" aria-selected="true">Desde este agente</button>
+      <button role="tab" data-hoja="npm" aria-selected="false">Desde npm</button>
+    </div>
+
+    <div class="hoja visible" data-hoja="local">
+      <p class="hint">No necesita internet: el paquete va dentro del propio agente. Es la via para una
+         caja que no sale a la red.</p>
+      <p><a class="descarga" id="bajar" href="/sdk/collatech-sdk.tgz" download>Descargar el paquete</a></p>
+      <p class="hint">Dejalo en la carpeta de tu proyecto y:</p>
+      <div class="codigo"><pre id="cmdLocal">npm install ./collatech-sdk.tgz</pre><button type="button" data-copia="cmdLocal">Copiar</button></div>
+      <p class="hint">O directo desde este agente, si tu PC lo alcanza:</p>
+      <div class="codigo"><pre id="cmdUrl">...</pre><button type="button" data-copia="cmdUrl">Copiar</button></div>
+    </div>
+
+    <div class="hoja" data-hoja="npm">
+      <p class="hint">Si la PC tiene internet.</p>
+      <div class="codigo"><pre id="cmdNpm">npm install collatech-sdk</pre><button type="button" data-copia="cmdNpm">Copiar</button></div>
+      <p class="hint">Tambien con <code>yarn add collatech-sdk</code> o <code>pnpm add collatech-sdk</code>.</p>
+    </div>
+  </section>
+
+  <section class="tarjeta">
+    <h2>2. Conectar</h2>
+    <p class="hint">Estos son los datos de <strong>este</strong> agente, ya rellenados.</p>
+    <dl class="datos">
+      <dt>Direccion</dt><dd id="dirAgente">...</dd>
+      <dt>Token</dt><dd id="tokAgente">...</dd>
+    </dl>
+    <div class="aviso" id="avisoToken" hidden></div>
+    <div class="codigo"><pre id="cmdConectar">...</pre><button type="button" data-copia="cmdConectar">Copiar</button></div>
+  </section>
+
+  <section class="tarjeta">
+    <h2>3. Imprimir</h2>
+    <div class="pestanas" role="tablist">
+      <button role="tab" data-hoja="ticket" aria-selected="true">Un ticket</button>
+      <button role="tab" data-hoja="bloque" aria-selected="false">QR al costado</button>
+      <button role="tab" data-hoja="angular" aria-selected="false">Angular</button>
+    </div>
+    <div class="hoja visible" data-hoja="ticket">
+      <div class="codigo"><pre id="ejTicket">...</pre><button type="button" data-copia="ejTicket">Copiar</button></div>
+    </div>
+    <div class="hoja" data-hoja="bloque">
+      <p class="hint">Una termica imprime linea a linea, asi que un QR al lado de un texto solo sale
+         componiendo la zona como imagen. Eso es un bloque.</p>
+      <div class="codigo"><pre id="ejBloque">...</pre><button type="button" data-copia="ejBloque">Copiar</button></div>
+    </div>
+    <div class="hoja" data-hoja="angular">
+      <p class="hint">Hay un servicio listo para copiar en <code>examples/angular/collatech-print.service.ts</code>.</p>
+      <div class="codigo"><pre id="ejAngular">...</pre><button type="button" data-copia="ejAngular">Copiar</button></div>
+    </div>
+  </section>
+
+  <section class="tarjeta">
+    <h2>Si tu aplicacion corre en otra PC</h2>
+    <ul>
+      <li>El agente tiene que escuchar en la red: <code>allow_remote: true</code> en su configuracion.</li>
+      <li>Hay que mandarle el <strong>token</strong> de arriba.</li>
+      <li>El origen de tu aplicacion debe estar en <code>allowed_cors</code>, por ejemplo
+          <code>http://localhost:4200</code> si usas Angular en desarrollo.</li>
+    </ul>
+    <p class="hint">La pagina de <a href="/diagnostico">Diagnostico</a> comprueba estas tres cosas y dice cual falla.</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var base = location.origin;
+  var token = "";
+
+  function t(id, texto) { var e = document.getElementById(id); if (e) e.textContent = texto; }
+
+  function pintar() {
+    var conTok = token ? ',\n  token: "' + token + '"' : "";
+    t("dirAgente", base);
+    t("cmdUrl", "npm install " + base + "/sdk/collatech-sdk.tgz");
+
+    t("cmdConectar",
+      'import { CollaTech } from "collatech-sdk";\n\n' +
+      'const impresora = new CollaTech({\n' +
+      '  baseUrl: "' + base + '"' + conTok + ',\n' +
+      '});\n\n' +
+      '// Lanza si el agente no responde.\n' +
+      'await impresora.health();');
+
+    t("ejTicket",
+      'await impresora.printTicket({\n' +
+      '  printer: "caja",\n' +
+      '  lines: [\n' +
+      '    { text: "MI TIENDA", align: "center", size: "double", bold: true },\n' +
+      '    { type: "rule" },\n' +
+      '    { text: "Factura A-00001", bold: true },\n' +
+      '    { type: "table", table: {\n' +
+      '        columns: [{ width: 22 }, { width: 4, align: "center" }, { width: 9, align: "right" }],\n' +
+      '        rows: [["Cafe con leche", "2", "14.00"], ["Medialuna", "3", "9.00"]],\n' +
+      '    }},\n' +
+      '    { type: "rule" },\n' +
+      '    { text: "TOTAL  Bs 23.00", align: "right", bold: true },\n' +
+      '    { type: "qr", qr: "https://mitienda.com/f/A-00001" },\n' +
+      '  ],\n' +
+      '  cut: "partial",\n' +
+      '});');
+
+    t("ejBloque",
+      'await impresora.printLayout({\n' +
+      '  printer: "caja",\n' +
+      '  width: 576,\n' +
+      '  layout: { padding: 6, rows: [\n' +
+      '    { align: "middle", cols: [\n' +
+      '      { weight: 1, items: [\n' +
+      '        { text: "Factura A-00001", bold: true },\n' +
+      '        { text: "Cliente: Juan Perez" },\n' +
+      '      ]},\n' +
+      '      { dots: 150, align: "right", items: [{ qr: "https://mitienda.com/f/A-00001" }] },\n' +
+      '    ]},\n' +
+      '  ]},\n' +
+      '  cut: "partial",\n' +
+      '});\n\n' +
+      '// Para verlo antes de gastar papel:\n' +
+      'const png = await impresora.previewLayout({ layout, width: 576 });');
+
+    t("ejAngular",
+      '@Component({ selector: "app-caja", template: `<button (click)="cobrar()">Cobrar</button>` })\n' +
+      'export class CajaComponent {\n' +
+      '  constructor(private print: CollaTechPrintService) {}\n\n' +
+      '  async cobrar() {\n' +
+      '    await this.print.printInvoice({\n' +
+      '      empresa: "Mi Tienda",\n' +
+      '      cliente: "Juan Perez",\n' +
+      '      items: [{ nombre: "Cafe con leche", precio: "Bs 14.00" }],\n' +
+      '      total: "Bs 14.00",\n' +
+      '    });\n' +
+      '  }\n' +
+      '}');
+
+    var av = document.getElementById("avisoToken");
+    if (!token) {
+      av.hidden = false;
+      av.innerHTML = "Este agente no pide token porque solo atiende a su propia PC. " +
+        "Si lo abres a la red, generara uno y aparecera aqui.";
+    }
+  }
+
+  // Version del SDK y token, del propio agente.
+  fetch("/api/status").then(function (r) { return r.json(); }).then(function (j) {
+    var v = j && j.data && j.data.version;
+    document.getElementById("version").textContent = v ? "v" + v : "SDK";
+  }).catch(function () { document.getElementById("version").textContent = "SDK"; });
+
+  fetch("/api/token").then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+    token = (j && j.data && j.data.token) || "";
+    document.getElementById("tokAgente").textContent = token || "no hace falta";
+    pintar();
+  }).catch(function () {
+    document.getElementById("tokAgente").textContent = "no hace falta";
+    pintar();
+  });
+
+  // Pestanas
+  document.querySelectorAll('.pestanas button').forEach(function (b) {
+    b.addEventListener("click", function () {
+      var grupo = b.closest(".tarjeta");
+      grupo.querySelectorAll('.pestanas button').forEach(function (o) {
+        o.setAttribute("aria-selected", String(o === b));
+      });
+      grupo.querySelectorAll(".hoja").forEach(function (h) {
+        h.classList.toggle("visible", h.dataset.hoja === b.dataset.hoja);
+      });
+    });
+  });
+
+  // Copiar
+  document.querySelectorAll("[data-copia]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var txt = document.getElementById(b.dataset.copia).textContent;
+      var listo = function () {
+        b.textContent = "Copiado"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = "Copiar"; b.classList.remove("ok"); }, 1600);
+      };
+      // navigator.clipboard solo existe en contexto seguro; en http:// por IP
+      // de la LAN no esta, que es justo como se abre este panel.
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(txt).then(listo, function () { alterno(txt, listo); });
+      } else {
+        alterno(txt, listo);
+      }
+    });
+  });
+
+  function alterno(txt, listo) {
+    var a = document.createElement("textarea");
+    a.value = txt;
+    a.style.position = "fixed"; a.style.opacity = "0";
+    document.body.appendChild(a); a.select();
+    try { document.execCommand("copy"); listo(); } catch (e) { /* nada que hacer */ }
+    document.body.removeChild(a);
+  }
+})();
+</script>
+</body>
+</html>

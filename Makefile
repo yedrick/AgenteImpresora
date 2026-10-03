@@ -74,7 +74,10 @@ dist:
 
 sdk:
 	cd collatech-sdk && npm run build && rm -f collatech-sdk-*.tgz && npm pack
-	@echo "empaquetado: collatech-sdk/collatech-sdk-$(VERSION).tgz"
+	@# El agente sirve el SDK desde dentro del binario, para las cajas sin
+	@# internet. Si no se copia aqui, se entrega una version vieja.
+	cp collatech-sdk/collatech-sdk-$(VERSION).tgz internal/api/web/sdk/collatech-sdk.tgz
+	@echo "empaquetado y embebido: collatech-sdk-$(VERSION).tgz"
 
 install: build
 	sudo ./$(BIN) --install

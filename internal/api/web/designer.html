@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CollaTech - Disenador de tickets</title>
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
+  /* La paleta esta en /tema.css. Esta pagina arrancaba siempre en negro,
+     con su propia paleta: ahora manda el selector del menu, igual que en el
+     panel y el diagnostico. Aqui solo quedan los alias de esta pagina. */
   :root {
-    --bg: #0f1115; --panel: #161a21; --panel2: #1c212b; --line: #2a3140;
-    --text: #e6e9ef; --text2: #8b94a7; --blue: #3b82f6; --green: #16a34a;
-    --red: #dc2626; --amber: #d97706;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f5f6f8; --panel: #ffffff; --panel2: #f0f2f5; --line: #d8dde6;
-      --text: #10141c; --text2: #5c6678;
-    }
+    --blue:  var(--brand);
+    --green: var(--ok);
+    --red:   var(--bad);
+    --amber: var(--warn);
   }
   * { box-sizing: border-box; }
   body {
@@ -39,7 +39,7 @@
     border-radius: 7px; padding: 7px 12px; font: inherit; cursor: pointer; white-space: nowrap;
   }
   button:hover { border-color: var(--blue); }
-  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+  button.primary { background: var(--blue); border-color: var(--blue); color: var(--brand-sv); font-weight: 600; }
   button.ghost { background: none; }
   button.danger:hover { border-color: var(--red); color: var(--red); }
   .campo { min-width: 90px; }
@@ -86,9 +86,11 @@
   .item .txt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* Vista previa */
+  /* El papel se queda blanco a proposito en los dos temas: representa el
+     rollo de verdad, y verlo en gris oscuro engana sobre como saldra. */
   .papel {
     background: #fff; padding: 10px; border-radius: 6px; display: inline-block;
-    box-shadow: 0 4px 24px rgba(0,0,0,.35); max-width: 100%;
+    box-shadow: var(--sombra-f); max-width: 100%;
   }
   .papel img { display: block; image-rendering: pixelated; max-width: 100%; height: auto; }
   .previewbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
@@ -113,6 +115,7 @@
 </style>
 </head>
 <body>
+<div id="ct-menu"></div>
 
 <header>
   <h1>Disenador de tickets</h1>

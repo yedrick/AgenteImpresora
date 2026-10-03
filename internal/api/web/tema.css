@@ -1,0 +1,199 @@
+/* Tema compartido por el panel, el disenador y el diagnostico.
+ *
+ * Antes cada pagina llevaba su propia paleta: el panel arrancaba en claro,
+ * el disenador en negro y el diagnostico no tenia modo oscuro. Ademas el
+ * menu y las pestanas usaban colores fijos que no seguian el tema, asi que
+ * en oscuro quedaban cajas blancas sobre fondo negro.
+ *
+ * Ahora manda data-theme en <html>: "claro", "oscuro" o "auto" (sigue al
+ * sistema). Por defecto, claro. */
+
+:root,
+:root[data-theme="claro"] {
+  color-scheme: light;
+
+  --bg:       #f1f4f8;   /* fondo de la pagina */
+  --panel:    #ffffff;   /* tarjetas */
+  --panel2:   #f6f8fb;   /* zonas hundidas, cabeceras de tabla */
+  --line:     #dde3ec;   /* bordes */
+  --line2:    #eef1f6;   /* separadores suaves */
+
+  --text:     #1f2733;   /* texto principal: gris azulado, no negro puro */
+  --text2:    #626d7e;   /* texto secundario */
+  --text3:    #8e98a8;   /* pistas, marcas de agua */
+
+  --brand:    #1f7a8c;   /* azul petroleo, serio sin ser apagado */
+  --brand2:   #176475;
+  --brand-sv: #ffffff;   /* lo que va encima del color de marca */
+  --brand-sw: #e7f2f5;   /* fondo suave de marca */
+
+  --ok:       #15803d;
+  --ok-sw:    #e8f6ec;
+  --warn:     #b45309;
+  --warn-sw:  #fdf3e3;
+  --bad:      #c0392b;
+  --bad-sw:   #fdeceb;
+
+  --sombra:   0 1px 2px rgba(22, 32, 48, .05), 0 6px 18px rgba(22, 32, 48, .05);
+  --sombra-f: 0 2px 6px rgba(22, 32, 48, .08), 0 14px 32px rgba(22, 32, 48, .09);
+  --radio:    10px;
+  --radio-s:  7px;
+
+  /* La consola de salida y los avisos van oscuros tambien en tema claro:
+     es texto tecnico que se lee de un vistazo y asi destaca del resto. */
+  --consola:    #1e2733;
+  --consola-tx: #d7e3f2;
+  --aviso:      #273243;
+  --aviso-tx:   #ffffff;
+}
+
+:root[data-theme="oscuro"] {
+  color-scheme: dark;
+
+  /* Gris azulado, no negro: menos cansado y los bordes se distinguen. */
+  --bg:       #171b22;
+  --panel:    #1f242d;
+  --panel2:   #262c37;
+  --line:     #333b48;
+  --line2:    #2a313c;
+
+  --text:     #e3e8ef;
+  --text2:    #a3adbd;
+  --text3:    #78839557;
+
+  --brand:    #3aa8bf;
+  --brand2:   #2b8ba1;
+  --brand-sv: #0d1419;
+  --brand-sw: #1d3740;
+
+  --ok:       #4ade80;
+  --ok-sw:    #1b3327;
+  --warn:     #fbbf24;
+  --warn-sw:  #3a2f16;
+  --bad:      #f87171;
+  --bad-sw:   #3a1f20;
+
+  --sombra:   0 1px 2px rgba(0, 0, 0, .3), 0 6px 18px rgba(0, 0, 0, .28);
+  --sombra-f: 0 2px 6px rgba(0, 0, 0, .35), 0 14px 32px rgba(0, 0, 0, .4);
+
+  --consola:    #11161d;
+  --consola-tx: #cfe0f0;
+  --aviso:      #2d3545;
+  --aviso-tx:   #f2f5f9;
+}
+
+/* En automatico se hereda del sistema. Se repite la paleta en vez de
+ * referenciarla porque las variables no se pueden "copiar" entre bloques. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    color-scheme: dark;
+    --bg: #171b22;      --panel: #1f242d;   --panel2: #262c37;
+    --line: #333b48;    --line2: #2a313c;
+    --text: #e3e8ef;    --text2: #a3adbd;   --text3: #788395;
+    --brand: #3aa8bf;   --brand2: #2b8ba1;  --brand-sv: #0d1419; --brand-sw: #1d3740;
+    --ok: #4ade80;      --ok-sw: #1b3327;
+    --warn: #fbbf24;    --warn-sw: #3a2f16;
+    --bad: #f87171;     --bad-sw: #3a1f20;
+    --sombra:   0 1px 2px rgba(0, 0, 0, .3), 0 6px 18px rgba(0, 0, 0, .28);
+    --sombra-f: 0 2px 6px rgba(0, 0, 0, .35), 0 14px 32px rgba(0, 0, 0, .4);
+    --consola: #11161d;  --consola-tx: #cfe0f0;
+    --aviso: #2d3545;    --aviso-tx: #f2f5f9;
+  }
+}
+
+/* --- Barra de menu, igual en las tres paginas ----------------------------- */
+
+.ct-menu {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 9px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  box-shadow: var(--sombra);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.ct-menu .ct-marca {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-right: 14px;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ct-menu .ct-punto {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text3);
+  flex: none;
+  transition: background .25s;
+}
+.ct-menu .ct-punto[data-estado="ok"]    { background: var(--ok);   box-shadow: 0 0 0 3px var(--ok-sw); }
+.ct-menu .ct-punto[data-estado="mal"]   { background: var(--bad);  box-shadow: 0 0 0 3px var(--bad-sw); }
+
+.ct-menu a.ct-ir {
+  padding: 8px 13px;
+  border-radius: var(--radio-s);
+  color: var(--text2);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.ct-menu a.ct-ir:hover {
+  background: var(--panel2);
+  color: var(--text);
+}
+.ct-menu a.ct-ir[aria-current="page"] {
+  background: var(--brand-sw);
+  color: var(--brand);
+}
+
+.ct-menu .ct-hueco { flex: 1 1 auto; }
+
+/* Selector de tema */
+.ct-tema {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel2);
+}
+.ct-tema button {
+  min-width: 34px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+}
+.ct-tema button:hover { color: var(--text); }
+.ct-tema button[aria-pressed="true"] {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--sombra);
+}
+
+@media (max-width: 620px) {
+  .ct-menu { padding: 8px 12px; }
+  .ct-menu .ct-marca { margin-right: 6px; font-size: 14px; }
+  .ct-menu a.ct-ir { padding: 7px 10px; font-size: 13px; }
+}

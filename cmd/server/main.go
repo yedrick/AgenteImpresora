@@ -196,7 +196,7 @@ func startServer(paths config.Paths, opts options) (*agent, error) {
 	addr := net.JoinHostPort(cfg.Host, fmt.Sprint(cfg.Port))
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewServer(cfg, paths, manager, queueManager, logger).Routes(),
+		Handler:           apiServer(cfg, paths, manager, queueManager, logger).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       20 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -256,4 +256,12 @@ func desde(base, p string) string {
 		return p
 	}
 	return filepath.Join(base, p)
+}
+
+// apiServer arma el servidor y le pasa la version, que el panel y la pagina
+// del SDK muestran.
+func apiServer(cfg config.Config, paths config.Paths, manager *printers.Manager, q *queue.Manager, logger *logs.Logger) *api.Server {
+	srv := api.NewServer(cfg, paths, manager, q, logger)
+	srv.Version = version
+	return srv
 }

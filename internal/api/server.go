@@ -34,6 +34,10 @@ type Server struct {
 	queue    *queue.Manager
 	logger   *logs.Logger
 
+	// Version del agente, para que el panel y la pagina del SDK la muestren
+	// sin tener que adivinarla. La fija main al arrancar.
+	Version string
+
 	// Los ajustes se leian del disco en CADA impresion, para resolver los
 	// alias. Ahora se cachean y solo se releen si cambia el archivo.
 	settingsMu   sync.Mutex
@@ -96,6 +100,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /panel", s.panel)
 	mux.HandleFunc("GET /designer", s.designer)
 	mux.HandleFunc("GET /diagnostico", s.diagnostico)
+	mux.HandleFunc("GET /tema.css", s.asset)
+	mux.HandleFunc("GET /tema.js", s.asset)
+	mux.HandleFunc("GET /sdk", s.sdk)
+	mux.HandleFunc("GET /sdk/collatech-sdk.tgz", s.sdkPaquete)
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /api/network", s.network)

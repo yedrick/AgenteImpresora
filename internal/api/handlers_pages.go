@@ -7,6 +7,7 @@ import (
 	_ "image/png"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func (s *Server) panel(w http.ResponseWriter, r *http.Request) {
@@ -19,6 +20,48 @@ func (s *Server) designer(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) diagnostico(w http.ResponseWriter, r *http.Request) {
 	s.serveHTML(w, "web/diagnostico.html")
+}
+
+func (s *Server) sdk(w http.ResponseWriter, r *http.Request) {
+	s.serveHTML(w, "web/sdk.html")
+}
+
+// sdkPaquete entrega el SDK de TypeScript, que va dentro del binario.
+//
+// Se incrusta a proposito: una caja de tienda suele no tener salida a
+// internet, asi que "npm install collatech-sdk" no es una opcion ahi. Asi
+// se instala desde el propio agente, que es lo unico que seguro alcanza.
+func (s *Server) sdkPaquete(w http.ResponseWriter, r *http.Request) {
+	b, err := webFS.ReadFile("web/sdk/collatech-sdk.tgz")
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, response{OK: false, Error: "el paquete del SDK no esta en este binario"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", `attachment; filename="collatech-sdk.tgz"`)
+	w.Write(b)
+}
+
+// serveAsset sirve el CSS y el JS compartidos por las tres paginas. Van
+// aparte y no incrustados en cada HTML para no tener tres copias del tema
+// que se desincronizan, que es justo lo que pasaba antes.
+func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
+	nombre := strings.TrimPrefix(r.URL.Path, "/")
+	tipo := "text/css; charset=utf-8"
+	if strings.HasSuffix(nombre, ".js") {
+		tipo = "text/javascript; charset=utf-8"
+	}
+	b, err := webFS.ReadFile("web/" + nombre)
+	if err != nil {
+		b, err = os.ReadFile("web/" + nombre)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, response{OK: false, Error: nombre + " not found"})
+			return
+		}
+	}
+	w.Header().Set("Content-Type", tipo)
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(b)
 }
 
 func (s *Server) serveHTML(w http.ResponseWriter, path string) {

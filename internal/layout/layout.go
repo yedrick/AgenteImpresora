@@ -31,8 +31,17 @@ type Layout struct {
 	// para poder distinguir "no indicado" de "cero": con un int normal no
 	// habia forma de pedir filas pegadas.
 	Gap *int `json:"gap"`
-	// Padding es el margen interior del bloque.
-	Padding int `json:"padding"`
+	// Padding es el margen interior del bloque, por los cuatro lados.
+	//
+	// PadTop, PadBottom, PadLeft y PadRight mandan sobre el en su lado. Son
+	// punteros porque 0 es una respuesta valida y distinta de "no lo he
+	// tocado": poner PadTop a 0 pega la primera fila al borde de arriba
+	// aunque el resto tenga margen.
+	Padding   int  `json:"padding"`
+	PadTop    *int `json:"padding_top,omitempty"`
+	PadBottom *int `json:"padding_bottom,omitempty"`
+	PadLeft   *int `json:"padding_left,omitempty"`
+	PadRight  *int `json:"padding_right,omitempty"`
 	// Border dibuja un marco alrededor de todo el bloque.
 	Border bool  `json:"border"`
 	Rows   []Row `json:"rows"`
@@ -66,7 +75,15 @@ type Col struct {
 	// Align horizontal del contenido: left, center o right.
 	Align string `json:"align"`
 	// Pad es el margen interior de la columna.
+	// Pad es el margen interior por los cuatro lados.
 	Pad int `json:"pad"`
+	// PadL, PadR, PadT y PadB mandan sobre Pad en su lado. Son punteros
+	// porque 0 es una respuesta valida y distinta de "no lo he tocado":
+	// con Pad a 8, poner PadL a 0 pega el contenido al borde izquierdo.
+	PadL *int `json:"pad_left,omitempty"`
+	PadR *int `json:"pad_right,omitempty"`
+	PadT *int `json:"pad_top,omitempty"`
+	PadB *int `json:"pad_bottom,omitempty"`
 	// Border dibuja un marco alrededor de la columna.
 	Border bool   `json:"border"`
 	Items  []Item `json:"items"`
@@ -155,6 +172,10 @@ const (
 func (l Layout) normalized() Layout {
 	out := l
 	out.Padding = clamp(l.Padding, 0, maxPadding)
+	out.PadTop = clampPtr(l.PadTop, maxPadding)
+	out.PadBottom = clampPtr(l.PadBottom, maxPadding)
+	out.PadLeft = clampPtr(l.PadLeft, maxPadding)
+	out.PadRight = clampPtr(l.PadRight, maxPadding)
 	out.Gap = clampPtr(l.Gap, maxGap)
 
 	out.Rows = make([]Row, len(l.Rows))
@@ -167,6 +188,10 @@ func (l Layout) normalized() Layout {
 		for j, c := range r.Cols {
 			col := c
 			col.Pad = clamp(c.Pad, 0, maxPadding)
+			col.PadL = clampPtr(c.PadL, maxPadding)
+			col.PadR = clampPtr(c.PadR, maxPadding)
+			col.PadT = clampPtr(c.PadT, maxPadding)
+			col.PadB = clampPtr(c.PadB, maxPadding)
 			col.Dots = clamp(c.Dots, 0, MaxWidth)
 			col.Weight = clamp(c.Weight, 0, maxWeight)
 
@@ -216,7 +241,9 @@ func Render(l Layout) (image.Image, error) {
 		return nil, fmt.Errorf("el bloque mide %d puntos de ancho, el maximo son %d", l.Width, MaxWidth)
 	}
 	gapBloque := gapOr(l.Gap, defaultGap)
-	inner := l.Width - 2*l.Padding
+	izq, der, arr, aba := l.lados()
+	_ = aba
+	inner := l.Width - izq - der
 	if l.Border {
 		inner -= 2 * borderWidth
 	}
@@ -249,7 +276,7 @@ func Render(l Layout) (image.Image, error) {
 		}
 	}
 
-	alto := total + 2*l.Padding
+	alto := total + arr + aba
 	if l.Border {
 		alto += 2 * borderWidth
 	}
@@ -261,8 +288,8 @@ func Render(l Layout) (image.Image, error) {
 	}
 
 	canvas := newCanvas(l.Width, alto)
-	y := l.Padding
-	x := l.Padding
+	y := arr
+	x := izq
 	if l.Border {
 		canvas.rect(0, 0, l.Width, alto, borderWidth)
 		y += borderWidth
@@ -358,7 +385,8 @@ func measureRow(fs *fontSet, row Row, avail int) (rowLayout, error) {
 
 	out := rowLayout{widths: widths, heights: make([]int, n), items: make([][]measuredItem, n)}
 	for i, c := range row.Cols {
-		w := widths[i] - 2*c.Pad
+		izq, der, arr, aba := c.lados()
+		w := widths[i] - izq - der
 		if c.Border {
 			w -= 2 * borderWidth
 		}
@@ -369,7 +397,7 @@ func measureRow(fs *fontSet, row Row, avail int) (rowLayout, error) {
 		if err != nil {
 			return out, fmt.Errorf("columna %d: %w", i+1, err)
 		}
-		alto += 2 * c.Pad
+		alto += arr + aba
 		if c.Border {
 			alto += 2 * borderWidth
 		}
@@ -451,4 +479,28 @@ func alignOf(values ...string) string {
 		}
 	}
 	return "left"
+}
+
+// lados devuelve el margen interior de cada lado ya resuelto: el de Pad,
+// salvo que ese lado traiga el suyo propio.
+func (c Col) lados() (izq, der, arr, aba int) {
+	lado := func(p *int) int {
+		if p == nil {
+			return c.Pad
+		}
+		return clamp(*p, 0, maxPadding)
+	}
+	return lado(c.PadL), lado(c.PadR), lado(c.PadT), lado(c.PadB)
+}
+
+// lados devuelve el margen del bloque en cada lado: el de Padding, salvo
+// que ese lado traiga el suyo.
+func (l Layout) lados() (izq, der, arr, aba int) {
+	lado := func(p *int) int {
+		if p == nil {
+			return l.Padding
+		}
+		return clamp(*p, 0, maxPadding)
+	}
+	return lado(l.PadLeft), lado(l.PadRight), lado(l.PadTop), lado(l.PadBottom)
 }

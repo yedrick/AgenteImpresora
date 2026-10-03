@@ -26,7 +26,12 @@ type DocOptions struct {
 	// defecto: el espacio de arriba es papel desperdiciado en cada ticket.
 	FeedTop int
 
-	// FeedBottom son las lineas que se avanzan al cortar. Por debajo de
+	// FeedBottom son las lineas que se avanzan al cortar.
+	//
+	// 0 es "no indicado" y usa CutFeedLines, que es lo seguro: asi, un
+	// DocOptions construido sin tocar este campo nunca corta texto. Para
+	// pedir cero avance de verdad, cortando al limite, se usa SinAvance.
+	// Por debajo de
 	// CutFeedLines la cuchilla se come la ultima linea.
 	FeedBottom int
 
@@ -101,7 +106,10 @@ func (b *Builder) End(opt DocOptions) *Builder {
 	// ticket. Quien lo baja esta probando en su impresora; si se come una
 	// linea, lo ve al momento y lo sube.
 	feed := opt.FeedBottom
-	if feed <= 0 {
+	switch {
+	case feed == SinAvance:
+		feed = 0 // cortar al limite, a peticion expresa
+	case feed <= 0:
 		feed = CutFeedLines
 	}
 	return b.Cut(opt.Cut, feed)

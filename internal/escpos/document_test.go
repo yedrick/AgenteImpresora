@@ -170,6 +170,7 @@ func TestAvanceFinalSeRespeta(t *testing.T) {
 		quiero int
 	}{
 		{"sin indicar usa el minimo", 0, CutFeedLines * defaultLineHeight},
+		{"SinAvance corta al limite", SinAvance, 0},
 		{"una linea se respeta", 1, 1 * defaultLineHeight},
 		{"dos lineas se respetan", 2, 2 * defaultLineHeight},
 		{"mas que el minimo tambien", 6, 6 * defaultLineHeight},

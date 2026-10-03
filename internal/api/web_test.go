@@ -1,6 +1,12 @@
 package api
 
 import (
+	"bytes"
+	"fmt"
+	"image"
+	"image/png"
+	"net/http/httptest"
+
 	"collatech-agent/internal/settings"
 	"regexp"
 	"strings"
@@ -127,5 +133,62 @@ func TestGuardarImpresoraIncompletaAvisa(t *testing.T) {
 	}
 	if err := validarImpresoras(ok); err != nil {
 		t.Errorf("rechazo una lista valida: %v", err)
+	}
+}
+
+// TestLaPreviaMuestraElGiro: activar el giro en el disenador tiene que
+// verse en la vista previa. Si solo lo aplicara la impresora, la previa
+// mentiria y el giro solo se notaria con el papel en la mano, que es justo
+// lo que el disenador existe para evitar.
+func TestLaPreviaMuestraElGiro(t *testing.T) {
+	cuerpo := func(girado bool) image.Image {
+		t.Helper()
+		body := fmt.Sprintf(`{"width":576,"scale":1,"upside_down":%v,
+			"layout":{"padding":0,"rows":[{"cols":[{"weight":1,"items":[{"text":"ARRIBA","size":"xl"}]}]},
+			{"cols":[{"weight":1,"items":[{"type":"space","height":60}]}]}]}}`, girado)
+		req := httptest.NewRequest("POST", "/api/preview", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "127.0.0.1:1234"
+		rec := httptest.NewRecorder()
+		newTestServer(t, nil).ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+		}
+		img, err := png.Decode(bytes.NewReader(rec.Body.Bytes()))
+		if err != nil {
+			t.Fatalf("la previa no es un PNG: %v", err)
+		}
+		return img
+	}
+
+	// Donde esta la tinta: arriba o abajo del bloque.
+	mitadConTinta := func(img image.Image) string {
+		b := img.Bounds()
+		arriba, abajo := 0, 0
+		for y := 0; y < b.Dy(); y++ {
+			for x := 0; x < b.Dx(); x++ {
+				r, _, _, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
+				if r>>8 < 128 {
+					if y < b.Dy()/2 {
+						arriba++
+					} else {
+						abajo++
+					}
+				}
+			}
+		}
+		if arriba > abajo {
+			return "arriba"
+		}
+		return "abajo"
+	}
+
+	normal := mitadConTinta(cuerpo(false))
+	girado := mitadConTinta(cuerpo(true))
+	if normal != "arriba" {
+		t.Fatalf("sin girar el texto deberia estar arriba, y esta %s", normal)
+	}
+	if girado != "abajo" {
+		t.Errorf("al girar el texto deberia quedar abajo, y esta %s: la previa no refleja el giro", girado)
 	}
 }

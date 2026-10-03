@@ -15,9 +15,13 @@ import (
 const maxPreviewScale = 4
 
 type previewRequest struct {
-	Width  int           `json:"width"`
-	Scale  int           `json:"scale"`
-	Layout layout.Layout `json:"layout"`
+	Width int `json:"width"`
+	Scale int `json:"scale"`
+	// UpsideDown gira la previa 180 grados, igual que lo hara la impresora.
+	// Sin esto, activar el giro en el disenador no cambiaba nada en
+	// pantalla y solo se notaba con el papel en la mano.
+	UpsideDown bool          `json:"upside_down"`
+	Layout     layout.Layout `json:"layout"`
 }
 
 // preview devuelve el bloque compuesto como PNG, exactamente igual que se
@@ -34,6 +38,9 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.badRequest(w, err.Error())
 		return
+	}
+	if req.UpsideDown {
+		img = girar180(img)
 	}
 	// El aumento es solo para la pantalla: a 203 ppp un ticket se ve
 	// diminuto en un monitor.
@@ -72,6 +79,32 @@ func upscale(src image.Image, n int) image.Image {
 					dst[x*n+dx] = v
 				}
 			}
+		}
+	}
+	return out
+}
+
+// girar180 devuelve la imagen boca abajo, que es lo que hace la impresora
+// con el comando ESC { cuando se imprime girado.
+func girar180(src image.Image) image.Image {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	out := image.NewGray(image.Rect(0, 0, w, h))
+	if g, ok := src.(*image.Gray); ok {
+		for y := 0; y < h; y++ {
+			fila := g.Pix[(b.Min.Y+y)*g.Stride+b.Min.X:][:w]
+			destino := out.Pix[(h-1-y)*out.Stride:][:w]
+			for x, v := range fila {
+				destino[w-1-x] = v
+			}
+		}
+		return out
+	}
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			r, gg, bb, _ := src.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			l := uint8((299*uint32(r>>8) + 587*uint32(gg>>8) + 114*uint32(bb>>8)) / 1000)
+			out.Pix[(h-1-y)*out.Stride+(w-1-x)] = l
 		}
 	}
 	return out

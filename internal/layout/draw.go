@@ -120,9 +120,10 @@ func drawCol(fs *fontSet, c *canvas, col Col, items []measuredItem, x, y, w, h i
 		y += borderWidth
 		w -= 2 * borderWidth
 	}
-	x += col.Pad
-	y += col.Pad
-	w -= 2 * col.Pad
+	izq, der, arr, _ := col.lados()
+	x += izq
+	y += arr
+	w -= izq + der
 	if w < 1 {
 		w = 1
 	}

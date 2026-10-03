@@ -20,6 +20,12 @@ const (
 	// linea del ticket.
 	CutFeedLines = 4
 
+	// SinAvance pide cortar sin avanzar nada. Es un valor aparte y no el 0
+	// porque el 0 tiene que seguir significando "no indicado": asi el valor
+	// por defecto de la estructura es el seguro y nadie corta texto por
+	// olvidarse de rellenar el campo.
+	SinAvance = -1
+
 	// defaultLineHeight son los puntos de alto de una linea normal, el valor
 	// de fabrica de la mayoria de termicas.
 	defaultLineHeight = 30

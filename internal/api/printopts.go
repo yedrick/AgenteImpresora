@@ -85,9 +85,12 @@ type docRequest struct {
 	Compact     bool   `json:"compact"`
 	Font        string `json:"font"`
 
-	FeedTop    int `json:"feed_top"`
-	FeedBottom int `json:"feed_bottom"`
-	MarginDots int `json:"margin_dots"`
+	FeedTop int `json:"feed_top"`
+	// FeedBottom es puntero porque 0 es un valor valido y distinto de "no
+	// indicado": quien pone 0 quiere cortar al limite, sin avance, aunque
+	// se arriesgue a que la cuchilla toque la ultima linea.
+	FeedBottom *int `json:"feed_bottom"`
+	MarginDots int  `json:"margin_dots"`
 }
 
 // resolved es una peticion ya combinada con los ajustes de la impresora.
@@ -156,8 +159,17 @@ func (s *Server) resolve(req docRequest) (resolved, error) {
 		upside = *req.UpsideDown
 	}
 
-	feedBottom := req.FeedBottom
-	if feedBottom == 0 {
+	// Sin indicar nada manda el perfil de la impresora; si tampoco dice
+	// nada, el documento usa su valor por defecto.
+	// Por la API, "feed_bottom": 0 significa cortar al limite. Dentro se
+	// traduce a SinAvance, porque ahi el 0 quiere decir "no indicado".
+	feedBottom := 0
+	if req.FeedBottom != nil {
+		feedBottom = *req.FeedBottom
+		if feedBottom == 0 {
+			feedBottom = escpos.SinAvance
+		}
+	} else if profile.FeedBottom > 0 {
 		feedBottom = profile.FeedBottom
 	}
 

@@ -147,11 +147,19 @@
   <div class="campo">
     <label for="feed" title="Lineas en blanco antes de cortar">Final</label>
     <select id="feed">
-      <option value="1">1 linea (minimo)</option>
+      <option value="0">0 - al limite</option>
+      <option value="1">1 linea</option>
       <option value="2">2 lineas</option>
       <option value="3">3 lineas</option>
       <option value="4" selected>4 lineas (normal)</option>
       <option value="6">6 lineas</option>
+    </select>
+  </div>
+  <div class="campo">
+    <label for="giro" title="Imprimir el ticket girado 180 grados">Giro</label>
+    <select id="giro">
+      <option value="0" selected>Normal</option>
+      <option value="1">180 grados</option>
     </select>
   </div>
   <div class="campo">
@@ -418,9 +426,17 @@ function pintarProps() {
       ${campoNum("p_dots", "Ancho fijo en puntos (0 = flexible)", col.dots, 'min="0" max="576"')}
       ${campoNum("p_weight", "Peso si es flexible", col.weight, 'min="1" max="12"')}
       ${campoSel("p_align", "Alineacion del contenido", col.align, ALINEACIONES)}
-      ${campoNum("p_pad", "Relleno interior", col.pad, 'min="0" max="40"')}
+      ${campoNum("p_pad", "Margen interior, los cuatro lados", col.pad, 'min="0" max="40"')}
+      <p class="aviso info" style="margin:6px 0">Vacio = usa el de arriba. Pon un numero
+      para mandar sobre el en ese lado; <b>0 pega el contenido al borde</b>.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        ${campoNum("p_padl", "Izquierda", col.pad_left, 'min="0" max="200" placeholder="auto"')}
+        ${campoNum("p_padr", "Derecha", col.pad_right, 'min="0" max="200" placeholder="auto"')}
+        ${campoNum("p_padt", "Arriba", col.pad_top, 'min="0" max="200" placeholder="auto"')}
+        ${campoNum("p_padb", "Abajo", col.pad_bottom, 'min="0" max="200" placeholder="auto"')}
+      </div>
       ${campoCheck("p_border", "Con borde", col.border)}
-      <p class="aviso info">Para un QR al costado, pon aqui un ancho fijo
+      <p class="aviso info">Para un QR al costado, pon arriba un ancho fijo
       (unos 140 puntos) y deja la otra columna flexible.</p>
     </div>`;
   } else if (sel && sel.tipo === "fila" && fila) {
@@ -435,7 +451,15 @@ function pintarProps() {
   } else {
     $("tituloProps").textContent = "Ticket";
     caja.innerHTML = `<div class="props">
-      ${campoNum("p_padding", "Margen interior del ticket", doc.padding, 'min="0" max="40"')}
+      ${campoNum("p_padding", "Margen del ticket, los cuatro lados", doc.padding, 'min="0" max="40"')}
+      <p class="aviso info" style="margin:6px 0">Vacio = usa el de arriba. <b>Arriba a 0</b>
+      pega la primera fila al borde, sin nada de espacio.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        ${campoNum("p_pdt", "Arriba", doc.padding_top, 'min="0" max="200" placeholder="auto"')}
+        ${campoNum("p_pdb", "Abajo", doc.padding_bottom, 'min="0" max="200" placeholder="auto"')}
+        ${campoNum("p_pdl", "Izquierda", doc.padding_left, 'min="0" max="200" placeholder="auto"')}
+        ${campoNum("p_pdr", "Derecha", doc.padding_right, 'min="0" max="200" placeholder="auto"')}
+      </div>
       ${campoCheck("p_dborder", "Marco alrededor de todo", doc.border)}
       <p class="aviso info">Selecciona una fila, una columna o un elemento
       para editarlo.</p>
@@ -521,6 +545,13 @@ function aplicarProps() {
     col.weight = num("p_weight") || 1;
     col.align = txt("p_align");
     col.pad = num("p_pad") || 0;
+    // Vacio borra el valor del lado y vuelve a mandar col.pad. Un 0 escrito
+    // se guarda como 0, que no es lo mismo: pega el contenido al borde.
+    for (const [campo, clave] of [["p_padl","pad_left"],["p_padr","pad_right"],
+                                  ["p_padt","pad_top"],["p_padb","pad_bottom"]]) {
+      const v = $(campo).value.trim();
+      if (v === "") delete col[clave]; else col[clave] = Math.max(0, Number(v) || 0);
+    }
     col.border = chk("p_border");
   } else if (sel && sel.tipo === "fila" && fila) {
     fila.align = txt("p_valign");
@@ -530,6 +561,11 @@ function aplicarProps() {
     fila.border = chk("p_fborder");
   } else {
     doc.padding = num("p_padding") || 0;
+    for (const [campo, clave] of [["p_pdt","padding_top"],["p_pdb","padding_bottom"],
+                                  ["p_pdl","padding_left"],["p_pdr","padding_right"]]) {
+      const v = $(campo).value.trim();
+      if (v === "") delete doc[clave]; else doc[clave] = Math.max(0, Number(v) || 0);
+    }
     doc.border = chk("p_dborder");
   }
   cambiado(true);
@@ -618,7 +654,13 @@ async function refrescarPrevia() {
     const res = await apiFetch("/api/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ width: ancho, scale: escala, layout: cuerpoLayout() }),
+      body: JSON.stringify({
+        width: ancho, scale: escala,
+        // La previa tiene que ensenar el giro: si no, activarlo no cambia
+        // nada en pantalla y solo se nota con el papel en la mano.
+        upside_down: $("giro").value === "1",
+        layout: cuerpoLayout(),
+      }),
     });
     if (mia !== previaN) return; // llego una peticion mas nueva
     if (!res.ok) {
@@ -650,7 +692,10 @@ function cuerpoImpresion() {
     // Lineas en blanco antes de cortar. La cuchilla esta por encima del
     // cabezal, asi que algo hay que avanzar o se corta la ultima linea.
     // Cuanto, depende del modelo: con 1 se ahorra papel en cada ticket.
-    feed_bottom: Number($("feed").value) || 4,
+    // 0 es un valor valido: corta al limite, sin avanzar nada. Puede
+    // rozar la ultima linea; es a peticion expresa.
+    feed_bottom: Number($("feed").value),
+    upside_down: $("giro").value === "1",
     layout: cuerpoLayout(),
   };
 }

@@ -23,3 +23,9 @@ certs/
 # El logo por defecto va embebido en el binario; este es el que el
 # cliente pone al lado del ejecutable para usar el suyo.
 LOGO.png
+
+# Binarios construidos y pruebas locales
+dist/
+prueba/
+collatech-agent
+*.test

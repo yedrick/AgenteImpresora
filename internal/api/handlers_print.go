@@ -5,6 +5,7 @@ package api
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -50,6 +51,15 @@ func (s *Server) printText(w http.ResponseWriter, r *http.Request) {
 
 // --- Ticket -----------------------------------------------------------------
 
+// qrSpec acepta las dos formas que existen en el producto:
+//
+//	"qr": "https://..."                        la corta, como en un bloque
+//	"qr": {"data": "https://...", "ec": "M"}   la larga, con ajustes
+//
+// Hacen falta las dos porque un elemento de bloque maqueta el QR como texto
+// suelto y una linea de ticket lo lleva como objeto. Quien copia un ejemplo
+// de un sitio al otro escribia la forma que no era, y antes eso no daba
+// error: la linea desaparecia del ticket sin mas.
 type qrSpec struct {
 	Data string `json:"data"`
 	// Size es el lado de cada punto, 1 a 16. Con 0 se calcula segun el ancho
@@ -59,6 +69,26 @@ type qrSpec struct {
 	EC string `json:"ec"`
 }
 
+// UnmarshalJSON admite tanto la cadena suelta como el objeto.
+func (q *qrSpec) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		q.Data = s
+		return nil
+	}
+	type alias qrSpec // evita recursion infinita
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return err
+	}
+	*q = qrSpec(a)
+	return nil
+}
+
+// barcodeSpec acepta igualmente la cadena suelta o el objeto completo.
 type barcodeSpec struct {
 	Data string `json:"data"`
 	// Type: code128 (por defecto), ean13, ean8, upca, upce, code39, code93,
@@ -70,6 +100,24 @@ type barcodeSpec struct {
 	Width  int `json:"width"`
 	// HRI es donde va el texto legible: none, above, below o both.
 	HRI string `json:"hri"`
+}
+
+func (c *barcodeSpec) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		c.Data = s
+		return nil
+	}
+	type alias barcodeSpec
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return err
+	}
+	*c = barcodeSpec(a)
+	return nil
 }
 
 type tableColumn struct {

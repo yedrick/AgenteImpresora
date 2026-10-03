@@ -329,8 +329,13 @@ export interface TicketLine {
 
   text?: string;
   table?: TicketTable;
-  qr?: QRSpec;
-  barcode?: BarcodeSpec;
+  /**
+   * El contenido a secas, o el objeto si quieres fijar tamano o correccion:
+   * `qr: "https://..."` o `qr: { data: "https://...", ec: "H" }`.
+   */
+  qr?: QRSpec | string;
+  /** Igual que `qr`: la cadena sola, o el objeto con tipo y alto. */
+  barcode?: BarcodeSpec | string;
   /** Imagen en base64 o data URI. */
   image?: string;
   /**

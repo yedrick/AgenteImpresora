@@ -277,6 +277,19 @@ Formato, aplicable a cualquier elemento:
 { "type": "qr", "qr": { "data": "https://...", "size": 6, "ec": "M" } }
 ```
 
+Si no necesitas ajustar nada, basta con el contenido:
+
+```json
+{ "type": "qr", "qr": "https://..." }
+```
+
+Es la misma forma que usa un elemento de bloque maquetado, asi que un ejemplo
+copiado de alli funciona tal cual. Lo mismo vale para `barcode`.
+
+Una linea `qr` o `barcode` **sin contenido da error**. Antes desaparecia del
+ticket sin avisar y el trabajo se daba por bueno: una factura salia sin su QR
+de pago y nadie se enteraba hasta tener el papel en la mano.
+
 `size` es el lado de cada punto, de 1 a 16. **Si lo omites se calcula solo**
 según el ancho del papel y lo que ocupe el contenido, de forma que un QR
 largo no se salga del papel. `ec` es la corrección de errores: `L`, `M`

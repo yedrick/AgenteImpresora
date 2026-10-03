@@ -228,8 +228,14 @@ func applyLine(b *escpos.Builder, line ticketLine, cols int, border bool, res re
 		return nil
 
 	case "qr":
-		if line.QR == nil || line.QR.Data == "" {
-			return nil
+		// Antes esto devolvia nil: la linea se esfumaba, el trabajo decia
+		// "Completed" y la factura salia sin el QR de pago sin que nadie se
+		// enterara. Mas vale un error claro.
+		if line.QR == nil {
+			return fmt.Errorf(`una linea de tipo "qr" necesita el contenido: {"type":"qr","qr":"https://..."}`)
+		}
+		if line.QR.Data == "" {
+			return fmt.Errorf(`el QR esta vacio: ponle contenido o quita la linea`)
 		}
 		if len(line.QR.Data) > escpos.MaxQRLen {
 			return fmt.Errorf("el QR admite %d caracteres como maximo", escpos.MaxQRLen)
@@ -243,8 +249,11 @@ func applyLine(b *escpos.Builder, line ticketLine, cols int, border bool, res re
 		return feedGap(b, line)
 
 	case "barcode":
-		if line.Barcode == nil || line.Barcode.Data == "" {
-			return nil
+		if line.Barcode == nil {
+			return fmt.Errorf(`una linea de tipo "barcode" necesita el contenido: {"type":"barcode","barcode":"123456789"}`)
+		}
+		if line.Barcode.Data == "" {
+			return fmt.Errorf(`el codigo de barras esta vacio: ponle contenido o quita la linea`)
 		}
 		if len(line.Barcode.Data) > escpos.MaxBarcodeLen-2 {
 			return fmt.Errorf("el codigo de barras admite %d caracteres como maximo", escpos.MaxBarcodeLen-2)
@@ -261,7 +270,7 @@ func applyLine(b *escpos.Builder, line ticketLine, cols int, border bool, res re
 
 	case "layout":
 		if line.Layout == nil {
-			return nil
+			return fmt.Errorf(`una linea de tipo "layout" necesita el bloque: {"type":"layout","layout":{"rows":[...]}}`)
 		}
 		raster, err := renderLayout(*line.Layout, res)
 		if err != nil {

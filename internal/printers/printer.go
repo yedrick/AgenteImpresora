@@ -327,8 +327,27 @@ func newDevicePrinter(path, typ string) *devicePrinter {
 	return &devicePrinter{path: path, typ: typ}
 }
 
+// banderasDe decide como abrir el destino.
+//
+// Un dispositivo de caracteres (/dev/usb/lp0, /dev/ttyUSB0, COM3) ignora la
+// posicion del archivo, asi que O_WRONLY basta. Pero apuntar a un archivo
+// normal es la unica forma de probar el agente sin impresora, y ahi O_WRONLY
+// a secas escribe siempre desde el byte 0: cada ticket pisaba al anterior y,
+// si el anterior era mas largo, quedaba la mezcla de los dos sin aviso. Con
+// O_APPEND el archivo se comporta como el rollo de papel.
+//
+// A proposito no se anade O_CREATE: si el destino no existe conviene que
+// falle, porque una ruta de dispositivo mal escrita se convertiria en un
+// archivo cualquiera y pareceria que imprime cuando no sale nada.
+func banderasDe(path string) int {
+	if fi, err := os.Stat(path); err == nil && fi.Mode().IsRegular() {
+		return os.O_WRONLY | os.O_APPEND
+	}
+	return os.O_WRONLY
+}
+
 func (p *devicePrinter) Connect() error {
-	f, err := os.OpenFile(p.path, os.O_WRONLY, 0)
+	f, err := os.OpenFile(p.path, banderasDe(p.path), 0)
 	if err != nil {
 		return err
 	}

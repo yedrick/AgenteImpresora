@@ -409,7 +409,7 @@
         <div>
           <label for="printerManual">Nombre manual</label>
           <input id="printerManual" placeholder="EPSON TM-T20, COM3 o 192.168.1.50:9100">
-          <p class="hint">Si escribes aqui, se usara este valor.</p>
+          <p class="hint">Solo si tu impresora no sale en la lista. <strong>Si escribes aqui, manda sobre la lista.</strong></p>
         </div>
         <div>
           <label for="paperWidth">Papel</label>
@@ -597,6 +597,55 @@ Gracias por usar CollaTech</textarea>
       return data;
     }
 
+    // El agente responde 202 en cuanto encola el trabajo: que la peticion
+    // salga bien no significa que haya salido papel. El panel decia
+    // "enviado" y se quedaba ahi, asi que un trabajo fallido (impresora que
+    // no existe, sin papel, cable suelto) solo se veia abriendo los logs a
+    // mano. Esto sigue el trabajo hasta saber como acabo.
+    async function seguirTrabajo(data, mensajeExito) {
+      show(data);
+      if (!data || data.ok === false) {
+        toast((data && data.error) || "Ocurrio un error", "error");
+        return data;
+      }
+      const lista = Array.isArray(data.data) ? data.data : (data.data ? [data.data] : []);
+      const ids = lista.map((t) => t && t.id).filter(Boolean);
+      if (!ids.length) {
+        toast(mensajeExito, "success");
+        return data;
+      }
+
+      toast(mensajeExito + ", esperando a la impresora...", "info");
+
+      // Hasta 15 s. Una termica por USB tarda decimas; una de red con la
+      // cola ocupada puede tardar unos segundos.
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        let estado;
+        try {
+          estado = await api("/api/status");
+        } catch (e) {
+          continue;
+        }
+        const trabajos = ((estado.data && estado.data.jobs) || [])
+          .filter((j) => ids.indexOf(j.id) >= 0);
+        if (trabajos.length < ids.length) continue;
+
+        const fallado = trabajos.filter((j) => j.status === "Failed")[0];
+        if (fallado) {
+          toast("No se imprimio: " + (fallado.error || "sin detalle"), "error");
+          show({ ok: false, error: fallado.error, trabajo: fallado });
+          return data;
+        }
+        if (trabajos.every((j) => j.status === "Completed")) {
+          toast("Impreso correctamente", "success");
+          return data;
+        }
+      }
+      toast("El trabajo sigue en la cola. Mira la pestana Logs.", "info");
+      return data;
+    }
+
     function notifyError(error, fallbackMessage) {
       show(error);
       toast((error && error.error) || fallbackMessage || "Ocurrio un error", "error");
@@ -693,9 +742,32 @@ Gracias por usar CollaTech</textarea>
 
     async function loadPrinters() {
       try {
-        const data = await api("/api/printers");
+        // Dos listas distintas: las dadas de alta en el agente (lo que usa
+        // tu aplicacion) y las que el sistema tiene instaladas. Antes solo
+        // salian las segundas, asi que las dadas de alta, que son las que
+        // llevan ancho y corte configurados, no se podian elegir.
+        const [data, conf] = await Promise.all([
+          api("/api/printers"),
+          api("/api/printers-config").catch(() => ({ data: [] })),
+        ]);
         const printers = data.data || [];
+        const dadas = conf.data || [];
         $("printerSelect").innerHTML = "";
+
+        if (dadas.length) {
+          const g = document.createElement("optgroup");
+          g.label = "Dadas de alta en el agente";
+          for (const p of dadas) {
+            const o = document.createElement("option");
+            o.value = p.name;
+            o.textContent = `${p.name} → ${p.target}`;
+            g.appendChild(o);
+          }
+          $("printerSelect").appendChild(g);
+        }
+
+        const g2 = document.createElement("optgroup");
+        g2.label = "Instaladas en esta PC";
         for (const printer of printers) {
           const option = document.createElement("option");
           option.value = printer.name;
@@ -705,8 +777,9 @@ Gracias por usar CollaTech</textarea>
             ? `${printer.model_name}`
             : printer.status || printer.type;
           option.textContent = `${printer.name} — ${extra}`;
-          $("printerSelect").appendChild(option);
+          g2.appendChild(option);
         }
+        if (printers.length) $("printerSelect").appendChild(g2);
         if (!printers.length) {
           const option = document.createElement("option");
           option.value = "";
@@ -723,7 +796,24 @@ Gracias por usar CollaTech</textarea>
       try {
         const data = await api("/api/settings");
         const settings = data.data || {};
-        if (settings.default_printer) $("printerManual").value = settings.default_printer;
+        // Antes esto volcaba default_printer en el campo manual, y el campo
+        // manual manda sobre el desplegable. Con un default_printer viejo
+        // apuntando a una impresora que ya no existe, TODO se imprimia ahi
+        // aunque en el desplegable se eligiera otra, y el panel decia
+        // "enviado". Ahora solo se preselecciona en el desplegable, si esta.
+        if (settings.default_printer) {
+          const sel = $("printerSelect");
+          const hay = Array.from(sel.options).some((o) => o.value === settings.default_printer);
+          if (hay) {
+            sel.value = settings.default_printer;
+          } else {
+            toast(
+              `La impresora por defecto "${settings.default_printer}" no existe. ` +
+              "Elige una de la lista o cambiala en Impresoras.",
+              "error"
+            );
+          }
+        }
         if (settings.paper_width) $("paperWidth").value = String(settings.paper_width);
         if (settings.image_scale) $("imageScale").value = String(settings.image_scale);
       } catch (error) {
@@ -1059,7 +1149,7 @@ Gracias por usar CollaTech</textarea>
       try {
         const printer = await requirePrinter();
         const text = $("testText").value.replace("{{date}}", new Date().toLocaleString());
-        notify(await api("/api/print/text", {
+        seguirTrabajo(await api("/api/print/text", {
           method: "POST",
           body: JSON.stringify({ printer, text, cut: true })
         }), "Texto enviado a imprimir");
@@ -1073,7 +1163,7 @@ Gracias por usar CollaTech</textarea>
     $("printTicket").addEventListener("click", async () => {
       try {
         const printer = await requirePrinter();
-        notify(await api("/api/print/ticket", {
+        seguirTrabajo(await api("/api/print/ticket", {
           method: "POST",
           body: JSON.stringify({
             printer,
@@ -1101,7 +1191,7 @@ Gracias por usar CollaTech</textarea>
         const printer = await requirePrinter();
         // Este boton llamaba a /api/print/template pese a llamarse printHTML,
         // asi que /api/print/html no se probaba desde ninguna pantalla.
-        notify(await api("/api/print/html", {
+        seguirTrabajo(await api("/api/print/html", {
           method: "POST",
           body: JSON.stringify({
             printer,
@@ -1133,7 +1223,7 @@ Gracias por usar CollaTech</textarea>
     $("openDrawer").addEventListener("click", async () => {
       try {
         const printer = await requirePrinter();
-        notify(await api("/api/print/ticket", {
+        seguirTrabajo(await api("/api/print/ticket", {
           method: "POST",
           body: JSON.stringify({ printer, drawer: true, lines: [{ text: "Apertura de caja" }] })
         }), "Caja abierta");
@@ -1146,7 +1236,7 @@ Gracias por usar CollaTech</textarea>
 
     async function printTemplate(template, data) {
       const printer = await requirePrinter();
-      notify(await api("/api/print/template", {
+      seguirTrabajo(await api("/api/print/template", {
         method: "POST",
         body: JSON.stringify({ printer, template, data, width: 576, cut: true })
       }), "Enviado a imprimir");
@@ -1201,7 +1291,7 @@ Gracias por usar CollaTech</textarea>
     $("quickQR").addEventListener("click", async () => {
       try {
         const printer = await requirePrinter();
-        notify(await api("/api/print/ticket", {
+        seguirTrabajo(await api("/api/print/ticket", {
           method: "POST",
           body: JSON.stringify({
             printer,
@@ -1221,7 +1311,7 @@ Gracias por usar CollaTech</textarea>
     $("quickBarcode").addEventListener("click", async () => {
       try {
         const printer = await requirePrinter();
-        notify(await api("/api/print/ticket", {
+        seguirTrabajo(await api("/api/print/ticket", {
           method: "POST",
           body: JSON.stringify({
             printer,
@@ -1254,7 +1344,7 @@ Gracias por usar CollaTech</textarea>
         ctx.fillText("COLLATECH", 192, 82);
         ctx.font = "20px Arial";
         ctx.fillText("Imagen de prueba", 192, 120);
-        notify(await api("/api/print/image", {
+        seguirTrabajo(await api("/api/print/image", {
           method: "POST",
           body: JSON.stringify({ printer, image: canvas.toDataURL("image/png"), width: selectedWidth(), scale: selectedScale(), cut: true })
         }), "Imagen enviada a imprimir");
@@ -1268,7 +1358,7 @@ Gracias por usar CollaTech</textarea>
     $("quickLogo").addEventListener("click", async () => {
       try {
         const printer = await requirePrinter();
-        notify(await api("/api/print/logo", {
+        seguirTrabajo(await api("/api/print/logo", {
           method: "POST",
           body: JSON.stringify({ printer, width: selectedWidth(), scale: selectedScale(), cut: true })
         }), "Logo enviado a imprimir");
@@ -1294,7 +1384,9 @@ Gracias por usar CollaTech</textarea>
     showLocalToken();
     loadNetwork();
     cargarCatalogo().then(loadAliases);
-    loadSettings().then(loadPrinters);
+    // Las impresoras primero: loadSettings preselecciona la por defecto en
+    // el desplegable y necesita que ya este lleno.
+    loadPrinters().then(loadSettings);
     loadLogs();
   </script>
 </body>

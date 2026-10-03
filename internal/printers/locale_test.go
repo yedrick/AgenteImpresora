@@ -60,3 +60,30 @@ func TestNombreYEstadoDeLpstat(t *testing.T) {
 		}
 	}
 }
+
+// TestErrorDeImpresoraInexistenteNombraLasQueHay: "The printer or class does
+// not exist" no le dice nada a quien configura. No sabe que es una "clase",
+// y el nombre que escribio le parece correcto. Pasa al teclearlo mal y, mas
+// a menudo, al renombrar una impresora dejando el nombre viejo en la
+// aplicacion.
+func TestErrorDeImpresoraInexistenteNombraLasQueHay(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/lp"); err != nil {
+		t.Skip("no hay CUPS en esta maquina")
+	}
+	p := &cupsPrinter{name: "no-existe-esta-impresora-12345"}
+	if err := p.Connect(); err != nil {
+		t.Skipf("no se pudo usar lp: %v", err)
+	}
+	err := p.Print([]byte("x"))
+	if err == nil {
+		t.Fatal("imprimio a una impresora que no existe")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "no existe ninguna impresora") {
+		t.Errorf("el mensaje no explica el problema: %q", msg)
+	}
+	if strings.Contains(msg, "class does not exist") {
+		t.Errorf("sigue saliendo el mensaje crudo de CUPS: %q", msg)
+	}
+	t.Logf("mensaje: %s", msg)
+}

@@ -55,6 +55,22 @@ func (p *cupsPrinter) Print(data []byte) error {
 		if msg == "" {
 			msg = err.Error()
 		}
+		// "The printer or class does not exist" no le dice nada a quien
+		// configura: no sabe que es una "clase", y el nombre que escribio le
+		// parece correcto. Pasa al teclearlo mal, y sobre todo al renombrar
+		// una impresora dejando el nombre viejo en la aplicacion. Se le dice
+		// que impresoras hay de verdad.
+		if strings.Contains(strings.ToLower(msg), "does not exist") {
+			var hay []string
+			for _, info := range enumSpoolerPrinters() {
+				hay = append(hay, info.Name)
+			}
+			if len(hay) > 0 {
+				return fmt.Errorf("no existe ninguna impresora llamada %q en este sistema. Las que hay: %s",
+					p.name, strings.Join(hay, ", "))
+			}
+			return fmt.Errorf("no existe ninguna impresora llamada %q, y este sistema no tiene ninguna cola dada de alta", p.name)
+		}
 		return fmt.Errorf("lp fallo para %q: %s", p.name, msg)
 	}
 	return nil

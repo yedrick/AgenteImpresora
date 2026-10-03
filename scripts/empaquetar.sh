@@ -8,6 +8,14 @@ set -euo pipefail
 
 VERSION="${1:-dev}"
 VERSION="${VERSION#v}"            # admite tanto 1.5.0 como v1.5.0
+
+# Debian exige que la version empiece por un digito, asi que una version de
+# prueba como "ci-075e965" o "dev" tumbaba dpkg-deb. Para el .deb se le pone
+# delante un 0.0.0+; los demas paquetes conservan el nombre legible.
+case "$VERSION" in
+  [0-9]*) VERSION_DEB="$VERSION" ;;
+  *)      VERSION_DEB="0.0.0+${VERSION}" ;;
+esac
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
 SALIDA="$RAIZ/dist"
 LDFLAGS="-s -w -X main.version=$VERSION"
@@ -143,7 +151,7 @@ EOF
 
   cat > "$pkg/DEBIAN/control" <<EOF
 Package: collatech-agent
-Version: $VERSION
+Version: $VERSION_DEB
 Section: utils
 Priority: optional
 Architecture: $arch
@@ -194,9 +202,9 @@ EOF
   chmod 755 "$pkg/DEBIAN/prerm"
 
   dpkg-deb --build --root-owner-group "$pkg" \
-    "$SALIDA/collatech-agent_${VERSION}_${arch}.deb" >/dev/null
+    "$SALIDA/collatech-agent_${VERSION_DEB}_${arch}.deb" >/dev/null
   rm -rf "$pkg"
-  echo "  collatech-agent_${VERSION}_${arch}.deb"
+  echo "  collatech-agent_${VERSION_DEB}_${arch}.deb"
 done
 
 # --- Sumas de verificacion --------------------------------------------------

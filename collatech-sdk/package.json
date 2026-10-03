@@ -1,7 +1,7 @@
 {
   "name": "collatech-sdk",
   "version": "1.5.0",
-  "description": "Official SDK for CollaTech Agent \u2013 print receipts, invoices, tickets, QR codes, and barcodes from any JavaScript/TypeScript app",
+  "description": "Official SDK for CollaTech Agent – print receipts, invoices, tickets, QR codes, and barcodes from any JavaScript/TypeScript app",
   "keywords": [
     "collatech",
     "escpos",
@@ -15,6 +15,15 @@
   ],
   "author": "CollaTech",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yedrick/AgenteImpresora.git",
+    "directory": "collatech-sdk"
+  },
+  "homepage": "https://github.com/yedrick/AgenteImpresora#readme",
+  "bugs": {
+    "url": "https://github.com/yedrick/AgenteImpresora/issues"
+  },
   "type": "module",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",

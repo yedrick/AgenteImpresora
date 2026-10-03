@@ -60,6 +60,40 @@ make install   # lo instala como servicio (pide sudo)
 `./scripts/empaquetar.sh 1.5.0` construye los mismos paquetes que publica
 GitHub Actions, para poder reproducir una version en local.
 
+## Publicar una version nueva
+
+Todo lo hace GitHub Actions al subir una etiqueta. Tres pasos:
+
+```bash
+# 1. Subir el numero de version en el SDK (tiene que coincidir con la
+#    etiqueta: hay una comprobacion que corta la publicacion si no).
+cd collatech-sdk && npm version 1.6.0 --no-git-tag-version && cd ..
+
+# 2. Subir el VERSION del Makefile al mismo numero y confirmar
+git add -A && git commit -m "Version 1.6.0"
+
+# 3. Etiquetar y subir
+git tag v1.6.0
+git push origin main v1.6.0
+```
+
+A partir de ahi se construyen los seis destinos, se arman los paquetes, se
+comprueba que el `.deb` instala y que el agente responde, y aparece todo en
+[Releases](https://github.com/yedrick/AgenteImpresora/releases).
+
+**Para que el SDK salga tambien en npm** hay que crear una vez el secreto
+`NPM_TOKEN` en *Settings → Secrets and variables → Actions* del repositorio,
+con un token de tipo *Automation* de tu cuenta de npm. Sin ese secreto todo
+lo demas funciona igual y el `.tgz` queda adjunto a la Release, instalable
+con:
+
+```bash
+npm install https://github.com/yedrick/AgenteImpresora/releases/download/v1.6.0/collatech-sdk-1.6.0.tgz
+```
+
+Tambien se puede lanzar a mano desde la pestana *Actions → Publicar version
+→ Run workflow*, indicando el numero.
+
 ## Instalación
 
 ### Linux y macOS

@@ -1,0 +1,29 @@
+{
+  "_comentario": "Etiqueta de producto: datos a la izquierda, QR a la derecha y codigo de barras abajo, todo dentro de un marco. POST a /api/print/layout",
+  "printer": "caja",
+  "width": 576,
+  "cut": "partial",
+
+  "layout": {
+    "padding": 8,
+    "border": true,
+    "rows": [
+      {
+        "align": "middle",
+        "cols": [
+          { "weight": 1, "items": [
+            { "text": "Producto", "size": "s" },
+            { "text": "Cafe molido 250 g", "size": "l", "bold": true },
+            { "text": "Bs 45.00", "size": "xl", "bold": true, "gap": 4 }
+          ] },
+          { "dots": 170, "align": "center", "items": [
+            { "qr": "SKU-000123", "qr_ec": "Q" }
+          ] }
+        ]
+      },
+      { "cols": [ { "weight": 1, "align": "center", "items": [
+        { "type": "barcode", "barcode": "000123", "bar_height": 60 }
+      ] } ] }
+    ]
+  }
+}

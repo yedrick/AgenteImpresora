@@ -2,552 +2,756 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CollaTech - Diseñador Visual</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CollaTech - Disenador de tickets</title>
 <style>
-:root{--bg:#0f172a;--surface:#1e293b;--surface2:#334155;--border:#475569;--text:#f1f5f9;--text2:#94a3b8;--accent:#22c55e;--accent2:#16a34a;--danger:#ef4444;--blue:#3b82f6}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
-.app{display:grid;grid-template-columns:200px 1fr 300px;height:100vh}
+  :root {
+    --bg: #0f1115; --panel: #161a21; --panel2: #1c212b; --line: #2a3140;
+    --text: #e6e9ef; --text2: #8b94a7; --blue: #3b82f6; --green: #16a34a;
+    --red: #dc2626; --amber: #d97706;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f6f8; --panel: #ffffff; --panel2: #f0f2f5; --line: #d8dde6;
+      --text: #10141c; --text2: #5c6678;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 14px; margin: 0 14px 0 0; font-weight: 650; white-space: nowrap; }
+  header .sep { flex: 1; }
+  label { color: var(--text2); font-size: 11px; display: block; margin-bottom: 3px; }
+  input, select, textarea {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 9px; font: inherit; width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 12px; font: inherit; cursor: pointer; white-space: nowrap;
+  }
+  button:hover { border-color: var(--blue); }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+  button.ghost { background: none; }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+  .campo { min-width: 90px; }
 
-/* LEFT SIDEBAR */
-.sidebar-left{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;user-select:none}
-.sidebar-left h3{padding:12px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);border-bottom:1px solid var(--border)}
-.egroup{padding:8px;border-bottom:1px solid var(--border)}
-.egroup-title{font-size:9px;text-transform:uppercase;color:var(--text2);margin-bottom:4px;letter-spacing:.5px}
-.eitem{display:flex;align-items:center;gap:6px;padding:7px 8px;margin-bottom:2px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;cursor:grab;font-size:12px;transition:.12s}
-.eitem:hover{border-color:var(--accent);background:rgba(34,197,94,.08)}
-.eitem:active{cursor:grabbing;transform:scale(.97)}
-.eitem .ico{font-size:15px;width:18px;text-align:center;flex:none}
+  main { display: grid; grid-template-columns: 300px 1fr 280px; gap: 1px; background: var(--line); min-height: calc(100vh - 53px); }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .col { background: var(--bg); padding: 14px; overflow: auto; }
+  .col h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--text2); margin: 0 0 10px; font-weight: 650; }
 
-/* CANVAS */
-.canvas-area{display:flex;flex-direction:column;overflow:hidden}
-.cbar{display:flex;align-items:center;gap:4px;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap}
-.cbar button{padding:4px 8px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);font-size:10px;cursor:pointer}
-.cbar button:hover{border-color:var(--accent)}
-.cbar .primary{background:var(--accent);color:#000;font-weight:700}
-.cbar .danger{background:var(--danger)}
-.cscroll{flex:1;overflow:auto;padding:16px;display:flex;justify-content:center}
-#canvas{width:280px;min-height:380px;background:#fff;color:#111;padding:4px 0;border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,.55);position:relative;transition:box-shadow .2s}
-#canvas.dragover{box-shadow:0 0 0 3px var(--accent),0 4px 24px rgba(0,0,0,.55)}
-.ci{padding:3px 6px;margin:1px 0;cursor:pointer;border:2px solid transparent;border-radius:2px;position:relative;font-size:12px;line-height:1.4;transition:border-color .15s}
-.ci:hover{border-color:var(--accent)}
-.ci.sel{border-color:var(--blue);background:rgba(59,130,246,.07)}
-.ci.dragging{opacity:.4}
-.ci .cd{position:absolute;top:-5px;right:-5px;width:16px;height:16px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:8px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1;padding:0}
-.ci:hover .cd{display:flex;z-index:5}
-.c-tag{position:absolute;left:2px;top:-8px;font-size:7px;color:#999;opacity:.4;pointer-events:none}
-.c-title{font-size:18px;font-weight:700;text-align:center;padding:4px 6px}
-.c-sub{font-size:14px;text-align:center;padding:3px 6px}
-.c-txt{font-size:12px;padding:2px 6px}
-.c-alc{text-align:center}.c-alr{text-align:right}
-.c-bld{font-weight:700}.c-und{text-decoration:underline}
-.c-dbl{font-size:20px}.c-wid{letter-spacing:4px}.c-tal{line-height:1.8}.c-sml{font-size:9px}
-.c-hr{border:none;border-top:1px dashed #aaa;margin:3px 6px}
-.c-spc{min-height:8px;background:rgba(0,0,0,.02);display:flex;align-items:center;justify-content:center;color:#bbb;font-size:9px;border:1px dashed #ddd;margin:1px 4px;border-radius:2px}
-.c-bx{border:1px solid #333;padding:2px 5px;margin:2px 4px;border-radius:2px}
-.c-bdr{border-left:1px solid #333;border-right:1px solid #333}
-.ctable{font-size:10px;margin:2px 4px;border-collapse:collapse;width:auto}
-.ctable td,.ctable th{border:1px solid #666;padding:1px 4px;white-space:nowrap;font-size:10px}
-.ctable th{background:#e8e8e8;font-weight:700}
-.c-qr{text-align:center;padding:4px;font-size:10px;color:#888}
-.c-bar{text-align:center;padding:4px;font-family:'Courier New',monospace;font-size:10px;color:#888}
-.c-img{text-align:center;padding:2px}
-.c-img img{max-width:85%;max-height:70px;border-radius:2px}
-.c-empty{text-align:center;color:#ccc;padding:30px 10px;font-size:13px;line-height:1.8}
+  /* Arbol de la estructura */
+  .nodo {
+    border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px;
+    background: var(--panel); overflow: hidden;
+  }
+  .nodo > .cab {
+    display: flex; align-items: center; gap: 6px; padding: 7px 9px; cursor: pointer;
+  }
+  .nodo > .cab:hover { background: var(--panel2); }
+  .nodo.sel > .cab { background: rgba(59,130,246,.16); box-shadow: inset 3px 0 0 var(--blue); }
+  .nodo .tit { flex: 1; font-weight: 600; font-size: 12px; }
+  .nodo .meta { color: var(--text2); font-size: 11px; font-weight: 400; }
+  .nodo .acc { display: flex; gap: 3px; }
+  .nodo .acc button { padding: 2px 7px; font-size: 12px; line-height: 1.3; }
+  .hijos { padding: 0 9px 9px 18px; }
 
-/* RIGHT PANEL */
-.panel{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;padding:10px;gap:6px;font-size:11px}
-.panel h5{font-size:10px;text-transform:uppercase;color:var(--text2);margin:4px 0 2px;letter-spacing:.5px}
-.pr{display:flex;gap:4px;align-items:center;margin-bottom:2px;flex-wrap:wrap}
-.pr label{font-size:10px;color:var(--text2);min-width:40px}
-.pr input,.pr select{padding:3px 5px;border:1px solid var(--border);border-radius:2px;background:var(--surface2);color:var(--text);font-size:10px;flex:1;min-width:30px}
-.pr textarea{padding:3px 5px;border:1px solid var(--border);border-radius:2px;background:var(--surface2);color:var(--text);font-size:10px;flex:1;min-height:30px;resize:vertical}
-.pr input[type=checkbox]{width:14px;flex:none}
-.pr .btn-s{padding:2px 6px;border:1px solid var(--border);border-radius:2px;background:var(--surface2);color:var(--text);font-size:9px;cursor:pointer}
-.pr .btn-s:hover{border-color:var(--accent)}
-.pr .btn-d{border-color:var(--danger)}
-.pr .btn-d:hover{background:var(--danger)}
-.mctrl{display:flex;align-items:center;gap:2px}
-.mctrl button{width:22px;height:20px;padding:0;border:1px solid var(--border);border-radius:2px;background:var(--surface2);color:var(--text);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.mctrl button:hover{border-color:var(--accent)}
-.mctrl span{display:inline-block;width:24px;text-align:center;font-size:11px;font-weight:700;color:var(--accent)}
-.tab-b{display:flex;gap:1px;margin:2px 0}
-.tab-b button{padding:3px 8px;border:1px solid var(--border);border-radius:2px 2px 0 0;background:var(--surface2);color:var(--text2);font-size:9px;cursor:pointer;flex:1}
-.tab-b button.on{background:var(--accent);color:#000;font-weight:700}
-.tabc{display:none}.tabc.on{display:block}
-code{font-size:9px;white-space:pre-wrap;word-break:break-all;display:block;max-height:200px;overflow:auto;padding:4px;background:var(--bg);border-radius:2px;margin-top:2px}
-hr{border:none;border-top:1px solid var(--border);margin:4px 0}
-.tedit{margin:2px 0;padding:4px;background:var(--bg);border-radius:2px}
-.tedit table{width:100%;font-size:10px;border-collapse:collapse}
-.tedit td,.tedit th{border:1px solid var(--border);padding:1px 3px}
-.tedit input{width:100%;border:none;background:transparent;color:var(--text);font-size:10px;padding:1px}
-.tedit .cw{width:35px}
-.nosel{color:var(--text2);font-size:11px;padding:10px 4px;text-align:center}
+  .celda {
+    border: 1px dashed var(--line); border-radius: 7px; padding: 6px 8px; margin-bottom: 5px;
+    background: var(--panel2); cursor: pointer;
+  }
+  .celda:hover { border-color: var(--blue); }
+  .celda.sel { border-style: solid; border-color: var(--blue); background: rgba(59,130,246,.12); }
+  .celda .cab2 { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); }
+  .celda .cab2 .tit { flex: 1; font-weight: 600; color: var(--text); }
+  .item {
+    display: flex; align-items: center; gap: 6px; padding: 4px 6px; margin-top: 4px;
+    border-radius: 5px; background: var(--panel); font-size: 11px; cursor: pointer;
+  }
+  .item:hover { background: rgba(59,130,246,.1); }
+  .item.sel { background: rgba(59,130,246,.22); }
+  .item .tipo {
+    font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px;
+  }
+  .item .txt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Vista previa */
+  .papel {
+    background: #fff; padding: 10px; border-radius: 6px; display: inline-block;
+    box-shadow: 0 4px 24px rgba(0,0,0,.35); max-width: 100%;
+  }
+  .papel img { display: block; image-rendering: pixelated; max-width: 100%; height: auto; }
+  .previewbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .aviso { border-radius: 8px; padding: 9px 11px; font-size: 12px; margin-bottom: 10px; }
+  .aviso.err { border: 1px solid var(--red); background: rgba(220,38,38,.12); }
+  .aviso.info { border: 1px solid var(--line); color: var(--text2); }
+
+  /* Propiedades */
+  .props { display: grid; gap: 9px; }
+  .props .fila2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .check { display: flex; align-items: center; gap: 7px; color: var(--text); font-size: 12px; }
+  .check input { width: auto; }
+  .vacio { color: var(--text2); font-size: 12px; padding: 20px 0; text-align: center; }
+  .add { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .add button { padding: 5px 9px; font-size: 11px; }
+  pre {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 11px; overflow: auto; font: 11px/1.5 ui-monospace, Menlo, Consolas, monospace;
+    max-height: 60vh; white-space: pre-wrap; word-break: break-word;
+  }
+  a { color: var(--blue); }
 </style>
 </head>
 <body>
-<div class="app">
-<div class="sidebar-left">
-  <h3>🧩 Elementos</h3>
-  <div class="egroup">
-    <div class="egroup-title">Texto</div>
-    <div class="eitem" draggable="true" data-type="title"><span class="ico">T</span> Título</div>
-    <div class="eitem" draggable="true" data-type="subtitle"><span class="ico">t</span> Subtítulo</div>
-    <div class="eitem" draggable="true" data-type="text"><span class="ico">Aa</span> Texto</div>
-    <div class="eitem" draggable="true" data-type="separator"><span class="ico">—</span> Separador</div>
-    <div class="eitem" draggable="true" data-type="space"><span class="ico">⤓</span> Espacio</div>
-  </div>
-  <div class="egroup">
-    <div class="egroup-title">Tabla</div>
-    <div class="eitem" draggable="true" data-type="table"><span class="ico">⊞</span> Tabla</div>
-  </div>
-  <div class="egroup">
-    <div class="egroup-title">Especiales</div>
-    <div class="eitem" draggable="true" data-type="qr"><span class="ico">▦</span> QR</div>
-    <div class="eitem" draggable="true" data-type="barcode"><span class="ico">≡</span> Código Barras</div>
-    <div class="eitem" draggable="true" data-type="image" onclick="document.getElementById('imgGlobalPicker').click()"><span class="ico">🖼</span> Imagen</div>
-  </div>
-</div>
 
-<div class="canvas-area">
-  <div class="cbar">
-    <button class="danger" onclick="clearAll()">🗑 Limpiar</button>
-    <span style="color:var(--text2);font-size:9px">|</span>
-    <button onclick="tmpl('simple')">📋 Ticket</button>
-    <button onclick="tmpl('factura')">🧾 Factura</button>
-    <button onclick="tmpl('comanda')">📝 Comanda</button>
-    <span style="color:var(--text2);font-size:9px">|</span>
-    <button onclick="saveDesign()">💾 Guardar</button>
-    <button onclick="document.getElementById('lf').click()">📂 Cargar</button>
-    <input type="file" id="lf" accept=".json" style="display:none" onchange="loadDesign(event)">
-    <span style="color:var(--text2);font-size:9px">|</span>
-    <button class="primary" onclick="printNow(event)">🖨 Imprimir</button>
+<header>
+  <h1>Disenador de tickets</h1>
+  <div class="campo" style="min-width:150px">
+    <label for="pr">Impresora</label>
+    <input id="pr" list="impresoras" placeholder="caja">
+    <datalist id="impresoras"></datalist>
   </div>
-  <div class="cscroll">
-    <div id="canvas"></div>
+  <div class="campo">
+    <label for="pw">Papel</label>
+    <select id="pw">
+      <option value="384">58 mm</option>
+      <option value="512">72 mm</option>
+      <option value="576" selected>80 mm</option>
+    </select>
   </div>
-</div>
+  <div class="campo">
+    <label for="cut">Corte</label>
+    <select id="cut">
+      <option value="partial" selected>Parcial</option>
+      <option value="full">Completo</option>
+      <option value="none">Sin corte</option>
+    </select>
+  </div>
+  <div class="campo">
+    <label for="zoom">Zoom</label>
+    <select id="zoom">
+      <option value="1">1x</option>
+      <option value="2" selected>2x</option>
+      <option value="3">3x</option>
+    </select>
+  </div>
+  <div class="sep"></div>
+  <button id="btnPlantilla">Plantillas</button>
+  <button id="btnJSON">Ver JSON</button>
+  <button id="btnLimpiar" class="danger ghost">Limpiar</button>
+  <button id="btnImprimir" class="primary">Imprimir</button>
+</header>
 
-<div class="panel">
-  <h5>🎫 Ticket</h5>
-  <div class="pr"><label>Impresora</label><input id="pr" list="prList" value="Demo" oninput="render()"><button class="btn-s" type="button" title="Buscar impresoras" onclick="loadPrinters()">⟳</button></div>
-  <datalist id="prList"></datalist>
-  <div class="pr"><label>Ancho</label><select id="pw" onchange="render()"><option value=384>58mm</option><option value=512>72mm</option><option value=576 selected>80mm</option></select></div>
-  <div class="pr"><label>Borde</label><input type=checkbox id="tb" onchange="render()"></div>
-  <div class="pr"><label>Margen izq <span id="mlv">0</span></label>
-    <div class="mctrl"><button onclick="adj('tktML',-1)">−</button><button onclick="adj('tktML',1)">+</button></div>
-    <input type=hidden id="tktML" value=0>
-  </div>
-  <div class="pr"><label>Margen der <span id="mrv">0</span></label>
-    <div class="mctrl"><button onclick="adj('tktMR',-1)">−</button><button onclick="adj('tktMR',1)">+</button></div>
-    <input type=hidden id="tktMR" value=0>
-  </div>
-  <div class="pr"><label>Feed ini</label><input type=number id="ft" value=0 min=0 max=10 style="width:40px" oninput="render()"></div>
-  <div class="pr"><label>Feed fin</label><input type=number id="fb" value=3 min=0 max=20 style="width:40px" oninput="render()"></div>
-  <div class="pr"><label>QR</label><input id="gqr" placeholder="https://..." oninput="render()"></div>
-  <div class="pr"><label>Barcode</label><input id="gbar" placeholder="123456" oninput="render()"></div>
-  <input type=file id="imgGlobalPicker" accept="image/*" style="display:none" onchange="globalImage(event)">
+<main>
+  <section class="col">
+    <h2>Estructura</h2>
+    <div id="arbol"></div>
+    <div class="add">
+      <button id="addFila">+ Fila</button>
+    </div>
+    <div class="aviso info" style="margin-top:14px">
+      Un ticket es una pila de <b>filas</b>. Cada fila se parte en
+      <b>columnas</b>, y en cada columna pones los <b>elementos</b> que
+      quieras. Asi se consigue, por ejemplo, el texto a la izquierda y un QR
+      pequeno a la derecha.
+    </div>
+  </section>
 
-  <hr>
+  <section class="col">
+    <div class="previewbar">
+      <h2 style="margin:0">Vista previa</h2>
+      <span id="medidas" class="meta" style="color:var(--text2);font-size:11px"></span>
+      <div class="sep" style="flex:1"></div>
+      <button id="btnRefrescar" class="ghost">Actualizar</button>
+    </div>
+    <div id="errorPreview"></div>
+    <div class="papel"><img id="preview" alt="Vista previa del ticket"></div>
+    <p class="aviso info" style="margin-top:12px">
+      Lo que ves son los puntos exactos que salen por la impresora: la vista
+      previa la compone el mismo codigo que imprime.
+    </p>
+  </section>
 
-  <h5>✏️ Elemento</h5>
-  <div id="ns" class="nosel">← Haz clic en un elemento del ticket</div>
-  <div id="pp" style="display:none">
-    <div class="pr"><label>Tipo</label><span id="pt" style="color:var(--text2)"></span></div>
-    <div class="pr" id="prTxt"><label>Texto</label><textarea id="pTxt" rows=2 oninput="up('text',this.value)"></textarea></div>
-    <div class="pr" id="prAl"><label>Ali.</label>
-      <select id="pAl" onchange="up('align',this.value)"><option value=left>Izq</option><option value=center>Cen</option><option value=right>Der</option></select>
-    </div>
-    <div class="pr" id="prSz"><label>Tamaño</label>
-      <select id="pSz" onchange="up('size',this.value)">
-        <option value=normal>Normal</option><option value=double>Doble</option><option value=small>Pequeño</option><option value=wide>Ancho</option><option value=tall>Alto</option>
-      </select>
-    </div>
-    <div class="pr" id="prB"><label>Negrita</label><input type=checkbox id="pB" onchange="up('bold',this.checked)"></div>
-    <div class="pr" id="prU"><label>Subrayado</label><input type=checkbox id="pU" onchange="up('underline',this.checked)"></div>
-    <div class="pr" id="prBox"><label>Recuadro</label><input type=checkbox id="pBox" onchange="up('box',this.checked)"></div>
-    <div class="pr" id="prG"><label>Gap <span id="pgv">0</span></label>
-      <div class="mctrl"><button onclick="adjEl('gap',-1)">−</button><button onclick="adjEl('gap',1)">+</button></div>
-    </div>
-    <div class="pr" id="prML"><label>Margen izq <span id="pmlv">0</span></label>
-      <div class="mctrl"><button onclick="adjEl('ml',-1)">−</button><button onclick="adjEl('ml',1)">+</button></div>
-    </div>
-    <div class="pr" id="prMR"><label>Margen der <span id="pmrv">0</span></label>
-      <div class="mctrl"><button onclick="adjEl('mr',-1)">−</button><button onclick="adjEl('mr',1)">+</button></div>
-    </div>
-    <div class="pr" id="prImg" style="display:none"><label>Imagen</label><button class="btn-s" onclick="document.getElementById('ip').click()">Subir</button><input type=file id="ip" accept="image/*" style="display:none" onchange="imgUp(event)"></div>
-    <div class="pr" id="prQR" style="display:none"><label>QR</label><input id="pQR" onchange="up('qr',this.value)"></div>
-    <div class="pr" id="prBar" style="display:none"><label>Barcode</label><input id="pBar" onchange="up('barcode',this.value)"></div>
-    <div class="pr" id="prTab" style="display:none"><label>Tabla</label><div class="tedit" id="te"></div></div>
-    <div class="pr" style="margin-top:4px"><button class="btn-s btn-d" onclick="delEl()">🗑 Eliminar</button></div>
-  </div>
-
-  <hr>
-  <div class="tab-b">
-    <button class="on" onclick="sw('json',this)">📋 JSON</button>
-    <button onclick="sw('html',this)">🌐 HTML</button>
-  </div>
-  <div id="tj" class="tabc on"><code id="jsonOut"></code></div>
-  <div id="th" class="tabc"><code id="htmlOut"></code></div>
-</div>
-</div>
+  <section class="col">
+    <h2 id="tituloProps">Propiedades</h2>
+    <div id="props"><div class="vacio">Selecciona algo en la estructura</div></div>
+  </section>
+</main>
 
 <script>
-let E=[]; let SI=-1; let dragFrom=-1;
-// Debe coincidir con DocOptions.Columns() del servidor (internal/escpos/document.go):
-// 576 son 48 columnas, no 42. Con 42 la previsualizacion y los separadores
-// salian mas cortos que el papel real.
+// ---------------------------------------------------------------------------
+// Disenador de tickets.
+//
+// Trabaja con bloques maquetados: el ticket es una rejilla de filas y
+// columnas que el agente compone como imagen. Por eso la vista previa es
+// exacta y por eso se puede poner un QR al costado del texto, cosa que con
+// los comandos nativos de la impresora no se puede.
+// ---------------------------------------------------------------------------
+
 const API_BASE = location.protocol === "file:" ? "http://localhost:18743" : "";
 const TOKEN_KEY = "collatech.token";
-function storedToken(){ try { return localStorage.getItem(TOKEN_KEY) || ""; } catch(e) { return ""; } }
-// apiFetch anade la base y el token: las llamadas eran relativas, asi que el
-// disenador no funcionaba abierto como archivo local, al reves que el panel.
+const DOC_KEY = "collatech.designer";
+
+const $ = (id) => document.getElementById(id);
+
+function storedToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
+}
+
 async function apiFetch(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   const token = storedToken();
   if (token) headers["Authorization"] = "Bearer " + token;
   return fetch(API_BASE + path, { ...options, headers });
 }
-// El boton Limpiar llamaba a 'elements' y 'sel()', que no existen: lanzaba
-// ReferenceError al primer clic. El array es E y la seleccion es SI.
-function clearAll(){ if(E.length && confirm('Limpiar todo?')){ E=[]; SI=-1; render(); pp(); } }
-const COLS={384:32,512:42,576:48};
 
-function add(type,data){
-  const el={type};
-  if(type=='title'){el.text='TITULO';el.align='center';el.bold=true;el.size='double'}
-  else if(type=='subtitle'){el.text='Subtitulo';el.align='center'}
-  else if(type=='text'){el.text='Texto de ejemplo'}
-  else if(type=='separator'){el.text='────────────────────';el.align='left'}
-  else if(type=='space'){el.gap=1}
-  else if(type=='table'){el.table={border:true,header:true,columns:[{text:'ITEM',width:12,align:'left'},{text:'PRECIO',width:8,align:'right'}],rows:[['Producto','0.00'],['Total','0.00']]}}
-  else if(type=='qr'){el.qr='https://kollatek.com';el.align='center'}
-  else if(type=='barcode'){el.barcode='123456789';el.align='center'}
-  else if(type=='image'){el.image='';el.align='center'}
-  if(data) Object.assign(el,data);
-  E.push(el); select(E.length-1); render();
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
-function select(i){SI=i; pp(); document.querySelectorAll('.ci').forEach((d,j)=>d.classList.toggle('sel',j===i))}
+// --- Modelo -----------------------------------------------------------------
 
-function delEl(){if(SI<0)return;E.splice(SI,1);SI=-1;render()}
+// doc.rows son las filas del bloque. sel apunta a lo seleccionado.
+let doc = { padding: 6, border: false, rows: [] };
+let sel = null; // {tipo:"fila"|"col"|"item", f, c, i}
 
-function render(){
-  const c=document.getElementById('canvas'); c.innerHTML='';
-  const cols=COLS[+document.getElementById('pw').value]||32;
-  const border=document.getElementById('tb').checked;
-  E.forEach((el,i)=>{
-    const d=document.createElement('div'); d.className='ci'; d.dataset.idx=i;
-    d.draggable=true;
-    if(el.bold)d.classList.add('c-bld');
-    if(el.underline)d.classList.add('c-und');
-    if(el.align=='center')d.classList.add('c-alc');
-    else if(el.align=='right')d.classList.add('c-alr');
-    if(el.size=='double')d.classList.add('c-dbl'); else if(el.size=='small')d.classList.add('c-sml'); else if(el.size=='wide')d.classList.add('c-wid'); else if(el.size=='tall')d.classList.add('c-tal');
-    if(el.box)d.classList.add('c-bx'); if(border)d.classList.add('c-bdr');
-
-    const del=document.createElement('button'); del.className='cd'; del.textContent='×';
-    del.onclick=e=>{e.stopPropagation();E.splice(i,1);render()};
-    d.appendChild(del);
-
-    if(el.type=='space'){
-      d.className='ci c-spc'; d.textContent='⤓ espacio'; d.style.minHeight=Math.max(8,(el.gap||1)*8)+'px';
-    }else if(el.type=='title'||el.type=='subtitle'){
-      const tag=document.createElement('div'); tag.className='c-tag'; tag.textContent=el.type; d.appendChild(tag);
-      const t=document.createElement('div'); t.className='c-'+(el.type=='title'?'title':'sub');
-      t.textContent=el.text||'';
-      if(el.ml)t.style.paddingLeft=(el.ml*7)+'px'; if(el.mr)t.style.paddingRight=(el.mr*7)+'px';
-      d.appendChild(t);
-    }else if(el.type=='text'){
-      const tag=document.createElement('div'); tag.className='c-tag'; tag.textContent='txt'; d.appendChild(tag);
-      const t=document.createElement('div'); t.className='c-txt';
-      t.textContent=el.text||'';
-      if(el.ml)t.style.paddingLeft=(el.ml*7)+'px'; if(el.mr)t.style.paddingRight=(el.mr*7)+'px';
-      d.appendChild(t);
-    }else if(el.type=='separator'){
-      const hr=document.createElement('hr'); hr.className='c-hr'; d.appendChild(hr);
-    }else if(el.type=='table'){
-      const tag=document.createElement('div'); tag.className='c-tag'; tag.textContent='table'; d.appendChild(tag);
-      if(el.table&&el.table.columns){
-        const t=document.createElement('table'); t.className='ctable';
-        if(el.table.header){const h=document.createElement('tr');el.table.columns.forEach(c=>{const th=document.createElement('th');th.textContent=c.text;h.appendChild(th)});t.appendChild(h)}
-        (el.table.rows||[]).forEach(r=>{
-          const tr=document.createElement('tr');
-          r.forEach((cell,ci)=>{const td=document.createElement('td');td.textContent=cell;if(el.table.columns[ci]&&el.table.columns[ci].align=='right')td.style.textAlign='right';else if(el.table.columns[ci]&&el.table.columns[ci].align=='center')td.style.textAlign='center';tr.appendChild(td)});
-          t.appendChild(tr);
-        });
-        d.appendChild(t);
-      }
-    }else if(el.type=='qr'){d.innerHTML='<div class="c-qr">▦ QR: '+(el.qr||'sin datos')+'</div>'}
-    else if(el.type=='barcode'){d.innerHTML='<div class="c-bar">≡ Codigo: '+(el.barcode||'sin datos')+'</div>'}
-    else if(el.type=='image'){
-      d.innerHTML=el.image?'<div class="c-img"><img src="'+el.image+'"></div>':'<div class="c-img" style="color:#bbb">🖼 Sin imagen</div>';
-    }
-
-    d.onclick=()=>select(i);
-
-    // Drag reorder
-    d.addEventListener('dragstart',e=>{dragFrom=i;e.dataTransfer.effectAllowed='move';d.classList.add('dragging')});
-    d.addEventListener('dragend',e=>{d.classList.remove('dragging')});
-    d.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move'});
-    d.addEventListener('drop',e=>{
-      e.preventDefault(); e.stopPropagation();
-      if(dragFrom>=0&&dragFrom!==i){const[el]=E.splice(dragFrom,1);E.splice(i,0,el);SI=i;render()}
-      dragFrom=-1;
-    });
-    c.appendChild(d);
-  });
-
-  if(!E.length){
-    const e=document.createElement('div'); e.className='c-empty';
-    e.innerHTML='← Arrastra elementos aquí<br>o haz clic en "Ticket" para empezar';
-    c.appendChild(e);
+function filaNueva() {
+  return { align: "top", border: false, cols: [colNueva()] };
+}
+function colNueva() {
+  return { weight: 1, dots: 0, align: "left", pad: 0, border: false, items: [] };
+}
+function itemNuevo(tipo) {
+  switch (tipo) {
+    case "qr": return { type: "qr", qr: "https://kollatek.com", qr_ec: "M" };
+    case "barcode": return { type: "barcode", barcode: "123456789", bar_height: 60 };
+    case "image": return { type: "image", image: "" };
+    case "rule": return { type: "rule", height: 2 };
+    case "space": return { type: "space", height: 10 };
+    default: return { type: "text", text: "Texto", size: "m", align: "" };
   }
-
-  // Ticket-level margin display
-  document.getElementById('mlv').textContent=document.getElementById('tktML').value||0;
-  document.getElementById('mrv').textContent=document.getElementById('tktMR').value||0;
-  out();
 }
 
-// SIDEBAR DRAG
-document.querySelectorAll('.eitem[draggable]').forEach(el=>{
-  el.addEventListener('dragstart',e=>{
-    e.dataTransfer.setData('text/plain',el.dataset.type);
-    e.dataTransfer.effectAllowed='copy';
+function filaSel() { return sel && doc.rows[sel.f]; }
+function colSel() { const f = filaSel(); return f && sel.c != null && f.cols[sel.c]; }
+function itemSel() { const c = colSel(); return c && sel.i != null && c.items[sel.i]; }
+
+// --- Estructura (arbol) ------------------------------------------------------
+
+function resumenItem(it) {
+  switch (it.type) {
+    case "qr": return it.qr || "(QR vacio)";
+    case "barcode": return it.barcode || "(codigo vacio)";
+    case "image": return it.image ? "imagen cargada" : "(sin imagen)";
+    case "rule": return `linea de ${it.height || 2} pt`;
+    case "space": return `espacio de ${it.height || 10} pt`;
+    default: return it.text || "(vacio)";
+  }
+}
+
+function anchoCol(c) {
+  return c.dots > 0 ? `${c.dots} pt` : `flex ${c.weight || 1}`;
+}
+
+function pintarArbol() {
+  if (!doc.rows.length) {
+    $("arbol").innerHTML = `<div class="vacio">Sin filas todavia.<br>Pulsa <b>+ Fila</b> o carga una plantilla.</div>`;
+    return;
+  }
+  $("arbol").innerHTML = doc.rows.map((fila, f) => `
+    <div class="nodo ${sel && sel.tipo === "fila" && sel.f === f ? "sel" : ""}">
+      <div class="cab" data-sel="fila" data-f="${f}">
+        <span class="tit">Fila ${f + 1} <span class="meta">${fila.cols.length} col</span></span>
+        <span class="acc">
+          <button data-acc="subir" data-f="${f}" title="Subir">&uarr;</button>
+          <button data-acc="bajar" data-f="${f}" title="Bajar">&darr;</button>
+          <button data-acc="addcol" data-f="${f}" title="Anadir columna">+col</button>
+          <button class="danger" data-acc="delfila" data-f="${f}" title="Quitar fila">&times;</button>
+        </span>
+      </div>
+      <div class="hijos">
+        ${fila.cols.map((col, c) => `
+          <div class="celda ${sel && sel.tipo === "col" && sel.f === f && sel.c === c ? "sel" : ""}"
+               data-sel="col" data-f="${f}" data-c="${c}">
+            <div class="cab2">
+              <span class="tit">Columna ${c + 1}</span>
+              <span>${anchoCol(col)}</span>
+              <button data-acc="delcol" data-f="${f}" data-c="${c}" title="Quitar columna">&times;</button>
+            </div>
+            ${col.items.map((it, i) => `
+              <div class="item ${sel && sel.tipo === "item" && sel.f === f && sel.c === c && sel.i === i ? "sel" : ""}"
+                   data-sel="item" data-f="${f}" data-c="${c}" data-i="${i}">
+                <span class="tipo">${esc(it.type)}</span>
+                <span class="txt">${esc(resumenItem(it))}</span>
+                <button data-acc="delitem" data-f="${f}" data-c="${c}" data-i="${i}">&times;</button>
+              </div>`).join("")}
+            <div class="add">
+              ${["text", "qr", "barcode", "image", "rule", "space"].map((t) =>
+                `<button data-acc="additem" data-tipo="${t}" data-f="${f}" data-c="${c}">+ ${t}</button>`
+              ).join("")}
+            </div>
+          </div>`).join("")}
+      </div>
+    </div>`).join("");
+}
+
+$("arbol").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-acc]");
+  if (btn) {
+    ev.stopPropagation();
+    accion(btn.dataset);
+    return;
+  }
+  const nodo = ev.target.closest("[data-sel]");
+  if (!nodo) return;
+  sel = {
+    tipo: nodo.dataset.sel,
+    f: Number(nodo.dataset.f),
+    c: nodo.dataset.c != null ? Number(nodo.dataset.c) : null,
+    i: nodo.dataset.i != null ? Number(nodo.dataset.i) : null,
+  };
+  pintarArbol();
+  pintarProps();
+});
+
+function accion(d) {
+  const f = Number(d.f), c = Number(d.c), i = Number(d.i);
+  switch (d.acc) {
+    case "subir":
+      if (f > 0) { [doc.rows[f - 1], doc.rows[f]] = [doc.rows[f], doc.rows[f - 1]]; sel = null; }
+      break;
+    case "bajar":
+      if (f < doc.rows.length - 1) { [doc.rows[f + 1], doc.rows[f]] = [doc.rows[f], doc.rows[f + 1]]; sel = null; }
+      break;
+    case "delfila": doc.rows.splice(f, 1); sel = null; break;
+    case "addcol": doc.rows[f].cols.push(colNueva()); break;
+    case "delcol":
+      if (doc.rows[f].cols.length > 1) { doc.rows[f].cols.splice(c, 1); sel = null; }
+      break;
+    case "additem":
+      doc.rows[f].cols[c].items.push(itemNuevo(d.tipo));
+      sel = { tipo: "item", f, c, i: doc.rows[f].cols[c].items.length - 1 };
+      break;
+    case "delitem": doc.rows[f].cols[c].items.splice(i, 1); sel = null; break;
+  }
+  cambiado();
+}
+
+// --- Propiedades -------------------------------------------------------------
+
+function campoTexto(id, etiqueta, valor, placeholder = "") {
+  return `<div><label for="${id}">${etiqueta}</label>
+    <input id="${id}" value="${esc(valor)}" placeholder="${esc(placeholder)}"></div>`;
+}
+function campoNum(id, etiqueta, valor, extra = "") {
+  return `<div><label for="${id}">${etiqueta}</label>
+    <input id="${id}" type="number" value="${valor == null ? "" : valor}" ${extra}></div>`;
+}
+function campoSel(id, etiqueta, valor, opciones) {
+  return `<div><label for="${id}">${etiqueta}</label><select id="${id}">${
+    opciones.map(([v, t]) => `<option value="${v}"${String(valor || "") === v ? " selected" : ""}>${t}</option>`).join("")
+  }</select></div>`;
+}
+function campoCheck(id, etiqueta, valor) {
+  return `<label class="check"><input id="${id}" type="checkbox"${valor ? " checked" : ""}> ${etiqueta}</label>`;
+}
+
+const ALINEACIONES = [["", "Heredar"], ["left", "Izquierda"], ["center", "Centro"], ["right", "Derecha"]];
+const TAMANOS = [["xs", "xs - muy pequeno"], ["s", "s - pequeno"], ["m", "m - normal"],
+                 ["l", "l - grande"], ["xl", "xl - titulo"], ["xxl", "xxl - enorme"]];
+
+function pintarProps() {
+  const caja = $("props");
+  const it = itemSel(), col = colSel(), fila = filaSel();
+
+  if (sel && sel.tipo === "item" && it) {
+    $("tituloProps").textContent = `Elemento: ${it.type}`;
+    caja.innerHTML = `<div class="props">${propsItem(it)}</div>`;
+  } else if (sel && sel.tipo === "col" && col) {
+    $("tituloProps").textContent = `Columna ${sel.c + 1}`;
+    caja.innerHTML = `<div class="props">
+      ${campoNum("p_dots", "Ancho fijo en puntos (0 = flexible)", col.dots, 'min="0" max="576"')}
+      ${campoNum("p_weight", "Peso si es flexible", col.weight, 'min="1" max="12"')}
+      ${campoSel("p_align", "Alineacion del contenido", col.align, ALINEACIONES)}
+      ${campoNum("p_pad", "Relleno interior", col.pad, 'min="0" max="40"')}
+      ${campoCheck("p_border", "Con borde", col.border)}
+      <p class="aviso info">Para un QR al costado, pon aqui un ancho fijo
+      (unos 140 puntos) y deja la otra columna flexible.</p>
+    </div>`;
+  } else if (sel && sel.tipo === "fila" && fila) {
+    $("tituloProps").textContent = `Fila ${sel.f + 1}`;
+    caja.innerHTML = `<div class="props">
+      ${campoSel("p_valign", "Alineacion vertical", fila.align,
+        [["top", "Arriba"], ["middle", "Centrada"], ["bottom", "Abajo"]])}
+      ${campoNum("p_gap", "Separacion entre columnas", fila.gap == null ? "" : fila.gap, 'min="0" max="40" placeholder="por defecto"')}
+      ${campoNum("p_minh", "Alto minimo", fila.min_height, 'min="0" max="400"')}
+      ${campoCheck("p_fborder", "Con borde", fila.border)}
+    </div>`;
+  } else {
+    $("tituloProps").textContent = "Ticket";
+    caja.innerHTML = `<div class="props">
+      ${campoNum("p_padding", "Margen interior del ticket", doc.padding, 'min="0" max="40"')}
+      ${campoCheck("p_dborder", "Marco alrededor de todo", doc.border)}
+      <p class="aviso info">Selecciona una fila, una columna o un elemento
+      para editarlo.</p>
+    </div>`;
+  }
+  caja.querySelectorAll("input,select").forEach((el) => {
+    el.addEventListener("input", aplicarProps);
+    el.addEventListener("change", aplicarProps);
+  });
+}
+
+function propsItem(it) {
+  const comun = campoSel("p_ialign", "Alineacion", it.align, ALINEACIONES);
+  switch (it.type) {
+    case "qr":
+      return `${campoTexto("p_qr", "Contenido del QR", it.qr, "https://...")}
+        ${campoSel("p_qrec", "Correccion de errores", it.qr_ec,
+          [["L", "L - minima"], ["M", "M - normal"], ["Q", "Q - alta"], ["H", "H - maxima"]])}
+        ${campoNum("p_qrsize", "Tamano del punto (0 = ajustar)", it.qr_size, 'min="0" max="16"')}
+        ${comun}
+        <p class="aviso info">Con 0, el QR se ajusta al ancho de su columna.
+        Mas correccion = QR mas grande pero legible aunque se manche.</p>`;
+    case "barcode":
+      return `${campoTexto("p_bc", "Contenido", it.barcode, "123456789")}
+        ${campoNum("p_bch", "Alto en puntos", it.bar_height, 'min="20" max="255"')}
+        ${comun}
+        <p class="aviso info">Code128. Solo admite caracteres ASCII.</p>`;
+    case "image":
+      return `<div><label for="p_file">Imagen</label><input id="p_file" type="file" accept="image/*"></div>
+        ${campoNum("p_ih", "Alto maximo (0 = libre)", it.height, 'min="0" max="600"')}
+        ${comun}`;
+    case "rule":
+      return campoNum("p_h", "Grosor en puntos", it.height, 'min="1" max="20"');
+    case "space":
+      return campoNum("p_h", "Alto en puntos", it.height, 'min="1" max="200"');
+    default:
+      return `<div><label for="p_text">Texto</label>
+          <textarea id="p_text" rows="3">${esc(it.text)}</textarea></div>
+        <div class="fila2">
+          ${campoSel("p_size", "Tamano", it.size, TAMANOS)}
+          ${campoNum("p_sizepx", "o exacto (pt)", it.size_px, 'min="0" max="200"')}
+        </div>
+        ${comun}
+        ${campoCheck("p_bold", "Negrita", it.bold)}
+        ${campoCheck("p_mono", "Ancho fijo (para importes)", it.mono)}
+        ${campoCheck("p_invert", "Fondo negro", it.invert)}
+        ${campoNum("p_gapi", "Separacion debajo", it.gap, 'min="0" max="60"')}`;
+  }
+}
+
+function num(id) {
+  const el = $(id);
+  if (!el || el.value === "") return undefined;
+  const v = Number(el.value);
+  return Number.isFinite(v) ? v : undefined;
+}
+function txt(id) { const el = $(id); return el ? el.value : undefined; }
+function chk(id) { const el = $(id); return el ? el.checked : undefined; }
+
+function aplicarProps() {
+  const it = itemSel(), col = colSel(), fila = filaSel();
+  if (sel && sel.tipo === "item" && it) {
+    it.align = txt("p_ialign") ?? it.align;
+    switch (it.type) {
+      case "qr":
+        it.qr = txt("p_qr"); it.qr_ec = txt("p_qrec"); it.qr_size = num("p_qrsize") || 0; break;
+      case "barcode":
+        it.barcode = txt("p_bc"); it.bar_height = num("p_bch") || 0; break;
+      case "image":
+        it.height = num("p_ih") || 0; break;
+      case "rule": case "space":
+        it.height = num("p_h") || 0; break;
+      default:
+        it.text = txt("p_text"); it.size = txt("p_size");
+        it.size_px = num("p_sizepx") || 0;
+        it.bold = chk("p_bold"); it.mono = chk("p_mono"); it.invert = chk("p_invert");
+        it.gap = num("p_gapi") || 0;
+    }
+  } else if (sel && sel.tipo === "col" && col) {
+    col.dots = num("p_dots") || 0;
+    col.weight = num("p_weight") || 1;
+    col.align = txt("p_align");
+    col.pad = num("p_pad") || 0;
+    col.border = chk("p_border");
+  } else if (sel && sel.tipo === "fila" && fila) {
+    fila.align = txt("p_valign");
+    const g = num("p_gap");
+    if (g === undefined) delete fila.gap; else fila.gap = g;
+    fila.min_height = num("p_minh") || 0;
+    fila.border = chk("p_fborder");
+  } else {
+    doc.padding = num("p_padding") || 0;
+    doc.border = chk("p_dborder");
+  }
+  cambiado(true);
+}
+
+// La imagen se carga aparte porque es asincrona.
+$("props").addEventListener("change", (ev) => {
+  if (ev.target.id !== "p_file") return;
+  const f = ev.target.files && ev.target.files[0];
+  const it = itemSel();
+  if (!f || !it) return;
+  const r = new FileReader();
+  r.onload = (e) => { it.image = e.target.result; cambiado(); };
+  r.readAsDataURL(f);
+});
+
+// --- Vista previa -------------------------------------------------------------
+
+let temporizador = null;
+
+function cambiado(soloPrevia = false) {
+  if (!soloPrevia) pintarArbol();
+  guardar();
+  clearTimeout(temporizador);
+  temporizador = setTimeout(refrescarPrevia, 220);
+}
+
+function cuerpoLayout() {
+  // Se limpian los valores en cero para que el JSON no lleve ruido.
+  const limpiar = (o) => {
+    const out = {};
+    for (const [k, v] of Object.entries(o)) {
+      if (v === "" || v === 0 || v === false || v == null) continue;
+      out[k] = v;
+    }
+    return out;
+  };
+  return {
+    padding: doc.padding || 0,
+    border: !!doc.border,
+    rows: doc.rows.map((f) => {
+      const fila = limpiar({ align: f.align === "top" ? "" : f.align, border: f.border, min_height: f.min_height });
+      if (f.gap != null) fila.gap = f.gap;
+      fila.cols = f.cols.map((c) => {
+        const col = limpiar({ dots: c.dots, align: c.align, pad: c.pad, border: c.border });
+        if (!c.dots) col.weight = c.weight || 1;
+        col.items = c.items.map((it) => limpiar({ ...it, type: it.type }));
+        return col;
+      });
+      return fila;
+    }),
+  };
+}
+
+async function refrescarPrevia() {
+  const ancho = Number($("pw").value);
+  const escala = Number($("zoom").value);
+  $("errorPreview").innerHTML = "";
+  if (!doc.rows.length) {
+    $("preview").removeAttribute("src");
+    $("medidas").textContent = "";
+    return;
+  }
+  try {
+    const res = await apiFetch("/api/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ width: ancho, scale: escala, layout: cuerpoLayout() }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "error " + res.status }));
+      $("errorPreview").innerHTML = `<div class="aviso err">${esc(err.error || "no se pudo componer")}</div>`;
+      return;
+    }
+    const blob = await res.blob();
+    const anterior = $("preview").src;
+    $("preview").src = URL.createObjectURL(blob);
+    if (anterior && anterior.startsWith("blob:")) URL.revokeObjectURL(anterior);
+    $("preview").onload = () => {
+      const alto = Math.round($("preview").naturalHeight / escala);
+      $("medidas").textContent = `${ancho} x ${alto} puntos  ·  ${(alto / 8).toFixed(0)} mm de papel`;
+    };
+  } catch (e) {
+    $("errorPreview").innerHTML = `<div class="aviso err">No se pudo contactar con el agente.</div>`;
+  }
+}
+
+// --- Acciones -----------------------------------------------------------------
+
+function cuerpoImpresion() {
+  return {
+    printer: $("pr").value.trim() || "default",
+    width: Number($("pw").value),
+    cut: $("cut").value,
+    layout: cuerpoLayout(),
+  };
+}
+
+$("btnImprimir").addEventListener("click", async () => {
+  if (!doc.rows.length) { alert("El ticket esta vacio."); return; }
+  try {
+    const res = await apiFetch("/api/print/layout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cuerpoImpresion()),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw data;
+    $("errorPreview").innerHTML = `<div class="aviso info">Enviado a imprimir.</div>`;
+  } catch (e) {
+    $("errorPreview").innerHTML = `<div class="aviso err">${esc(e.error || "No se pudo imprimir")}</div>`;
+  }
+});
+
+$("btnJSON").addEventListener("click", () => {
+  const cuerpo = JSON.stringify(cuerpoImpresion(), null, 2);
+  $("tituloProps").textContent = "JSON para POST /api/print/layout";
+  $("props").innerHTML = `<pre>${esc(cuerpo)}</pre>
+    <button id="copiarJSON" style="margin-top:8px">Copiar</button>`;
+  $("copiarJSON").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(cuerpo); $("copiarJSON").textContent = "Copiado"; }
+    catch (e) { $("copiarJSON").textContent = "Seleccionalo a mano"; }
   });
 });
 
-// CANVAS DROP (from sidebar)
-const canvas=document.getElementById('canvas');
-canvas.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';canvas.classList.add('dragover')});
-canvas.addEventListener('dragleave',()=>canvas.classList.remove('dragover'));
-canvas.addEventListener('drop',e=>{
-  e.preventDefault(); canvas.classList.remove('dragover');
-  const type=e.dataTransfer.getData('text/plain');
-  if(type)add(type);
+$("btnLimpiar").addEventListener("click", () => {
+  if (!doc.rows.length || confirm("Se borra el diseno actual. Continuar?")) {
+    doc = { padding: 6, border: false, rows: [] };
+    sel = null;
+    cambiado();
+    pintarProps();
+  }
 });
 
-// ===== PROP PANEL =====
-function pp(){
-  const el=SI>=0?E[SI]:null;
-  document.getElementById('ns').style.display=el?'none':'block';
-  document.getElementById('pp').style.display=el?'block':'none';
-  if(!el)return;
-  document.getElementById('pt').textContent=el.type;
-  ['prTxt','prAl','prSz','prB','prU','prBox','prG','prML','prMR','prImg','prQR','prBar','prTab'].forEach(id=>document.getElementById(id).style.display='none');
-  document.getElementById('prTxt').style.display='block'; document.getElementById('pTxt').value=el.text||'';
-  if(el.type!=='space'){
-    document.getElementById('prAl').style.display='block'; document.getElementById('pAl').value=el.align||'left';
-  }
-  if(['title','subtitle','text'].includes(el.type)){
-    document.getElementById('prSz').style.display='block'; document.getElementById('pSz').value=el.size||'normal';
-    document.getElementById('prB').style.display='block'; document.getElementById('pB').checked=!!el.bold;
-    document.getElementById('prU').style.display='block'; document.getElementById('pU').checked=!!el.underline;
-    document.getElementById('prBox').style.display='block'; document.getElementById('pBox').checked=!!el.box;
-    document.getElementById('prG').style.display='block'; document.getElementById('pgv').textContent=el.gap||0;
-    document.getElementById('prML').style.display='block'; document.getElementById('pmlv').textContent=el.ml||0;
-    document.getElementById('prMR').style.display='block'; document.getElementById('pmrv').textContent=el.mr||0;
-  }
-  if(el.type==='space'){
-    document.getElementById('prG').style.display='block'; document.getElementById('pgv').textContent=el.gap||1;
-  }
-  if(el.type==='image'){document.getElementById('prImg').style.display='block'}
-  if(el.type==='qr'){document.getElementById('prQR').style.display='block';document.getElementById('pQR').value=el.qr||''}
-  if(el.type==='barcode'){document.getElementById('prBar').style.display='block';document.getElementById('pBar').value=el.barcode||''}
-  if(el.type==='table'){document.getElementById('prTab').style.display='block';tEdit(el)}
-}
+$("addFila").addEventListener("click", () => {
+  doc.rows.push(filaNueva());
+  sel = { tipo: "fila", f: doc.rows.length - 1, c: null, i: null };
+  cambiado();
+  pintarProps();
+});
 
-function up(k,v){if(SI<0)return;E[SI][k]=v;render()}
+$("pw").addEventListener("change", refrescarPrevia);
+$("zoom").addEventListener("change", refrescarPrevia);
+$("btnRefrescar").addEventListener("click", refrescarPrevia);
 
-function adjEl(k,delta){
-  if(SI<0)return;
-  const el=E[SI]; const v=(el[k]||0)+delta;
-  el[k]=Math.max(0,Math.min(20,v));
-  render();
-}
+// --- Plantillas ----------------------------------------------------------------
 
-function adj(id,delta){
-  const inp=document.getElementById(id); const v=(+inp.value||0)+delta;
-  inp.value=Math.max(0,Math.min(10,v));
-  render();
-}
+const PLANTILLAS = {
+  "Factura con QR al costado": () => ({
+    padding: 6, border: false,
+    rows: [
+      { align: "top", cols: [{ weight: 1, align: "center", items: [
+        { type: "text", text: "CAFETERIA CENTRAL", size: "xl", bold: true },
+        { type: "text", text: "Av. Siempre Viva 742", size: "s" }] }] },
+      { align: "top", cols: [{ weight: 1, items: [{ type: "rule", height: 2 }] }] },
+      { align: "middle", cols: [
+        { weight: 1, items: [
+          { type: "text", text: "Factura #F-000123", bold: true },
+          { type: "text", text: "Cliente: Ana Pena" },
+          { type: "text", text: "02/10/2026 14:35", size: "s" }] },
+        { dots: 150, align: "right", items: [{ type: "qr", qr: "https://kollatek.com/f/000123", qr_ec: "M" }] }] },
+      { align: "top", cols: [{ weight: 1, items: [{ type: "rule", height: 2 }] }] },
+      { align: "top", cols: [
+        { weight: 3, pad: 4, border: true, items: [{ type: "text", text: "Cafe con leche", mono: true }] },
+        { dots: 70, pad: 4, border: true, align: "center", items: [{ type: "text", text: "2", mono: true }] },
+        { dots: 130, pad: 4, border: true, align: "right", items: [{ type: "text", text: "24.00", mono: true }] }] },
+      { align: "top", cols: [
+        { weight: 1, items: [] },
+        { dots: 300, pad: 6, items: [{ type: "text", text: "TOTAL  Bs 24.00", size: "l", bold: true, align: "center", invert: true }] }] },
+      { align: "top", cols: [{ weight: 1, align: "center", items: [
+        { type: "text", text: "Gracias por su compra", size: "s" }] }] },
+    ],
+  }),
+  "Comanda de cocina": () => ({
+    padding: 4, border: true,
+    rows: [
+      { align: "top", cols: [{ weight: 1, align: "center", items: [{ type: "text", text: "COMANDA", size: "xl", bold: true }] }] },
+      { align: "top", cols: [
+        { weight: 1, items: [{ type: "text", text: "Mesa 4", size: "l", bold: true }] },
+        { weight: 1, align: "right", items: [{ type: "text", text: "14:35", size: "l" }] }] },
+      { align: "top", cols: [{ weight: 1, items: [{ type: "rule", height: 3 }] }] },
+      { align: "top", cols: [
+        { dots: 60, items: [{ type: "text", text: "2x", size: "l", bold: true }] },
+        { weight: 1, items: [{ type: "text", text: "Cafe con leche", size: "l" }, { type: "text", text: "sin azucar", size: "s" }] }] },
+      { align: "top", cols: [
+        { dots: 60, items: [{ type: "text", text: "3x", size: "l", bold: true }] },
+        { weight: 1, items: [{ type: "text", text: "Empanada de queso", size: "l" }] }] },
+      { align: "top", cols: [{ weight: 1, align: "center", items: [
+        { type: "text", text: "PARA LLEVAR", size: "l", bold: true, invert: true }] }] },
+    ],
+  }),
+  "Etiqueta con codigo": () => ({
+    padding: 6, border: true,
+    rows: [
+      { align: "middle", cols: [
+        { weight: 1, items: [
+          { type: "text", text: "Producto", size: "s" },
+          { type: "text", text: "Cafe molido 250g", size: "l", bold: true },
+          { type: "text", text: "Bs 45.00", size: "xl", bold: true }] },
+        { dots: 160, align: "center", items: [{ type: "qr", qr: "SKU-000123" }] }] },
+      { align: "top", cols: [{ weight: 1, align: "center", items: [
+        { type: "barcode", barcode: "000123", bar_height: 60 }] }] },
+    ],
+  }),
+};
 
-function tEdit(el){
-  const ed=document.getElementById('te');
-  const tbl=el.table||{border:true,header:true,columns:[{text:'ITEM',width:12,align:'left'}],rows:[['']]};
-  el.table=tbl;
-  let h='<div class="pr" style="margin-bottom:2px">';
-  h+=`<label>Borde</label><input type=checkbox ${tbl.border?'checked':''} onchange="E[SI].table.border=this.checked;render()">`;
-  h+=`<label>Encab.</label><input type=checkbox ${tbl.header?'checked':''} onchange="E[SI].table.header=this.checked;render()">`;
-  h+='</div>';
-  h+='<div style="margin-bottom:2px;font-size:9px;color:var(--text2)">Columnas:</div><table><tr>';
-  tbl.columns.forEach((c,ci)=>{
-    h+=`<td><input class="cw" value="${c.width}" onchange="E[SI].table.columns[${ci}].width=parseInt(this.value)||5;render()"></td>`;
-  });
-  h+=`<td><button class="btn-s" onclick="addCol(${SI})">+</button></td></tr><tr>`;
-  tbl.columns.forEach((c,ci)=>{
-    h+=`<td><input value="${c.text}" onchange="E[SI].table.columns[${ci}].text=this.value;render()"></td>`;
-  });
-  h+='</tr></table><div style="margin:2px 0;font-size:9px;color:var(--text2)">Filas:</div><table>';
-  tbl.rows.forEach((r,ri)=>{
-    h+='<tr>';
-    r.forEach((c,ci)=>{
-      h+=`<td><input value="${c}" onchange="E[SI].table.rows[${ri}][${ci}]=this.value;render()"></td>`;
+$("btnPlantilla").addEventListener("click", () => {
+  $("tituloProps").textContent = "Plantillas";
+  $("props").innerHTML = `<div class="props">
+    <p class="aviso info">Un punto de partida. Luego lo cambias todo.</p>
+    ${Object.keys(PLANTILLAS).map((n) =>
+      `<button data-plantilla="${esc(n)}" style="text-align:left">${esc(n)}</button>`).join("")}
+  </div>`;
+  $("props").querySelectorAll("[data-plantilla]").forEach((b) => {
+    b.addEventListener("click", () => {
+      doc = PLANTILLAS[b.dataset.plantilla]();
+      sel = null;
+      cambiado();
+      pintarProps();
     });
-    h+=`<td><button class="btn-s" onclick="E[SI].table.rows.splice(${ri},1);render()">×</button></td></tr>`;
   });
-  h+='</table><button class="btn-s" onclick="addRow('+SI+')" style="margin-top:2px">+ fila</button>';
-  ed.innerHTML=h;
+});
+
+// --- Persistencia en el navegador ------------------------------------------------
+
+function guardar() {
+  try { localStorage.setItem(DOC_KEY, JSON.stringify(doc)); } catch (e) { /* modo privado */ }
 }
 
-function addCol(i){const t=E[i].table;const w=Math.floor(40/(t.columns.length+1));t.columns.push({text:'Nuevo',width:w,align:'left'});t.rows.forEach(r=>r.push(''));render()}
-function addRow(i){E[i].table.rows.push(E[i].table.columns.map(()=>''));render()}
-
-function imgUp(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{if(SI>=0){E[SI].image=ev.target.result;render()}};r.readAsDataURL(f)}
-
-function globalImage(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>add('image',{image:ev.target.result});r.readAsDataURL(f)}
-
-// ===== JSON GENERATOR =====
-function genJSON(){
-  const cols=COLS[+document.getElementById('pw').value]||32;
-  const lines=[];
-  // Cada elemento se emite con su propio tipo. Antes, un segundo QR o codigo
-  // de barras se imprimia como texto plano con la URL dentro.
-  E.forEach(el=>{
-    if(el.type=='space'){
-      lines.push({type:'feed',feed:el.gap||1});
-    }else if(['title','subtitle','text'].includes(el.type)){
-      const l={text:el.text||''};
-      if(el.align&&el.align!='left')l.align=el.align;
-      if(el.bold)l.bold=true; if(el.underline)l.underline=true;
-      if(el.invert)l.invert=true;
-      if(el.size&&el.size!='normal')l.size=el.size;
-      if(el.box)l.box=true;
-      if(el.ml>0)l.ml=el.ml; if(el.mr>0)l.mr=el.mr;
-      if(el.gap>0)l.gap=el.gap;
-      lines.push(l);
-    }else if(el.type=='separator'){
-      lines.push({type:'rule',rule:'\u2500'});
-    }else if(el.type=='table'){
-      lines.push({type:'table',table:el.table});
-    }else if(el.type=='qr'){
-      if(el.qr)lines.push({type:'qr',qr:{data:el.qr}});
-    }else if(el.type=='barcode'){
-      if(el.barcode)lines.push({type:'barcode',barcode:{data:el.barcode}});
-    }else if(el.type=='image'){
-      if(el.image)lines.push({type:'image',image:el.image});
-    }
-  });
-  const t={printer:document.getElementById('pr').value||'Demo',width:+document.getElementById('pw').value||384,cut:'partial',lines};
-  const ft=+document.getElementById('ft').value;if(ft>0)t.feed_top=ft;
-  const fb=+document.getElementById('fb').value;if(fb>0)t.feed_bottom=fb;
-  if(document.getElementById('tb').checked)t.border=true;
-  const ml=+document.getElementById('tktML').value;if(ml>0)t.margin_left=ml;
-  const mr=+document.getElementById('tktMR').value;if(mr>0)t.margin_right=mr;
-  // Los campos sueltos del formulario se anaden como elementos al final.
-  const gqr=document.getElementById('gqr').value.trim(); if(gqr)t.qr=gqr;
-  const gbar=document.getElementById('gbar').value.trim(); if(gbar)t.barcode=gbar;
-  return t;
+function recuperar() {
+  try {
+    const raw = localStorage.getItem(DOC_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (d && Array.isArray(d.rows)) { doc = d; return true; }
+  } catch (e) { /* nada que recuperar */ }
+  return false;
 }
 
-function genHTML(){
-  let h='';
-  E.forEach(el=>{
-    if(el.type=='title')h+='<h2>'+esc(el.text||'')+'</h2>';
-    else if(el.type=='subtitle')h+='<h4>'+esc(el.text||'')+'</h4>';
-    else if(el.type=='text'){const a=el.align||'left';h+='<p align="'+a+'">'+esc(el.text||'')+'</p>'}
-    else if(el.type=='separator')h+='<hr>';
-    else if(el.type=='space')h+='<br>'.repeat(el.gap||1);
-    else if(el.type=='table'&&el.table&&el.table.columns){
-      h+='<table>'; if(el.table.header){h+='<tr>';el.table.columns.forEach(c=>{h+='<th>'+esc(c.text)+'</th>'});h+='</tr>'}
-      (el.table.rows||[]).forEach(r=>{h+='<tr>';r.forEach(c=>h+='<td>'+esc(c)+'</td>');h+='</tr>'});
-      h+='</table>';
-    }
-    else if(el.type=='qr')h+='<p align="center">QR: '+esc(el.qr||'')+'</p>';
-    else if(el.type=='barcode')h+='<p align="center">Barcode: '+esc(el.barcode||'')+'</p>';
-    else if(el.type=='image'&&el.image)h+='<p align="center">[LOGO]</p>';
-  }); return h;
-}
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
-
-function out(){
-  document.getElementById('jsonOut').textContent=JSON.stringify(genJSON(),null,2);
-  document.getElementById('htmlOut').textContent=genHTML();
+async function cargarImpresoras() {
+  try {
+    const res = await apiFetch("/api/printers-config");
+    const data = await res.json();
+    const lista = (data.data || []).map((p) => p.name);
+    $("impresoras").innerHTML = lista.map((n) => `<option value="${esc(n)}">`).join("");
+    if (!$("pr").value && lista.length) $("pr").value = lista[0];
+  } catch (e) { /* el disenador funciona igual sin la lista */ }
 }
 
-// ===== PRINT =====
-async function printNow(ev){
-  const b=ev.target; b.textContent='🔄'; b.disabled=true;
-  try{
-    const r=await apiFetch('/api/print/ticket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(genJSON())});
-    const j=await r.json();
-    b.textContent=j.ok?'✅ OK':'❌ '+j.error;
-    setTimeout(()=>{b.textContent='🖨 Imprimir';b.disabled=false},2000);
-  }catch(e){b.textContent='❌ Error';b.disabled=false;alert('Error: '+e.message)}
-}
+// --- Arranque ---------------------------------------------------------------------
 
-// ===== SAVE/LOAD =====
-function saveDesign(){
-  const d={printer:document.getElementById('pr').value,width:document.getElementById('pw').value,border:document.getElementById('tb').checked,ft:document.getElementById('ft').value,fb:document.getElementById('fb').value,ml:document.getElementById('tktML').value,mr:document.getElementById('tktMR').value,qr:document.getElementById('gqr').value,bar:document.getElementById('gbar').value,elements:E};
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:'application/json'}));
-  a.download='collatech-diseno.json'; a.click();
+if (!recuperar()) {
+  doc = PLANTILLAS["Factura con QR al costado"]();
 }
-
-function loadDesign(ev){
-  const f=ev.target.files[0]; if(!f)return;
-  const r=new FileReader();
-  r.onload=e=>{
-    try{
-      const d=JSON.parse(e.target.result);
-      document.getElementById('pr').value=d.printer||'Demo'; document.getElementById('pw').value=d.width||'384';
-      document.getElementById('tb').checked=!!d.border; document.getElementById('ft').value=d.ft||0; document.getElementById('fb').value=d.fb||3;
-      document.getElementById('tktML').value=d.ml||0; document.getElementById('tktMR').value=d.mr||0;
-      document.getElementById('gqr').value=d.qr||''; document.getElementById('gbar').value=d.bar||'';
-      E=d.elements||[]; SI=-1; render();
-    }catch(err){alert('Error: '+err.message)}
-  }; r.readAsText(f);
-}
-
-// ===== TEMPLATES =====
-function tmpl(name){
-  E=[];
-  if(name=='simple'){
-    add('title',{text:'MI TIENDA'}); add('text',{text:'Gracias por tu compra',align:'center'});
-    add('separator'); add('text',{text:'Producto 1             Bs 20.00'}); add('text',{text:'Producto 2             Bs 15.00'});
-    add('separator'); add('text',{text:'TOTAL                  Bs 35.00',bold:true}); add('space',{gap:1});
-    add('table',{table:{border:true,header:true,columns:[{text:'CANT',width:5,align:'center'},{text:'PRODUCTO',width:14,align:'left'},{text:'PRECIO',width:8,align:'right'}],rows:[['2','Hamburguesa','20.00'],['1','Papa Frita','8.00']]}});
-  }else if(name=='factura'){
-    add('title',{text:'FACTURA'}); add('text',{text:'Cliente: Juan Perez'}); add('text',{text:new Date().toLocaleDateString(),align:'left'});
-    add('separator'); add('table',{table:{border:false,header:true,columns:[{text:'CANT',width:4,align:'center'},{text:'PRODUCTO',width:16,align:'left'},{text:'PRECIO',width:10,align:'right'}],rows:[['1','Producto A','50.00'],['2','Producto B','70.00']]}});
-    add('separator'); add('text',{text:'TOTAL              Bs 120.00',bold:true}); add('text',{text:'Gracias!',align:'center'});
-  }else if(name=='comanda'){
-    add('title',{text:'COMANDA'}); add('text',{text:'Mesa #5 - Juan Perez',align:'center'});
-    add('separator'); add('text',{text:'2x Hamburguesa'}); add('text',{text:'1x Papas Fritas'}); add('text',{text:'2x Malteada'});
-    add('separator'); add('text',{text:new Date().toLocaleTimeString(),align:'center'});
-  }
-  render();
-}
-
-function sw(t,b){
-  document.querySelectorAll('.tab-b button').forEach(x=>x.classList.remove('on'));
-  document.querySelectorAll('.tabc').forEach(x=>x.classList.remove('on'));
-  b.classList.add('on'); document.getElementById('t'+t).classList.add('on');
-}
-
-// ===== IMPRESORAS =====
-async function loadPrinters(){
-  const list=document.getElementById('prList');
-  try{
-    const r=await apiFetch('/api/printers'); const j=await r.json();
-    const printers=j.data||[];
-    list.innerHTML=printers.map(p=>'<option value="'+esc(p.name)+'">').join('');
-  }catch(e){/* sin conexion al agente todavia */}
-}
-
-render();
-loadPrinters();
+pintarArbol();
+pintarProps();
+refrescarPrevia();
+cargarImpresoras();
 </script>
 </body>
 </html>

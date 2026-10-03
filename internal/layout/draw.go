@@ -13,7 +13,7 @@ import (
 
 // measureItem calcula cuanto ocupa un elemento y deja compuesto lo que haga
 // falta, para no generarlo dos veces al dibujar.
-func measureItem(it Item, width int) (measuredItem, error) {
+func measureItem(fs *fontSet, it Item, width int) (measuredItem, error) {
 	m := measuredItem{item: it}
 	switch itemType(it) {
 	case "space":
@@ -53,13 +53,13 @@ func measureItem(it Item, width int) (measuredItem, error) {
 	default: // texto
 		k := keyFor(it)
 		m.face = k
-		m.lines = wrapText(k, it.Text, width)
-		m.height = len(m.lines) * lineHeight(k)
+		m.lines = fs.wrapText(k, it.Text, width)
+		m.height = len(m.lines) * fs.lineHeight(k)
 	}
 	return m, nil
 }
 
-func drawRow(c *canvas, m rowLayout, row Row, x, y, avail int) {
+func drawRow(fs *fontSet, c *canvas, m rowLayout, row Row, x, y, avail int) {
 	if len(row.Cols) == 0 {
 		return
 	}
@@ -88,12 +88,12 @@ func drawRow(c *canvas, m rowLayout, row Row, x, y, avail int) {
 		if dy < 0 {
 			dy = 0
 		}
-		drawCol(c, col, m.items[i], cx, y+dy, w, m.heights[i])
+		drawCol(fs, c, col, m.items[i], cx, y+dy, w, m.heights[i])
 		cx += w + gap
 	}
 }
 
-func drawCol(c *canvas, col Col, items []measuredItem, x, y, w, h int) {
+func drawCol(fs *fontSet, c *canvas, col Col, items []measuredItem, x, y, w, h int) {
 	if col.Border {
 		c.rect(x, y, w, h, borderWidth)
 		x += borderWidth
@@ -109,12 +109,12 @@ func drawCol(c *canvas, col Col, items []measuredItem, x, y, w, h int) {
 
 	cy := y
 	for _, m := range items {
-		drawItem(c, m, col, x, cy, w)
+		drawItem(fs, c, m, col, x, cy, w)
 		cy += m.height + m.item.Gap
 	}
 }
 
-func drawItem(c *canvas, m measuredItem, col Col, x, y, w int) {
+func drawItem(fs *fontSet, c *canvas, m measuredItem, col Col, x, y, w int) {
 	align := alignOf(m.item.Align, col.Align)
 
 	switch itemType(m.item) {
@@ -145,7 +145,7 @@ func drawItem(c *canvas, m measuredItem, col Col, x, y, w int) {
 	}
 
 	// Texto.
-	alto := lineHeight(m.face)
+	alto := fs.lineHeight(m.face)
 	if m.item.Invert {
 		// El resaltado se pinta primero y el texto encima, invirtiendo todo
 		// el bloque al final.
@@ -153,7 +153,7 @@ func drawItem(c *canvas, m measuredItem, col Col, x, y, w int) {
 	}
 	cy := y
 	for _, linea := range m.lines {
-		drawText(c, m.face, linea, x, cy, w, align)
+		fs.drawText(c, m.face, linea, x, cy, w, align)
 		cy += alto
 	}
 	if m.item.Invert {

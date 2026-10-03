@@ -85,7 +85,9 @@ func TestRepartoDeAnchos(t *testing.T) {
 			{Weight: 3, Items: []Item{{Text: "c"}}},
 		},
 	}}}
-	m, err := measureRow(l.Rows[0], 576)
+	fs := newFontSet()
+	defer fs.close()
+	m, err := measureRow(fs, l.Rows[0], 576)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,22 +120,26 @@ func TestTextoLargoSeParteEnVariasLineas(t *testing.T) {
 // Una palabra sola mas ancha que la columna tiene que partirse igualmente, o
 // se saldria del papel.
 func TestPalabraMasAnchaQueLaColumna(t *testing.T) {
+	fs := newFontSet()
+	defer fs.close()
 	k := keyFor(Item{Size: "m"})
-	lineas := wrapText(k, strings.Repeat("X", 200), 200)
+	lineas := fs.wrapText(k, strings.Repeat("X", 200), 200)
 	if len(lineas) < 2 {
 		t.Fatalf("deberia partirse en varias lineas, dio %d", len(lineas))
 	}
 	for _, l := range lineas {
-		if w := textWidth(k, l); w > 200 {
+		if w := fs.textWidth(k, l); w > 200 {
 			t.Fatalf("la linea %q mide %d, el limite son 200", l, w)
 		}
 	}
 }
 
 func TestLosTamanosDeFuenteEscalan(t *testing.T) {
+	fs := newFontSet()
+	defer fs.close()
 	anterior := 0
 	for _, size := range []string{"xs", "s", "m", "l", "xl", "xxl"} {
-		h := lineHeight(keyFor(Item{Size: size}))
+		h := fs.lineHeight(keyFor(Item{Size: size}))
 		if h <= anterior {
 			t.Fatalf("el tamano %q da alto %d, no crece sobre el anterior %d", size, h, anterior)
 		}
@@ -142,9 +148,11 @@ func TestLosTamanosDeFuenteEscalan(t *testing.T) {
 }
 
 func TestAcentosYEnye(t *testing.T) {
+	fs := newFontSet()
+	defer fs.close()
 	k := keyFor(Item{})
-	con := textWidth(k, "Peña")
-	sin := textWidth(k, "Pena")
+	con := fs.textWidth(k, "Peña")
+	sin := fs.textWidth(k, "Pena")
 	if con == 0 {
 		t.Fatal("no se midio el texto con enye")
 	}
@@ -317,7 +325,9 @@ func TestGapCeroSeDistingueDeNoIndicado(t *testing.T) {
 	cero := 0
 	cols := []Col{{Items: []Item{{Text: "a"}}}, {Items: []Item{{Text: "b"}}}}
 
-	pegadas, err := measureRow(Row{Gap: &cero, Cols: cols}, 400)
+	fs := newFontSet()
+	defer fs.close()
+	pegadas, err := measureRow(fs, Row{Gap: &cero, Cols: cols}, 400)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +335,7 @@ func TestGapCeroSeDistingueDeNoIndicado(t *testing.T) {
 		t.Fatalf("con gap cero las columnas deberian sumar 400, suman %d", suma)
 	}
 
-	porDefecto, err := measureRow(Row{Cols: cols}, 400)
+	porDefecto, err := measureRow(fs, Row{Cols: cols}, 400)
 	if err != nil {
 		t.Fatal(err)
 	}

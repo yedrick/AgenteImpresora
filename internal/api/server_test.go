@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -806,5 +807,41 @@ func TestElBloqueUsaElAnchoDelPapel(t *testing.T) {
 	// El raster de 80 mm tiene que ocupar mas bytes que el de 58 mm.
 	if len(ancho) <= len(estrecho) {
 		t.Fatalf("576 puntos dio %d bytes y 384 dio %d", len(ancho), len(estrecho))
+	}
+}
+
+// La vista previa debe ser el mismo raster que se imprime, no una
+// aproximacion: es lo que hace fiable al disenador.
+func TestVistaPrevia(t *testing.T) {
+	h := newTestServer(t, nil)
+	body := `{"width":576,"scale":2,"layout":{"rows":[{"cols":[
+	  {"weight":1,"items":[{"text":"Factura"}]},
+	  {"dots":120,"items":[{"qr":"https://ejemplo.com"}]}]}]}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/preview", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:5000"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+		t.Fatalf("Content-Type %q", ct)
+	}
+	img, err := png.Decode(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("el PNG no es valido: %v", err)
+	}
+	// Con escala 2 sobre 576 puntos.
+	if w := img.Bounds().Dx(); w != 1152 {
+		t.Fatalf("ancho %d, esperaba 1152", w)
+	}
+}
+
+func TestVistaPreviaConBloqueInvalido(t *testing.T) {
+	h := newTestServer(t, nil)
+	body := `{"width":576,"layout":{"rows":[{"cols":[{"items":[{"type":"image","image":"xx"}]}]}]}}`
+	if rec := post(t, h, "/api/preview", body, ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("esperaba 400, obtuve %d", rec.Code)
 	}
 }

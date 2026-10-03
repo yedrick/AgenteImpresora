@@ -133,11 +133,16 @@ func Render(l Layout) (image.Image, error) {
 		return nil, fmt.Errorf("el bloque es demasiado estrecho: %d puntos utiles", inner)
 	}
 
+	// Las fuentes son de este render y de nadie mas: compartirlas entre
+	// goroutines era una carrera de datos.
+	fs := newFontSet()
+	defer fs.close()
+
 	// Primera pasada: medir cada fila para saber el alto total.
 	medidas := make([]rowLayout, 0, len(l.Rows))
 	total := 0
 	for i, row := range l.Rows {
-		m, err := measureRow(row, inner)
+		m, err := measureRow(fs, row, inner)
 		if err != nil {
 			return nil, fmt.Errorf("fila %d: %w", i+1, err)
 		}
@@ -168,7 +173,7 @@ func Render(l Layout) (image.Image, error) {
 		x += borderWidth
 	}
 	for i, row := range l.Rows {
-		drawRow(canvas, medidas[i], row, x, y, inner)
+		drawRow(fs, canvas, medidas[i], row, x, y, inner)
 		y += medidas[i].height
 		if i < len(l.Rows)-1 {
 			y += gapOr(row.Gap, gapBloque)
@@ -196,7 +201,7 @@ type measuredItem struct {
 	face  *faceKey
 }
 
-func measureRow(row Row, avail int) (rowLayout, error) {
+func measureRow(fs *fontSet, row Row, avail int) (rowLayout, error) {
 	n := len(row.Cols)
 	if n == 0 {
 		return rowLayout{height: row.MinHeight}, nil
@@ -254,7 +259,7 @@ func measureRow(row Row, avail int) (rowLayout, error) {
 		if w < 1 {
 			w = 1
 		}
-		medidos, alto, err := measureItems(c, w)
+		medidos, alto, err := measureItems(fs, c, w)
 		if err != nil {
 			return out, fmt.Errorf("columna %d: %w", i+1, err)
 		}
@@ -277,11 +282,11 @@ func measureRow(row Row, avail int) (rowLayout, error) {
 	return out, nil
 }
 
-func measureItems(c Col, w int) ([]measuredItem, int, error) {
+func measureItems(fs *fontSet, c Col, w int) ([]measuredItem, int, error) {
 	out := make([]measuredItem, 0, len(c.Items))
 	total := 0
 	for j, it := range c.Items {
-		m, err := measureItem(it, w)
+		m, err := measureItem(fs, it, w)
 		if err != nil {
 			return nil, 0, fmt.Errorf("elemento %d: %w", j+1, err)
 		}

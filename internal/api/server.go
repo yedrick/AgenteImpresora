@@ -118,6 +118,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/print/template", s.printTemplate)
 	mux.HandleFunc("POST /api/print/html", s.printHTML)
 	mux.HandleFunc("POST /api/print/image", s.printImage)
+	mux.HandleFunc("POST /api/preview", s.preview)
 	mux.HandleFunc("POST /api/print/layout", s.printLayout)
 	mux.HandleFunc("POST /api/print/raw", s.printRaw)
 	// El orden importa: CORS tiene que responder el preflight OPTIONS antes

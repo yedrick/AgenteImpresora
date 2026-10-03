@@ -38,34 +38,49 @@ type faceKey struct {
 }
 
 var (
-	faceMu    sync.Mutex
-	faceCache = map[faceKey]font.Face{}
-	parsedMu  sync.Mutex
-	parsed    = map[string]*opentype.Font{}
+	parsedMu sync.Mutex
+	parsed   = map[string][]byte{}
+	fonts    = map[string]*opentype.Font{}
 )
 
-func parseFont(name string, data []byte) *opentype.Font {
+// fontFor devuelve la fuente ya analizada. Compartirla entre goroutines es
+// seguro: sfnt.Font lo es mientras cada cara tenga su propio buffer, y cada
+// opentype.Face lleva el suyo.
+func fontFor(name string, data []byte) *opentype.Font {
 	parsedMu.Lock()
 	defer parsedMu.Unlock()
-	if f, ok := parsed[name]; ok {
+	if f, ok := fonts[name]; ok {
 		return f
 	}
 	f, err := opentype.Parse(data)
 	if err != nil {
-		// Las fuentes van incrustadas en el binario: si no parsean, el
-		// binario esta corrupto y no hay nada sensato que hacer.
+		// Las fuentes van incrustadas en el binario: si no se pueden leer,
+		// el binario esta corrupto y no hay nada sensato que hacer.
 		panic("layout: no se pudo leer la fuente " + name + ": " + err.Error())
 	}
-	parsed[name] = f
+	fonts[name] = f
+	parsed[name] = data
 	return f
 }
 
-// faceFor devuelve la fuente del tamano pedido, cacheada: crear una cara
-// cuesta y un ticket repite pocos tamanos muchas veces.
-func faceFor(k faceKey) font.Face {
-	faceMu.Lock()
-	defer faceMu.Unlock()
-	if f, ok := faceCache[k]; ok {
+// fontSet son las caras de UN render. No se comparten entre goroutines.
+//
+// Antes habia una cache global de font.Face y eso era una carrera de datos:
+// opentype.Face guarda estado interno (buffer de glifos y metricas
+// perezosas), asi que dos workers componiendo a la vez se pisaban y el
+// ticket podia salir con el texto corrupto. Crear una cara cuesta 713 ns
+// frente a los 445 us de componer un bloque, asi que no compartirlas no se
+// nota.
+type fontSet struct {
+	caras map[faceKey]font.Face
+}
+
+func newFontSet() *fontSet {
+	return &fontSet{caras: map[faceKey]font.Face{}}
+}
+
+func (fs *fontSet) face(k faceKey) font.Face {
+	if f, ok := fs.caras[k]; ok {
 		return f
 	}
 	var data []byte
@@ -80,7 +95,7 @@ func faceFor(k faceKey) font.Face {
 	default:
 		data, name = goregular.TTF, "goregular"
 	}
-	face, err := opentype.NewFace(parseFont(name, data), &opentype.FaceOptions{
+	face, err := opentype.NewFace(fontFor(name, data), &opentype.FaceOptions{
 		Size:    float64(k.px),
 		DPI:     72, // Size ya va en pixeles, asi que 72 ppp lo deja 1:1
 		Hinting: font.HintingFull,
@@ -88,8 +103,16 @@ func faceFor(k faceKey) font.Face {
 	if err != nil {
 		panic("layout: no se pudo crear la fuente: " + err.Error())
 	}
-	faceCache[k] = face
+	fs.caras[k] = face
 	return face
+}
+
+// close libera las caras del render.
+func (fs *fontSet) close() {
+	for _, f := range fs.caras {
+		_ = f.Close()
+	}
+	fs.caras = nil
 }
 
 func keyFor(it Item) *faceKey {
@@ -112,8 +135,8 @@ func keyFor(it Item) *faceKey {
 }
 
 // lineHeight es el alto de una linea con esa fuente.
-func lineHeight(k *faceKey) int {
-	m := faceFor(*k).Metrics()
+func (fs *fontSet) lineHeight(k *faceKey) int {
+	m := fs.face(*k).Metrics()
 	h := (m.Height.Ceil()*11 + 5) / 10 // un 10% de aire entre lineas
 	if h < 1 {
 		h = 1
@@ -121,13 +144,13 @@ func lineHeight(k *faceKey) int {
 	return h
 }
 
-func textWidth(k *faceKey, s string) int {
-	return font.MeasureString(faceFor(*k), s).Ceil()
+func (fs *fontSet) textWidth(k *faceKey, s string) int {
+	return font.MeasureString(fs.face(*k), s).Ceil()
 }
 
 // wrapText parte el texto para que quepa en el ancho dado, cortando por
 // espacios y, si una palabra sola no cabe, por caracteres.
-func wrapText(k *faceKey, text string, width int) []string {
+func (fs *fontSet) wrapText(k *faceKey, text string, width int) []string {
 	if width < 1 {
 		width = 1
 	}
@@ -144,7 +167,7 @@ func wrapText(k *faceKey, text string, width int) []string {
 			if linea != "" {
 				prueba = linea + " " + p
 			}
-			if textWidth(k, prueba) <= width {
+			if fs.textWidth(k, prueba) <= width {
 				linea = prueba
 				continue
 			}
@@ -152,10 +175,10 @@ func wrapText(k *faceKey, text string, width int) []string {
 				out = append(out, linea)
 			}
 			// Una palabra que no cabe entera se parte por caracteres.
-			if textWidth(k, p) > width {
+			if fs.textWidth(k, p) > width {
 				trozo := ""
 				for _, r := range p {
-					if textWidth(k, trozo+string(r)) > width && trozo != "" {
+					if fs.textWidth(k, trozo+string(r)) > width && trozo != "" {
 						out = append(out, trozo)
 						trozo = ""
 					}
@@ -177,9 +200,9 @@ func wrapText(k *faceKey, text string, width int) []string {
 }
 
 // drawText pinta una linea en el lienzo y devuelve el rectangulo ocupado.
-func drawText(c *canvas, k *faceKey, s string, x, y, width int, align string) (int, int) {
-	face := faceFor(*k)
-	w := textWidth(k, s)
+func (fs *fontSet) drawText(c *canvas, k *faceKey, s string, x, y, width int, align string) (int, int) {
+	face := fs.face(*k)
+	w := fs.textWidth(k, s)
 	dx := 0
 	switch align {
 	case "center":
@@ -194,7 +217,7 @@ func drawText(c *canvas, k *faceKey, s string, x, y, width int, align string) (i
 	// Se dibuja en una mascara propia y luego se mezcla, para que el
 	// antialias no pise lo que ya hubiera debajo.
 	m := face.Metrics()
-	alto := lineHeight(k)
+	alto := fs.lineHeight(k)
 	mask := image.NewGray(image.Rect(0, 0, maxInt(w, 1), maxInt(alto, 1)))
 	for i := range mask.Pix {
 		mask.Pix[i] = 255

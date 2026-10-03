@@ -1,0 +1,69 @@
+{
+  "_comentario": "Factura con QR al costado del texto, tabla con bordes y total en negativo. POST a /api/print/layout. Esto NO se puede hacer con comandos nativos: la impresora solo sabe avanzar lineas, asi que el bloque se compone como imagen.",
+  "printer": "caja",
+  "width": 576,
+  "cut": "partial",
+
+  "layout": {
+    "padding": 6,
+    "rows": [
+      { "cols": [ { "weight": 1, "align": "center", "items": [
+        { "text": "CAFETERIA CENTRAL", "size": "xl", "bold": true },
+        { "text": "Av. Siempre Viva 742  ·  NIT 1234567", "size": "s" }
+      ] } ] },
+
+      { "cols": [ { "weight": 1, "items": [ { "type": "rule", "height": 2 } ] } ] },
+
+      {
+        "_comentario": "Dos columnas: datos a la izquierda, QR pequeno a la derecha",
+        "align": "middle",
+        "cols": [
+          { "weight": 1, "items": [
+            { "text": "Factura #F-000123", "bold": true },
+            { "text": "Cliente: Ana Pena" },
+            { "text": "02/10/2026 14:35", "size": "s" }
+          ] },
+          { "dots": 150, "align": "right", "items": [
+            { "qr": "https://kollatek.com/f/000123", "qr_ec": "M" }
+          ] }
+        ]
+      },
+
+      { "cols": [ { "weight": 1, "items": [ { "type": "rule", "height": 2 } ] } ] },
+
+      {
+        "_comentario": "Cabecera de la tabla",
+        "cols": [
+          { "weight": 3, "pad": 4, "border": true, "items": [ { "text": "Producto", "bold": true, "mono": true } ] },
+          { "dots": 70, "pad": 4, "border": true, "align": "center", "items": [ { "text": "Cant", "bold": true, "mono": true } ] },
+          { "dots": 130, "pad": 4, "border": true, "align": "right", "items": [ { "text": "Bs", "bold": true, "mono": true } ] }
+        ]
+      },
+      { "cols": [
+        { "weight": 3, "pad": 4, "border": true, "items": [ { "text": "Cafe con leche", "mono": true } ] },
+        { "dots": 70, "pad": 4, "border": true, "align": "center", "items": [ { "text": "2", "mono": true } ] },
+        { "dots": 130, "pad": 4, "border": true, "align": "right", "items": [ { "text": "24.00", "mono": true } ] }
+      ] },
+      { "cols": [
+        { "weight": 3, "pad": 4, "border": true, "items": [ { "text": "Empanada de queso", "mono": true } ] },
+        { "dots": 70, "pad": 4, "border": true, "align": "center", "items": [ { "text": "3", "mono": true } ] },
+        { "dots": 130, "pad": 4, "border": true, "align": "right", "items": [ { "text": "28.50", "mono": true } ] }
+      ] },
+
+      {
+        "_comentario": "Total a la derecha, en negativo",
+        "cols": [
+          { "weight": 1, "items": [] },
+          { "dots": 300, "pad": 6, "items": [
+            { "text": "TOTAL  Bs 52.50", "size": "l", "bold": true, "align": "center", "invert": true }
+          ] }
+        ]
+      },
+
+      { "cols": [ { "weight": 1, "align": "center", "items": [
+        { "type": "barcode", "barcode": "F000123", "bar_height": 50 },
+        { "text": "Gracias por su compra", "size": "s", "gap": 4 }
+      ] } ] }
+    ]
+  }
+}

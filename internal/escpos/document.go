@@ -91,8 +91,17 @@ func (b *Builder) End(opt DocOptions) *Builder {
 		}
 		return b
 	}
+	// Sin indicar nada se avanzan CutFeedLines, que es lo que hace falta en
+	// la mayoria para que la cuchilla no se coma la ultima linea.
+	//
+	// Pero si se indica un valor se respeta, aunque sea menor. Antes se
+	// elevaba siempre al minimo y no habia forma de acortar el trozo de
+	// papel en blanco del final: en una impresora cuya cuchilla queda mas
+	// cerca del cabezal, 4 lineas sobran y se desperdicia papel en cada
+	// ticket. Quien lo baja esta probando en su impresora; si se come una
+	// linea, lo ve al momento y lo sube.
 	feed := opt.FeedBottom
-	if feed < CutFeedLines {
+	if feed <= 0 {
 		feed = CutFeedLines
 	}
 	return b.Cut(opt.Cut, feed)

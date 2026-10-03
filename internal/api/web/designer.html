@@ -85,6 +85,10 @@
   }
   .item .txt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  .diseno { display: flex; gap: 6px; margin-bottom: 6px; }
+  .diseno button:first-child { flex: 1; text-align: left; }
+  .vacio { color: var(--text2); font-size: 12px; padding: 8px 0; }
+
   /* Vista previa */
   /* El papel se queda blanco a proposito en los dos temas: representa el
      rollo de verdad, y verlo en gris oscuro engana sobre como saldra. */
@@ -141,6 +145,16 @@
     </select>
   </div>
   <div class="campo">
+    <label for="feed" title="Lineas en blanco antes de cortar">Final</label>
+    <select id="feed">
+      <option value="1">1 linea (minimo)</option>
+      <option value="2">2 lineas</option>
+      <option value="3">3 lineas</option>
+      <option value="4" selected>4 lineas (normal)</option>
+      <option value="6">6 lineas</option>
+    </select>
+  </div>
+  <div class="campo">
     <label for="zoom">Zoom</label>
     <select id="zoom">
       <option value="1">1x</option>
@@ -149,6 +163,7 @@
     </select>
   </div>
   <div class="sep"></div>
+  <button id="btnMisDisenos">Mis disenos</button>
   <button id="btnPlantilla">Plantillas</button>
   <button id="btnJSON">Ver JSON</button>
   <button id="btnLimpiar" class="danger ghost">Limpiar</button>
@@ -632,9 +647,92 @@ function cuerpoImpresion() {
     printer: $("pr").value.trim() || "default",
     width: Number($("pw").value),
     cut: $("cut").value,
+    // Lineas en blanco antes de cortar. La cuchilla esta por encima del
+    // cabezal, asi que algo hay que avanzar o se corta la ultima linea.
+    // Cuanto, depende del modelo: con 1 se ahorra papel en cada ticket.
+    feed_bottom: Number($("feed").value) || 4,
     layout: cuerpoLayout(),
   };
 }
+
+// --- Mis disenos -----------------------------------------------------------
+//
+// Se guardan en el navegador, no en el agente: son tuyos y de esta PC. Para
+// llevarlos a otra, el boton "Ver JSON" da el diseno entero para copiar.
+
+const DISENOS_KEY = "collatech.disenos";
+
+function misDisenos() {
+  try { return JSON.parse(localStorage.getItem(DISENOS_KEY) || "{}"); }
+  catch (e) { return {}; }
+}
+
+function guardarDisenos(d) {
+  try { localStorage.setItem(DISENOS_KEY, JSON.stringify(d)); return true; }
+  catch (e) { return false; }   // sin espacio o en ventana privada
+}
+
+function panelDisenos() {
+  const guardados = misDisenos();
+  const nombres = Object.keys(guardados).sort();
+  const lista = nombres.length
+    ? nombres.map((n) => `
+        <div class="diseno">
+          <button data-abrir="${esc(n)}" title="Abrir este diseno">${esc(n)}</button>
+          <button data-borrar="${esc(n)}" class="danger ghost" title="Borrar">&times;</button>
+        </div>`).join("")
+    : `<p class="vacio">Todavia no has guardado ninguno.</p>`;
+
+  $("props").innerHTML = `
+    <h3>Mis disenos</h3>
+    <div><label for="nomDiseno">Guardar el de ahora como</label>
+      <div style="display:flex;gap:6px">
+        <input id="nomDiseno" placeholder="Factura con logo" style="flex:1">
+        <button id="btnGuardarDiseno" class="primary">Guardar</button>
+      </div>
+    </div>
+    <p class="aviso info" style="margin:10px 0">Se guardan en este navegador y en esta PC.
+       Para llevarte uno, copia el JSON con <b>Ver JSON</b>.</p>
+    <div id="listaDisenos">${lista}</div>`;
+
+  $("btnGuardarDiseno").addEventListener("click", () => {
+    const nombre = $("nomDiseno").value.trim();
+    if (!nombre) { $("nomDiseno").focus(); return; }
+    if (!doc.rows.length) { alert("El ticket esta vacio: no hay nada que guardar."); return; }
+    const g = misDisenos();
+    if (g[nombre] && !confirm(`Ya existe "${nombre}". ¿Lo reemplazo?`)) return;
+    g[nombre] = doc;
+    if (!guardarDisenos(g)) {
+      alert("No se pudo guardar. Si estas en una ventana privada, el navegador no deja.");
+      return;
+    }
+    panelDisenos();
+  });
+
+  $("listaDisenos").querySelectorAll("[data-abrir]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const g = misDisenos();
+      const d = g[b.dataset.abrir];
+      if (!d) return;
+      if (doc.rows.length && !confirm("Se reemplaza el ticket que tienes abierto. ¿Sigo?")) return;
+      doc = JSON.parse(JSON.stringify(d));
+      sel = null;
+      cambiado();
+    });
+  });
+
+  $("listaDisenos").querySelectorAll("[data-borrar]").forEach((b) => {
+    b.addEventListener("click", () => {
+      if (!confirm(`¿Borrar el diseno "${b.dataset.borrar}"?`)) return;
+      const g = misDisenos();
+      delete g[b.dataset.borrar];
+      guardarDisenos(g);
+      panelDisenos();
+    });
+  });
+}
+
+$("btnMisDisenos").addEventListener("click", panelDisenos);
 
 $("btnImprimir").addEventListener("click", async () => {
   if (!doc.rows.length) { alert("El ticket esta vacio."); return; }

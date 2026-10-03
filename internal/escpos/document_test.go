@@ -64,16 +64,25 @@ func TestModosDeCorte(t *testing.T) {
 
 // Avanzar menos de lo que separa el cabezal de la cuchilla corta la ultima
 // linea del ticket.
+// TestElAvanceDeCorteTieneMinimo: sin indicar nada, el corte avanza lo
+// suficiente para que la cuchilla no se coma la ultima linea. La cuchilla
+// esta fisicamente por encima del cabezal, asi que cortar sin avanzar deja
+// el ultimo renglon dentro de la maquina.
+//
+// El minimo es el valor POR DEFECTO, no un tope: quien lo baja a proposito
+// esta ajustandolo a su impresora, donde la cuchilla puede estar mas cerca,
+// y asi no desperdicia varios centimetros de papel en cada ticket. Eso lo
+// cubre TestAvanceFinalSeRespeta.
 func TestElAvanceDeCorteTieneMinimo(t *testing.T) {
 	b := Begin(DocOptions{PaperWidth: 384})
-	b.End(DocOptions{Cut: CutPartial, FeedBottom: 1})
+	b.End(DocOptions{Cut: CutPartial}) // sin indicar avance
 	out := b.Bytes()
 	i := bytes.Index(out, []byte{0x1d, 0x56, 66})
 	if i < 0 {
 		t.Fatal("no se emitio el corte")
 	}
 	if got, min := int(out[i+3]), CutFeedLines*defaultLineHeight; got < min {
-		t.Fatalf("avance de %d puntos, el minimo es %d", got, min)
+		t.Fatalf("avance de %d puntos, el minimo por defecto es %d: se cortaria la ultima linea", got, min)
 	}
 }
 
@@ -138,5 +147,45 @@ func TestNivelDeCorreccionDelQR(t *testing.T) {
 		if !bytes.Contains(b.Bytes(), []byte{0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, want}) {
 			t.Fatalf("nivel %q: esperaba el byte %d", level, want)
 		}
+	}
+}
+
+// TestAvanceFinalSeRespeta: el avance antes del corte se podia subir pero
+// no bajar, porque se elevaba siempre al minimo de CutFeedLines. En una
+// impresora con la cuchilla cerca del cabezal eso son varios centimetros de
+// papel en blanco desperdiciados en cada ticket.
+func TestAvanceFinalSeRespeta(t *testing.T) {
+	buscarCorte := func(out []byte) int {
+		for i := 0; i+3 < len(out); i++ {
+			if out[i] == 0x1d && out[i+1] == 0x56 && (out[i+2] == 66 || out[i+2] == 65) {
+				return int(out[i+3])
+			}
+		}
+		return -1
+	}
+
+	casos := []struct {
+		nombre string
+		lineas int
+		quiero int
+	}{
+		{"sin indicar usa el minimo", 0, CutFeedLines * defaultLineHeight},
+		{"una linea se respeta", 1, 1 * defaultLineHeight},
+		{"dos lineas se respetan", 2, 2 * defaultLineHeight},
+		{"mas que el minimo tambien", 6, 6 * defaultLineHeight},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			b := Begin(DocOptions{PaperWidth: 576})
+			b.TextLine("ticket")
+			b.End(DocOptions{Cut: CutPartial, FeedBottom: c.lineas})
+			dots := buscarCorte(b.Bytes())
+			if dots < 0 {
+				t.Fatal("no se encontro el comando de corte")
+			}
+			if dots != c.quiero {
+				t.Errorf("avance de %d puntos, se esperaban %d", dots, c.quiero)
+			}
+		})
 	}
 }

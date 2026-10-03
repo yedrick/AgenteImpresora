@@ -506,19 +506,34 @@ func (s *Server) printLayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Info("print_layout", map[string]any{
-		"printer": req.Printer, "width": res.Doc.PaperWidth, "filas": len(req.Layout.Rows),
+		"printer": req.Printer, "width": res.Doc.PaperWidth,
+		"filas": len(req.Layout.Rows), "girado": res.Doc.UpsideDown,
 	})
-	b := escpos.Begin(res.Doc).RawBytes(raster)
-	b.End(res.Doc)
+	// El documento es una sola imagen, y el giro ya va aplicado sobre ella.
+	// Mandar ademas ESC { no girarIa nada (solo afecta a los caracteres) y
+	// en algunas impresoras cambia el orden de las lineas del buffer, asi
+	// que se quita para este caso.
+	doc := res.Doc
+	doc.UpsideDown = false
+	b := escpos.Begin(doc).RawBytes(raster)
+	b.End(doc)
 	s.enqueue(w, req.Printer, res, b.Bytes())
 }
 
 // renderLayout compone el bloque al ancho del papel y lo empaqueta.
+//
+// El giro se hace aqui, sobre la imagen, y no con el comando ESC { de la
+// impresora: ese comando solo afecta a los caracteres y deja las imagenes
+// tal cual. Como un bloque maquetado ES una imagen, pedir giro no hacia
+// nada y el ticket salia derecho.
 func renderLayout(l layout.Layout, res resolved) ([]byte, error) {
 	l.Width = res.Doc.PaperWidth
 	img, err := layout.Render(l)
 	if err != nil {
 		return nil, err
+	}
+	if res.Doc.UpsideDown {
+		return escpos.New().Image(layout.Girar180(img)).Bytes(), nil
 	}
 	return escpos.New().Image(img).Bytes(), nil
 }

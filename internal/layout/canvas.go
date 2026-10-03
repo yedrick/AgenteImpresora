@@ -140,3 +140,34 @@ func (c *canvas) gray() *image.Gray {
 	}
 	return out
 }
+
+// Girar180 devuelve la imagen boca abajo.
+//
+// Hace falta para imprimir girado un bloque maquetado. El comando ESC { de
+// la impresora pone el modo "al reves", pero solo afecta a los caracteres:
+// una imagen raster (GS v 0) sale igual de derecha. Como un bloque es
+// precisamente una imagen, activar el giro no hacia nada y el ticket salia
+// normal. Girando la imagen antes de mandarla si sale como se pidio.
+func Girar180(src image.Image) *image.Gray {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	out := image.NewGray(image.Rect(0, 0, w, h))
+	if g, ok := src.(*image.Gray); ok {
+		for y := 0; y < h; y++ {
+			fila := g.Pix[(b.Min.Y+y-g.Rect.Min.Y)*g.Stride+(b.Min.X-g.Rect.Min.X):][:w]
+			destino := out.Pix[(h-1-y)*out.Stride:][:w]
+			for x, v := range fila {
+				destino[w-1-x] = v
+			}
+		}
+		return out
+	}
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			r, gg, bb, _ := src.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			l := uint8((299*uint32(r>>8) + 587*uint32(gg>>8) + 114*uint32(bb>>8)) / 1000)
+			out.Pix[(h-1-y)*out.Stride+(w-1-x)] = l
+		}
+	}
+	return out
+}

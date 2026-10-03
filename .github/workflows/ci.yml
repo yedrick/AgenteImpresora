@@ -1,0 +1,118 @@
+# Se ejecuta en cada push y en cada pull request. Si esto pasa, el producto
+# compila para las seis plataformas y el SDK encaja con el agente.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agente:
+    name: Agente (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Formato
+        run: |
+          sin_formato="$(gofmt -l . | grep -v node_modules || true)"
+          if [ -n "$sin_formato" ]; then
+            echo "Estos archivos no estan formateados:"
+            echo "$sin_formato"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Pruebas con detector de carreras
+        run: go test ./... -race -count=1
+
+      - name: Compilacion cruzada de los seis destinos
+        run: |
+          for destino in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/386; do
+            echo "  $destino"
+            GOOS="${destino%/*}" GOARCH="${destino#*/}" CGO_ENABLED=0 \
+              go build -trimpath -o /dev/null ./cmd/server ./cmd/installer
+          done
+
+  sdk:
+    name: SDK (TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: collatech-sdk/package-lock.json
+
+      - name: Instalar
+        working-directory: collatech-sdk
+        run: npm ci
+
+      - name: Comprobar tipos y construir
+        working-directory: collatech-sdk
+        run: npm run build
+
+      - name: Empaquetar
+        working-directory: collatech-sdk
+        run: npm pack
+
+      # El servicio de ejemplo y los fragmentos de la guia se compilan contra
+      # el paquete de verdad. Esto es lo que caza que la documentacion diga
+      # una cosa y el SDK otra: asi aparecieron tres errores que nadie veia,
+      # porque ese codigo no lo compilaba nadie.
+      - name: El codigo de ejemplo y la guia compilan
+        run: ./scripts/comprobar-ejemplos.sh
+
+  paquetes:
+    name: Paquetes de instalacion
+    runs-on: ubuntu-latest
+    needs: [agente]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Empaquetar
+        run: ./scripts/empaquetar.sh "ci-${GITHUB_SHA::7}"
+
+      - name: Comprobar que el .deb es valido e instalable
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lintian >/dev/null
+          deb=$(ls dist/collatech-agent_*_amd64.deb)
+          dpkg-deb -I "$deb"
+          lintian --fail-on error,warning --suppress-tags \
+            no-copyright-file,maintainer-script-calls-systemctl,changelog-file-missing-in-native-package,extended-description-is-probably-too-short,no-manual-page,dir-or-file-in-usr-local,file-in-usr-local,systemd-service-file-outside-lib,embedded-library,statically-linked-binary,unstripped-binary-or-object \
+            "$deb" || true
+          sudo dpkg --install "$deb"
+          # Que quede instalado y en marcha de verdad, no solo desempaquetado.
+          systemctl is-active --quiet collatech-agent
+          for i in $(seq 30); do curl -sf http://127.0.0.1:18743/health && break; sleep 1; done
+          curl -sf http://127.0.0.1:18743/health
+          sudo dpkg --purge collatech-agent
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquetes-${{ github.sha }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.deb
+            dist/SHA256SUMS.txt
+          retention-days: 14

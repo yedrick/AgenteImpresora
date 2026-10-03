@@ -1,0 +1,179 @@
+# Publica una version. Se dispara al subir una etiqueta v*, por ejemplo:
+#
+#   git tag v1.5.0 && git push origin v1.5.0
+#
+# Deja en la pagina de Releases los instaladores de Windows, Linux y macOS,
+# los paquetes .deb para Debian y Ubuntu, el SDK empaquetado y las sumas
+# SHA256 para comprobar las descargas.
+name: Publicar version
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version a publicar, por ejemplo 1.5.0"
+        required: true
+
+permissions:
+  contents: write     # para crear la Release y subirle los archivos
+  id-token: write     # para publicar el SDK en npm con procedencia
+
+jobs:
+  comprobar:
+    name: Comprobar antes de publicar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22", cache: true }
+
+      - name: Pruebas con detector de carreras
+        run: go test ./... -race -count=1
+
+      - name: La version de la etiqueta coincide con la del SDK
+        run: |
+          etiqueta="${GITHUB_REF_NAME#v}"
+          if [ -n "${{ inputs.version }}" ]; then etiqueta="${{ inputs.version }}"; fi
+          sdk=$(node -p "require('./collatech-sdk/package.json').version")
+          if [ "$etiqueta" != "$sdk" ]; then
+            echo "La etiqueta dice $etiqueta y el SDK dice $sdk."
+            echo "Sube la version en collatech-sdk/package.json o corrige la etiqueta."
+            exit 1
+          fi
+          echo "Publicando $etiqueta"
+
+  paquetes:
+    name: Instaladores
+    needs: comprobar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22", cache: true }
+
+      - name: Version
+        id: v
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if [ -n "${{ inputs.version }}" ]; then v="${{ inputs.version }}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Construir y empaquetar
+        run: ./scripts/empaquetar.sh "${{ steps.v.outputs.version }}"
+
+      - name: Comprobar que el .deb instala y el agente responde
+        run: |
+          sudo dpkg --install dist/collatech-agent_*_amd64.deb
+          systemctl is-active --quiet collatech-agent
+          for i in $(seq 30); do curl -sf http://127.0.0.1:18743/health && break; sleep 1; done
+          curl -sf http://127.0.0.1:18743/health
+          sudo dpkg --purge collatech-agent
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquetes
+          path: dist/*
+          retention-days: 7
+
+  sdk:
+    name: SDK en npm
+    needs: comprobar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: collatech-sdk/package-lock.json
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Construir y empaquetar
+        working-directory: collatech-sdk
+        run: |
+          npm ci
+          npm run build
+          npm pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk
+          path: collatech-sdk/*.tgz
+
+      # Solo publica si hay token. Sin el, la version sale igual y el .tgz
+      # queda adjunto a la Release: se instala con
+      #   npm install https://github.com/<usuario>/<repo>/releases/download/<tag>/collatech-sdk-<v>.tgz
+      - name: Publicar en npm
+        working-directory: collatech-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "No hay secreto NPM_TOKEN: no se publica en npm."
+            echo "El paquete va adjunto a la Release igualmente."
+            exit 0
+          fi
+          npm publish --provenance --access public
+
+  publicar:
+    name: Crear la Release
+    needs: [paquetes, sdk]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: descargas }
+
+      - name: Reunir los archivos
+        run: |
+          mkdir -p publicar
+          find descargas -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.deb' \
+            -o -name '*.tgz' -o -name 'SHA256SUMS.txt' \) -exec cp {} publicar/ \;
+          ls -lh publicar
+
+      - name: Notas de la version
+        id: notas
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if [ -n "${{ inputs.version }}" ]; then v="${{ inputs.version }}"; fi
+          cat > NOTAS.md <<EOF
+          ## Que descargar
+
+          | Si tienes | Descarga |
+          |---|---|
+          | **Windows** | \`CollaTechAgent-$v-windows.zip\` — descomprime y ejecuta \`INSTALADOR.exe\` |
+          | **Ubuntu o Debian** | \`collatech-agent_${v}_amd64.deb\` — \`sudo dpkg -i\` y queda instalado y arrancado |
+          | **Raspberry Pi, ARM** | \`collatech-agent_${v}_arm64.deb\` |
+          | **Otro Linux** | \`CollaTechAgent-$v-linux-amd64.tar.gz\` — dentro va \`INSTALAR.sh\` |
+          | **Mac con chip Apple** | \`CollaTechAgent-$v-macos-apple.tar.gz\` |
+          | **Mac con Intel** | \`CollaTechAgent-$v-macos-intel.tar.gz\` |
+
+          Al terminar, el panel queda en **http://localhost:18743/panel**.
+
+          ## Para programar contra el agente
+
+          \`\`\`bash
+          npm install collatech-sdk@$v
+          \`\`\`
+
+          Si todavia no esta en npm, el paquete va adjunto aqui abajo:
+
+          \`\`\`bash
+          npm install https://github.com/${GITHUB_REPOSITORY}/releases/download/v$v/collatech-sdk-$v.tgz
+          \`\`\`
+
+          ## Comprobar la descarga
+
+          \`\`\`bash
+          sha256sum -c SHA256SUMS.txt
+          \`\`\`
+          EOF
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: publicar/*
+          body_path: NOTAS.md
+          generate_release_notes: true
+          draft: false

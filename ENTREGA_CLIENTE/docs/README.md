@@ -1,5 +1,8 @@
 # CollaTech Agent
 
+[![CI](https://github.com/yedrick/AgenteImpresora/actions/workflows/ci.yml/badge.svg)](https://github.com/yedrick/AgenteImpresora/actions/workflows/ci.yml)
+[![Ultima version](https://img.shields.io/github/v/release/yedrick/AgenteImpresora?label=version)](https://github.com/yedrick/AgenteImpresora/releases/latest)
+
 CollaTech Agent es un agente local de impresión ESC/POS. Expone una API REST
 y convierte trabajos POS a bytes ESC/POS para impresoras térmicas.
 
@@ -17,6 +20,45 @@ peticiones desde otras PCs deben enviar.
 - En Linux y macOS, CUPS instalado si vas a imprimir por el spooler
   (`lp` y `lpstat`); para TCP/IP o USB directo no hace falta
 - Go 1.22 o superior solo para compilar
+
+## Descargar
+
+Los instaladores de cada version estan en
+**[Releases](https://github.com/yedrick/AgenteImpresora/releases/latest)**.
+No hace falta compilar nada.
+
+| Si tienes | Descarga | Que hacer |
+|---|---|---|
+| **Windows** | `CollaTechAgent-<v>-windows.zip` | descomprimir y ejecutar `INSTALADOR.exe` |
+| **Ubuntu o Debian** | `collatech-agent_<v>_amd64.deb` | `sudo dpkg -i collatech-agent_*.deb` |
+| **Raspberry Pi, ARM** | `collatech-agent_<v>_arm64.deb` | igual |
+| **Otro Linux** | `CollaTechAgent-<v>-linux-amd64.tar.gz` | descomprimir y `sudo ./INSTALAR.sh` |
+| **Mac con chip Apple** | `CollaTechAgent-<v>-macos-apple.tar.gz` | descomprimir y `sudo ./INSTALAR.sh` |
+| **Mac con Intel** | `CollaTechAgent-<v>-macos-intel.tar.gz` | igual |
+
+Con el `.deb` queda instalado, arrancado y configurado para arrancar solo con
+la maquina. Al terminar, el panel esta en **http://localhost:18743/panel**.
+
+Para comprobar que la descarga llego entera:
+
+```bash
+sha256sum -c SHA256SUMS.txt
+```
+
+## Compilar desde el codigo
+
+Solo hace falta Go 1.22 o superior.
+
+```bash
+make build     # el agente para esta maquina
+make run       # lo arranca aqui mismo
+make check     # formato, vet y todas las pruebas con -race
+make dist      # los seis destinos a la vez, en dist/
+make install   # lo instala como servicio (pide sudo)
+```
+
+`./scripts/empaquetar.sh 1.5.0` construye los mismos paquetes que publica
+GitHub Actions, para poder reproducir una version en local.
 
 ## Instalación
 

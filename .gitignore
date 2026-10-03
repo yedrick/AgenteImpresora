@@ -1,31 +1,24 @@
-# Binarios compilados
+# Binarios construidos. Se generan con "make build" o "make dist", y las
+# versiones publicadas salen de GitHub Actions: no tienen por que estar aqui.
+dist/
+collatech-agent
+server
+CollaTechAgent.exe
+INSTALADOR.exe
+*.test
 *.exe
-*.bin
-
-# Dependencias y artefactos de build
-node_modules/
-collatech-sdk/dist/
-collatech-sdk/.npm-cache/
-collatech-sdk/*.tgz
 .gocache/
 
-# Estado en ejecucion (no debe versionarse ni entregarse)
+# Pruebas locales
+prueba/
+
+# Datos que genera el agente al correr. configs/config.json SI se versiona,
+# pero el agente le escribe un token al arrancar: hay una prueba en
+# internal/config que falla si se cuela uno.
 logs/*.jsonl
 storage/jobs.json
-ENTREGA_CLIENTE/logs/*.jsonl
-ENTREGA_CLIENTE/storage/jobs.json
-
-# Certificados
 certs/
-*.pem
-*.key
 
-# El logo por defecto va embebido en el binario; este es el que el
-# cliente pone al lado del ejecutable para usar el suyo.
-LOGO.png
-
-# Binarios construidos y pruebas locales
-dist/
-prueba/
-collatech-agent
-*.test
+# Node
+node_modules/
+collatech-sdk/*.tgz

@@ -32,6 +32,7 @@
 
   var PAGINAS = [
     { href: "/panel", texto: "Panel" },
+    { href: "/impresoras", texto: "Impresoras" },
     { href: "/designer", texto: "Disenador" },
     { href: "/sdk", texto: "SDK" },
     { href: "/diagnostico", texto: "Diagnostico" },

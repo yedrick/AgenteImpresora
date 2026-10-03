@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CollaTech Agent - Impresoras</title>
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1060px; margin: 0 auto; padding: 22px 16px 60px; }
+  h1 { font-size: 22px; margin: 6px 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  h3 { font-size: 14px; margin: 0 0 6px; }
+  .hint { color: var(--text2); font-size: 13px; margin: 0 0 14px; }
+
+  .tarjeta {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radio); box-shadow: var(--sombra);
+    padding: 18px; margin-bottom: 14px;
+  }
+
+  /* --- Como conectarla --- */
+  .conexiones { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .conexion {
+    border: 1px solid var(--line); border-radius: var(--radio-s);
+    padding: 13px; background: var(--panel2);
+  }
+  .conexion h3 { display: flex; align-items: center; gap: 7px; }
+  .conexion p { margin: 5px 0; font-size: 12.5px; color: var(--text2); }
+  .conexion code {
+    display: block; margin: 7px 0 0; padding: 7px 9px; border-radius: 5px;
+    background: var(--consola); color: var(--consola-tx);
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+    overflow-x: auto; white-space: pre;
+  }
+
+  /* --- Buscador --- */
+  .filtros { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .filtros input, .filtros select {
+    padding: 9px 11px; font: inherit; color: var(--text);
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-s);
+  }
+  .filtros input { flex: 1 1 220px; min-width: 160px; }
+
+  /* --- Modelos --- */
+  .modelos { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .modelo {
+    border: 1px solid var(--line); border-radius: var(--radio);
+    background: var(--panel); padding: 15px; display: flex; flex-direction: column; gap: 9px;
+  }
+  .modelo .marca { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text2); }
+  .modelo .nombre { font-size: 15px; font-weight: 650; margin: -4px 0 0; }
+  .chapas { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chapa {
+    font-size: 11.5px; font-weight: 600; padding: 2.5px 8px; border-radius: 999px;
+    background: var(--panel2); color: var(--text2); border: 1px solid var(--line);
+  }
+  .chapa.ok   { background: var(--ok-sw);   color: var(--ok);   border-color: transparent; }
+  .chapa.warn { background: var(--warn-sw); color: var(--warn); border-color: transparent; }
+  .chapa.bad  { background: var(--bad-sw);  color: var(--bad);  border-color: transparent; }
+  .nota {
+    font-size: 12.5px; color: var(--text2); border-left: 2px solid var(--line);
+    padding-left: 10px; margin: 0;
+  }
+  .nota.ojo { border-left-color: var(--warn); color: var(--text); }
+  .acciones { display: flex; gap: 7px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+  .acciones a, .acciones button {
+    padding: 8px 12px; font: inherit; font-size: 13px; font-weight: 600;
+    border-radius: var(--radio-s); cursor: pointer; text-decoration: none;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  }
+  .acciones a.descargar { background: var(--brand); border-color: var(--brand); color: var(--brand-sv); }
+  .acciones a.descargar:hover { background: var(--brand2); }
+  .acciones button:hover { background: var(--panel2); }
+  .acciones button.hecho { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+  .alta {
+    border-top: 1px solid var(--line2); padding-top: 10px; margin-top: 2px;
+    display: grid; gap: 7px;
+  }
+  .alta label { font-size: 12px; font-weight: 600; color: var(--text2); }
+  .alta input {
+    padding: 8px 10px; font: inherit; font-size: 13px; width: 100%;
+    color: var(--text); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: var(--radio-s);
+  }
+  .alta .fila { display: flex; gap: 7px; }
+  .alta .fila button { flex: none; }
+  .alta .error { color: var(--bad); font-size: 12.5px; }
+
+  .vacio { color: var(--text2); padding: 24px; text-align: center; }
+  a { color: var(--brand); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line2); }
+  th { color: var(--text2); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  td code { font: 12px ui-monospace, Menlo, Consolas, monospace; }
+</style>
+</head>
+<body>
+<div id="ct-menu"></div>
+<main>
+  <h1>Impresoras compatibles</h1>
+  <p class="hint">Como conectar la tuya, si necesita driver y donde bajarlo.</p>
+
+  <section class="tarjeta">
+    <h2>Como se conecta</h2>
+    <p class="hint">El <strong>destino</strong> es lo que pones al dar de alta la impresora en el panel.
+       Casi todas admiten varias conexiones; usa la que tengas cableada.</p>
+    <div class="conexiones">
+      <div class="conexion">
+        <h3>USB</h3>
+        <p><strong>Linux y macOS:</strong> se ve como un dispositivo.</p>
+        <code>device:///dev/usb/lp0</code>
+        <p><strong>Windows:</strong> por el nombre de la cola, tal cual sale en Dispositivos e impresoras.</p>
+        <code>EPSON TM-T20 Receipt</code>
+      </div>
+      <div class="conexion">
+        <h3>Red (Ethernet o WiFi)</h3>
+        <p>La via mas comoda: no necesita driver en ningun sistema. El puerto estandar es 9100.</p>
+        <code>tcp://192.168.1.50:9100</code>
+        <p>La IP la imprime la propia impresora en su pagina de prueba.</p>
+      </div>
+      <div class="conexion">
+        <h3>Puerto serie</h3>
+        <p>Modelos antiguos, o adaptadores USB a serie.</p>
+        <code>com://COM3            (Windows)
+device:///dev/ttyUSB0 (Linux)</code>
+      </div>
+      <div class="conexion">
+        <h3>Bluetooth</h3>
+        <p>Se empareja primero en el sistema operativo; queda como un puerto serie.</p>
+        <code>bt://COM5             (Windows)
+bt:///dev/rfcomm0     (Linux)</code>
+      </div>
+    </div>
+  </section>
+
+  <section class="tarjeta">
+    <h2>Driver: cuando hace falta</h2>
+    <table>
+      <tr><th>Conexion</th><th>Windows</th><th>Linux y macOS</th></tr>
+      <tr>
+        <td><strong>Red</strong></td>
+        <td colspan="2" style="color: var(--ok); font-weight: 600;">Nunca. El agente habla directo con la impresora.</td>
+      </tr>
+      <tr>
+        <td><strong>Serie / Bluetooth</strong></td>
+        <td colspan="2" style="color: var(--ok); font-weight: 600;">Nunca.</td>
+      </tr>
+      <tr>
+        <td><strong>USB</strong></td>
+        <td>Hace falta una cola de impresion. Para casi todas basta el
+            <strong>Generic / Text Only</strong> que ya trae Windows.</td>
+        <td>Una cola de CUPS en modo <strong>raw</strong>, o escribir directo
+            a <code>/dev/usb/lp0</code> sin driver.</td>
+      </tr>
+    </table>
+    <p class="hint" style="margin-top:12px">El driver del fabricante solo se necesita en los modelos marcados abajo.
+       Bajarlo de la pagina oficial es lo seguro: los que circulan en buscadores suelen traer sorpresas.</p>
+  </section>
+
+  <section class="tarjeta">
+    <h2>Modelos conocidos</h2>
+    <div class="filtros">
+      <input type="search" id="buscar" placeholder="Buscar por marca o modelo..." autocomplete="off">
+      <select id="marca"><option value="">Todas las marcas</option></select>
+      <select id="ancho">
+        <option value="">Cualquier ancho</option>
+        <option value="384">58 mm</option>
+        <option value="512">72 mm</option>
+        <option value="576">80 mm</option>
+      </select>
+      <span class="hint" id="cuenta" style="margin:0"></span>
+    </div>
+    <div class="modelos" id="lista"></div>
+    <p class="vacio" id="vacio" hidden>Ningun modelo coincide con la busqueda.</p>
+    <p class="hint" style="margin-top:14px">
+      Si la tuya no esta, empieza con el <strong>Generico</strong> de tu ancho: casi toda termica
+      entiende ESC/POS. Pruebala en el <a href="/panel">panel</a> y ajusta el corte si no corta.
+    </p>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var modelos = [];
+
+  var DRIVER = {
+    "nunca":       { txt: "Sin driver",            clase: "ok"   },
+    "usb-windows": { txt: "Driver solo USB+Win",   clase: ""     },
+    "si":          { txt: "Driver obligatorio",    clase: "warn" },
+  };
+
+  function tarjeta(m) {
+    var d = DRIVER[m.driver] || DRIVER["usb-windows"];
+    var mm = m.paper_width >= 576 ? "80 mm" : (m.paper_width >= 512 ? "72 mm" : "58 mm");
+    var e = document.createElement("div");
+    e.className = "modelo";
+
+    var h = '<div class="marca">' + esc(m.brand) + "</div>" +
+            '<div class="nombre">' + esc(m.name) + "</div>" +
+            '<div class="chapas">' +
+              '<span class="chapa">' + mm + " &middot; " + m.paper_width + " pt</span>" +
+              '<span class="chapa' + (m.cut === "none" ? " bad" : " ok") + '">' +
+                (m.cut === "none" ? "Sin cuchilla" : "Corte " + esc(m.cut)) + "</span>" +
+              (m.drawer ? '<span class="chapa ok">Cajon</span>' : "") +
+              (m.raster ? "" : '<span class="chapa bad">Sin imagenes</span>') +
+              '<span class="chapa ' + d.clase + '">' + d.txt + "</span>" +
+            "</div>";
+
+    if (m.notes) {
+      var ojo = /NO es|exige|hay que|Caso especial/i.test(m.notes);
+      h += '<p class="nota' + (ojo ? " ojo" : "") + '">' + esc(m.notes) + "</p>";
+    }
+
+    h += '<div class="acciones">';
+    if (m.driver_url) {
+      h += '<a class="descargar" href="' + esc(m.driver_url) + '" target="_blank" rel="noopener">Descargar driver</a>';
+    }
+    h += '<button type="button" data-alta="' + esc(m.id) + '">Dar de alta</button></div>';
+
+    e.innerHTML = h;
+    return e;
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function pintar() {
+    var t = document.getElementById("buscar").value.trim().toLowerCase();
+    var ma = document.getElementById("marca").value;
+    var an = document.getElementById("ancho").value;
+
+    var vistos = modelos.filter(function (m) {
+      if (ma && m.brand !== ma) return false;
+      if (an && String(m.paper_width) !== an) return false;
+      if (t && (m.brand + " " + m.name + " " + m.id).toLowerCase().indexOf(t) < 0) return false;
+      return true;
+    });
+
+    var lista = document.getElementById("lista");
+    lista.innerHTML = "";
+    vistos.forEach(function (m) { lista.appendChild(tarjeta(m)); });
+    document.getElementById("vacio").hidden = vistos.length > 0;
+    document.getElementById("cuenta").textContent =
+      vistos.length === modelos.length ? modelos.length + " modelos"
+                                       : vistos.length + " de " + modelos.length;
+
+    lista.querySelectorAll("[data-alta]").forEach(function (b) {
+      b.addEventListener("click", function () { darDeAlta(b, b.dataset.alta); });
+    });
+  }
+
+  // Pide el destino antes de guardar. Mandar uno vacio no servia: el agente
+  // descarta las impresoras sin destino, asi que la pagina decia "anadida" y
+  // no habia nada. Ahora el agente ademas responde con un error claro.
+  function darDeAlta(boton, id) {
+    var m = modelos.filter(function (x) { return x.id === id; })[0];
+    if (!m) return;
+    var tarjeta = boton.closest(".modelo");
+    if (tarjeta.querySelector(".alta")) return;   // ya esta abierto
+
+    var caja = document.createElement("div");
+    caja.className = "alta";
+    caja.innerHTML =
+      '<label>Destino de la impresora</label>' +
+      '<input type="text" placeholder="tcp://192.168.1.50:9100" autocomplete="off">' +
+      '<label style="font-weight:400">Por red <code>tcp://IP:9100</code> &middot; ' +
+      'por USB en Linux <code>/dev/usb/lp0</code> &middot; ' +
+      'en Windows el nombre de la cola</label>' +
+      '<div class="fila"><button type="button" class="guardar">Guardar</button>' +
+      '<button type="button" class="cancelar">Cancelar</button></div>' +
+      '<p class="error" hidden></p>';
+    tarjeta.appendChild(caja);
+
+    var campo = caja.querySelector("input");
+    var fallo = caja.querySelector(".error");
+    campo.focus();
+
+    caja.querySelector(".cancelar").addEventListener("click", function () { caja.remove(); });
+    campo.addEventListener("keydown", function (e) { if (e.key === "Enter") guardar(); });
+    caja.querySelector(".guardar").addEventListener("click", guardar);
+
+    function guardar() {
+      var destino = campo.value.trim();
+      fallo.hidden = true;
+      if (!destino) {
+        fallo.textContent = "Pon el destino: sin el, la impresora no se guarda.";
+        fallo.hidden = false;
+        campo.focus();
+        return;
+      }
+      fetch("/api/printers-config")
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          var lista = (j && j.data) || [];
+          var nombre = m.id, n = 2;
+          while (lista.some(function (p) { return p.name === nombre; })) { nombre = m.id + "-" + n++; }
+          lista.push({
+            name: nombre,
+            target: destino,
+            paper_width: m.paper_width,
+            cut: m.cut,
+            model: m.id,
+            description: m.brand + " " + m.name,
+          });
+          return fetch("/api/printers-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(lista),
+          });
+        })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok || !j.ok) throw new Error(j.error || "no se pudo guardar");
+            caja.remove();
+            boton.textContent = "Anadida, ve al panel";
+            boton.classList.add("hecho");
+            setTimeout(function () { location.href = "/panel"; }, 1200);
+          });
+        })
+        .catch(function (e) {
+          fallo.textContent = e.message;
+          fallo.hidden = false;
+        });
+    }
+  }
+
+  fetch("/api/models")
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      modelos = (j && j.data) || [];
+      var marcas = [];
+      modelos.forEach(function (m) { if (marcas.indexOf(m.brand) < 0) marcas.push(m.brand); });
+      var sel = document.getElementById("marca");
+      marcas.sort().forEach(function (b) {
+        var o = document.createElement("option");
+        o.value = b; o.textContent = b;
+        sel.appendChild(o);
+      });
+      pintar();
+    })
+    .catch(function () {
+      document.getElementById("lista").innerHTML =
+        '<p class="vacio">No se pudo leer el catalogo. El agente no responde.</p>';
+    });
+
+  ["buscar", "marca", "ancho"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", pintar);
+  });
+})();
+</script>
+</body>
+</html>

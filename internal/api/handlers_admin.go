@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"collatech-agent/internal/config"
@@ -132,6 +133,14 @@ func (s *Server) savePrinters(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &list) {
 		return
 	}
+	// Al guardar en disco se descartan las entradas incompletas, para que un
+	// settings.json viejo o tocado a mano no impida arrancar. Pero por la API
+	// eso significaba perder una impresora sin enterarse: la respuesta era
+	// 200 "guardadas" y la impresora no estaba. Aqui se avisa.
+	if err := validarImpresoras(list); err != nil {
+		writeJSON(w, http.StatusBadRequest, response{OK: false, Error: err.Error()})
+		return
+	}
 	cfg, err := s.loadSettings()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{OK: false, Error: err.Error()})
@@ -200,4 +209,23 @@ func (s *Server) savePrinterAliases(w http.ResponseWriter, r *http.Request) {
 // El agente no descarga ni instala nada: solo informa.
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response{OK: true, Data: printers.Catalog})
+}
+
+// validarImpresoras rechaza lo que el guardado tiraria en silencio.
+func validarImpresoras(list []settings.Printer) error {
+	vistos := map[string]int{}
+	for i, p := range list {
+		nombre := strings.ToLower(strings.TrimSpace(p.Name))
+		if nombre == "" {
+			return fmt.Errorf("la impresora %d no tiene nombre", i+1)
+		}
+		if strings.TrimSpace(p.Target) == "" {
+			return fmt.Errorf("la impresora %q no tiene destino: pon el nombre de la cola, /dev/usb/lp0 o tcp://IP:9100", nombre)
+		}
+		if antes, ok := vistos[nombre]; ok {
+			return fmt.Errorf("el nombre %q esta repetido, en las posiciones %d y %d: cada impresora necesita uno distinto", nombre, antes+1, i+1)
+		}
+		vistos[nombre] = i
+	}
+	return nil
 }

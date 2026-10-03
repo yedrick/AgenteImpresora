@@ -22,6 +22,10 @@ func (s *Server) diagnostico(w http.ResponseWriter, r *http.Request) {
 	s.serveHTML(w, "web/diagnostico.html")
 }
 
+func (s *Server) impresoras(w http.ResponseWriter, r *http.Request) {
+	s.serveHTML(w, "web/impresoras.html")
+}
+
 func (s *Server) sdk(w http.ResponseWriter, r *http.Request) {
 	s.serveHTML(w, "web/sdk.html")
 }

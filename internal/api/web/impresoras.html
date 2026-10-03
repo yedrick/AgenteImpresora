@@ -93,6 +93,52 @@
   .alta .fila button { flex: none; }
   .alta .error { color: var(--bad); font-size: 12.5px; }
 
+  /* Detectadas en esta PC */
+  .buscar-barra { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .boton-buscar {
+    padding: 10px 16px; font: inherit; font-weight: 650; cursor: pointer;
+    border: 1px solid var(--brand); border-radius: var(--radio-s);
+    background: var(--brand); color: var(--brand-sv);
+  }
+  .boton-buscar:hover { background: var(--brand2); }
+  .boton-buscar:disabled { opacity: .6; cursor: default; }
+
+  .aviso-enc {
+    padding: 10px 13px; border-radius: var(--radio-s); font-size: 13px; font-weight: 600;
+    display: none;
+  }
+  .aviso-enc.si   { display: block; background: var(--ok-sw);   color: var(--ok);   }
+  .aviso-enc.no   { display: block; background: var(--warn-sw); color: var(--warn); }
+  .aviso-enc.mal  { display: block; background: var(--bad-sw);  color: var(--bad);  }
+
+  .detectadas { display: grid; gap: 9px; }
+  .det {
+    display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+    padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radio-s);
+    background: var(--panel2);
+  }
+  .det.nueva { border-color: var(--ok); }
+  .det .izq { min-width: 0; }
+  .det .n {
+    font-weight: 650; font-size: 14px; word-break: break-all;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .det .d { font-size: 12.5px; color: var(--text2); margin-top: 3px; }
+  .det .der { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .det input {
+    padding: 8px 10px; font: inherit; font-size: 13px; width: 130px;
+    color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: var(--radio-s);
+  }
+  .det button {
+    padding: 8px 13px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--brand); border-radius: var(--radio-s);
+    background: var(--brand); color: var(--brand-sv);
+  }
+  .det button.hecho { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .det .ya { font-size: 13px; color: var(--ok); font-weight: 600; }
+  @media (max-width: 560px) { .det { grid-template-columns: 1fr; } .det .der { justify-content: flex-start; } }
+
   .guia {
     margin-top: 14px; padding: 14px; border-radius: var(--radio-s);
     background: var(--panel2); border: 1px solid var(--line);
@@ -122,6 +168,18 @@
 <main>
   <h1>Impresoras compatibles</h1>
   <p class="hint">Como conectar la tuya, si necesita driver y donde bajarlo.</p>
+
+  <section class="tarjeta">
+    <h2>Buscar las impresoras de esta PC</h2>
+    <p class="hint">Esto solo mira que hay instalado; no imprime nada. Dale un nombre corto a
+       cada una y el agente se encarga de traducirlo al nombre real del sistema.</p>
+    <div class="buscar-barra">
+      <button class="boton-buscar" id="btnBuscar" type="button">Buscar impresoras</button>
+      <span class="hint" id="cuandoBusque" style="margin:0"></span>
+    </div>
+    <p class="aviso-enc" id="avisoEnc"></p>
+    <div class="detectadas" id="detectadas"></div>
+  </section>
 
   <section class="tarjeta">
     <h2>Como se conecta</h2>
@@ -391,6 +449,139 @@ lpstat -p                                 # debe decir "inactiva y activada"</co
         });
     }
   }
+
+  // --- Buscar las impresoras de esta PC ---------------------------------
+  //
+  // Buscar y dar de alta es una cosa; imprimir es otra. Aqui solo se mira
+  // que hay instalado y se le pone nombre: no se manda ningun trabajo.
+  //
+  // El nombre corto es lo que usa tu aplicacion. El agente lo traduce al
+  // nombre real del sistema, que puede cambiar al reinstalar la impresora
+  // sin que haya que tocar el codigo.
+
+  var yaDadas = [];      // impresoras dadas de alta en el agente
+  var conocidas = null;  // lo detectado en la busqueda anterior
+
+  function buscar(primeraVez) {
+    var btn = document.getElementById("btnBuscar");
+    var aviso = document.getElementById("avisoEnc");
+    btn.disabled = true;
+    btn.textContent = "Buscando...";
+
+    Promise.all([
+      fetch("/api/printers", { cache: "no-store" }).then(function (r) { return r.json(); }),
+      fetch("/api/printers-config", { cache: "no-store" }).then(function (r) { return r.json(); }),
+    ]).then(function (res) {
+      var vistas = (res[0] && res[0].data) || [];
+      yaDadas = (res[1] && res[1].data) || [];
+
+      var nombres = vistas.map(function (p) { return p.name; }).sort().join("|");
+      var nuevas = conocidas === null ? [] :
+        vistas.filter(function (p) { return conocidas.indexOf(p.name) < 0; });
+      conocidas = vistas.map(function (p) { return p.name; });
+
+      pintarDetectadas(vistas, nuevas);
+
+      aviso.className = "aviso-enc";
+      if (!vistas.length) {
+        aviso.className = "aviso-enc no";
+        aviso.textContent = "No se encontro ninguna impresora. Conectala y enciendela, " +
+          "o mira la guia de abajo para darla de alta en el sistema.";
+      } else if (nuevas.length) {
+        aviso.className = "aviso-enc si";
+        aviso.textContent = "Encontrada: " + nuevas.map(function (p) { return p.name; }).join(", ");
+      } else if (!primeraVez) {
+        aviso.className = "aviso-enc si";
+        aviso.textContent = vistas.length + (vistas.length === 1 ? " impresora encontrada" : " impresoras encontradas") + ", nada nuevo.";
+      }
+      void nombres;
+      document.getElementById("cuandoBusque").textContent =
+        "Ultima busqueda: " + new Date().toLocaleTimeString();
+    }).catch(function () {
+      var a = document.getElementById("avisoEnc");
+      a.className = "aviso-enc mal";
+      a.textContent = "No se pudo preguntar al agente. ¿Sigue en marcha?";
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = "Buscar de nuevo";
+    });
+  }
+
+  function pintarDetectadas(vistas, nuevas) {
+    var caja = document.getElementById("detectadas");
+    caja.innerHTML = "";
+    var esNueva = nuevas.map(function (p) { return p.name; });
+
+    vistas.forEach(function (p) {
+      var alta = yaDadas.filter(function (x) { return x.target === p.name; })[0];
+      var e = document.createElement("div");
+      e.className = "det" + (esNueva.indexOf(p.name) >= 0 ? " nueva" : "");
+
+      var tipo = p.type === "cups" ? "Cola del sistema"
+               : p.type === "usb"  ? "Dispositivo USB"
+               : p.type || "";
+      var det = [tipo];
+      if (p.status) det.push(p.status);
+      if (p.model_name) det.push("reconocida: " + p.model_name);
+      if (p.paper_width) det.push(p.paper_width + " pt");
+
+      var der = alta
+        ? '<span class="ya">Ya dada de alta como &laquo;' + esc(alta.name) + '&raquo;</span>'
+        : '<input type="text" placeholder="caja" value="' + esc(sugerir(p)) + '" aria-label="Nombre corto">' +
+          '<button type="button">Dar de alta</button>';
+
+      e.innerHTML = '<div class="izq"><div class="n">' + esc(p.name) + "</div>" +
+                    '<div class="d">' + esc(det.join(" &middot; ")).replace(/&amp;middot;/g, "&middot;") + "</div></div>" +
+                    '<div class="der">' + der + "</div>";
+      caja.appendChild(e);
+
+      var b = e.querySelector("button");
+      if (b) b.addEventListener("click", function () { alta1(e, p, b); });
+    });
+  }
+
+  // Un nombre corto de partida, para no tener que inventarlo.
+  function sugerir(p) {
+    if (p.type === "usb") return "usb";
+    var n = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return n.length > 14 ? "caja" : n;
+  }
+
+  function alta1(fila, p, boton) {
+    var campo = fila.querySelector("input");
+    var nombre = campo.value.trim().toLowerCase();
+    if (!nombre) { campo.focus(); return; }
+
+    var destino = p.type === "usb" ? "device://" + p.name : p.name;
+    var nueva = { name: nombre, target: destino };
+    if (p.paper_width) nueva.paper_width = p.paper_width;
+    if (p.model) nueva.model = p.model;
+    if (p.model_name) nueva.description = p.model_name;
+
+    boton.disabled = true;
+    boton.textContent = "Guardando...";
+    fetch("/api/printers-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(yaDadas.concat([nueva])),
+    })
+      .then(function (r) { return r.json().then(function (j) {
+        if (!r.ok || !j.ok) throw new Error(j.error || "no se pudo guardar");
+        boton.textContent = "Lista";
+        boton.classList.add("hecho");
+        setTimeout(function () { buscar(true); }, 700);
+      }); })
+      .catch(function (e) {
+        boton.disabled = false;
+        boton.textContent = "Dar de alta";
+        var a = document.getElementById("avisoEnc");
+        a.className = "aviso-enc mal";
+        a.textContent = e.message;
+      });
+  }
+
+  document.getElementById("btnBuscar").addEventListener("click", function () { buscar(false); });
+  buscar(true);   // al abrir la pagina, ya se busca
 
   fetch("/api/models")
     .then(function (r) { return r.json(); })

@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"sort"
 	"strings"
 )
 
@@ -151,6 +152,12 @@ func (s *Server) localhostOnly(next http.Handler) http.Handler {
 func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+		if origin != "" && !s.originAllowed(origin) {
+			// Sin esto, el rechazo era invisible: el agente respondia 200,
+			// el navegador se tragaba la respuesta por falta de cabecera y
+			// en el registro no quedaba nada que mirar.
+			s.avisarOrigenRechazado(origin)
+		}
 		if origin != "" && s.originAllowed(origin) {
 			if hasWildcard(s.cfg.AllowedCORS) {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -179,12 +186,34 @@ func (s *Server) originAllowed(origin string) bool {
 	if strings.EqualFold(strings.TrimSpace(origin), "null") {
 		return false
 	}
+	pedido := normalizarOrigen(origin)
 	for _, allowed := range s.cfg.AllowedCORS {
-		if allowed == "*" || strings.EqualFold(strings.TrimRight(allowed, "/"), strings.TrimRight(origin, "/")) {
+		if allowed == "*" {
+			return true
+		}
+		if normalizarOrigen(allowed) == pedido {
 			return true
 		}
 	}
 	return false
+}
+
+// normalizarOrigen deja el origen listo para comparar.
+//
+// Trata localhost, 127.0.0.1 y [::1] como lo mismo, porque lo son: las tres
+// apuntan a esta misma maquina. Para el navegador si son origenes distintos,
+// y esa diferencia era la trampa mas facil de pisar: con
+// "http://localhost:4200" permitido, una aplicacion servida en
+// "http://127.0.0.1:4200" quedaba bloqueada sin ninguna explicacion.
+//
+// No afloja la seguridad: quien pueda servir desde el bucle local de esta
+// PC ya esta ejecutando codigo en ella.
+func normalizarOrigen(origen string) string {
+	o := strings.ToLower(strings.TrimRight(strings.TrimSpace(origen), "/"))
+	for _, equivalente := range []string{"127.0.0.1", "[::1]", "::1"} {
+		o = strings.Replace(o, "//"+equivalente, "//localhost", 1)
+	}
+	return o
 }
 
 func hasWildcard(allowed []string) bool {
@@ -194,4 +223,37 @@ func hasWildcard(allowed []string) bool {
 		}
 	}
 	return false
+}
+
+// avisarOrigenRechazado deja constancia de un origen bloqueado, una sola vez
+// por origen, para no llenar el registro cuando una pagina reintenta.
+func (s *Server) avisarOrigenRechazado(origin string) {
+	s.corsMu.Lock()
+	if s.corsVistos == nil {
+		s.corsVistos = map[string]bool{}
+	}
+	nuevo := !s.corsVistos[origin]
+	s.corsVistos[origin] = true
+	s.corsMu.Unlock()
+	if !nuevo {
+		return
+	}
+	s.logger.Error("cors_rechazado", map[string]any{
+		"origen":          origin,
+		"permitidos":      s.cfg.AllowedCORS,
+		"como_arreglarlo": "anade " + origin + " a allowed_cors en configs/config.json y reinicia el agente",
+	})
+}
+
+// OrigenesRechazados devuelve los origenes bloqueados desde que arranco, para
+// que el diagnostico pueda ensenarlos.
+func (s *Server) OrigenesRechazados() []string {
+	s.corsMu.Lock()
+	defer s.corsMu.Unlock()
+	out := make([]string, 0, len(s.corsVistos))
+	for o := range s.corsVistos {
+		out = append(out, o)
+	}
+	sort.Strings(out)
+	return out
 }

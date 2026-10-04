@@ -34,6 +34,11 @@ type Server struct {
 	queue    *queue.Manager
 	logger   *logs.Logger
 
+	// corsVistos recuerda los origenes rechazados para avisar una sola vez
+	// de cada uno y poder ensenarlos en el diagnostico.
+	corsMu     sync.Mutex
+	corsVistos map[string]bool
+
 	// Version del agente, para que el panel y la pagina del SDK la muestren
 	// sin tener que adivinarla. La fija main al arrancar.
 	Version string

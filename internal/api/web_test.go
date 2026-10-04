@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"net/http/httptest"
 
+	"collatech-agent/internal/config"
 	"collatech-agent/internal/settings"
 	"regexp"
 	"strings"
@@ -190,5 +191,54 @@ func TestLaPreviaMuestraElGiro(t *testing.T) {
 	}
 	if girado != "abajo" {
 		t.Errorf("al girar el texto deberia quedar abajo, y esta %s: la previa no refleja el giro", girado)
+	}
+}
+
+// TestLocalhostY127SonElMismoOrigen: para el navegador son origenes
+// distintos, y esa diferencia dejaba una aplicacion bloqueada sin ninguna
+// explicacion. Con "http://localhost:4200" permitido, la misma aplicacion
+// servida en "http://127.0.0.1:4200" no podia leer ni /health.
+func TestLocalhostY127SonElMismoOrigen(t *testing.T) {
+	srv := newTestServer(t, func(c *config.Config) {
+		c.AllowedCORS = []string{"http://localhost:4200"}
+	})
+
+	permitidos := []string{
+		"http://localhost:4200",
+		"http://127.0.0.1:4200",
+		"http://[::1]:4200",
+		"http://LOCALHOST:4200",
+		"http://localhost:4200/",
+	}
+	for _, origen := range permitidos {
+		t.Run("permite "+origen, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/health", nil)
+			req.Header.Set("Origin", origen)
+			req.RemoteAddr = "127.0.0.1:1234"
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got == "" {
+				t.Errorf("sin cabecera de origen: el navegador bloquearia la respuesta")
+			}
+		})
+	}
+
+	// Lo que debe seguir bloqueado.
+	for _, origen := range []string{
+		"http://localhost:3000",        // otro puerto
+		"http://micolinda.ejemplo.com", // otra maquina
+		"null",                         // iframe con sandbox
+		"http://localhost.atacante.com:4200",
+	} {
+		t.Run("bloquea "+origen, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/health", nil)
+			req.Header.Set("Origin", origen)
+			req.RemoteAddr = "127.0.0.1:1234"
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+				t.Errorf("se permitio %q, y no deberia (cabecera %q)", origen, got)
+			}
+		})
 	}
 }

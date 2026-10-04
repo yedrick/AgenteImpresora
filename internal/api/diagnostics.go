@@ -92,6 +92,17 @@ func (s *Server) diagnosticData() map[string]any {
 			"active": redactConfig(s.cfg),
 			"raw":    redactRawConfig(configRaw),
 		},
+		// Lo que se ha rechazado por CORS desde que arranco. Es el dato que
+		// falta cuando una aplicacion "no conecta" aunque el agente
+		// responda 200: el navegador descarta la respuesta por falta de
+		// cabecera y no queda rastro en ningun sitio.
+		"cors": map[string]any{
+			"permitidos": s.cfg.AllowedCORS,
+			"rechazados": s.OrigenesRechazados(),
+			"nota": "localhost, 127.0.0.1 y [::1] cuentan como el mismo origen. " +
+				"Si tu aplicacion aparece en 'rechazados', anade ese origen exacto " +
+				"a allowed_cors en la configuracion y reinicia el agente.",
+		},
 		"advice": diagnosticAdvice(s.cfg, ips),
 	}
 	return report

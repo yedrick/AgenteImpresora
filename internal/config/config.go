@@ -23,10 +23,22 @@ type Config struct {
 	// AuthToken se exige en /api/* a las peticiones que no vienen de la propia
 	// PC. Si allow_remote esta activo y esta vacio, el agente genera uno al
 	// arrancar: hasta ahora cualquiera en la LAN podia imprimir sin mas.
-	AuthToken    string `json:"auth_token"`
-	MaxPrintSize int64  `json:"max_print_size"`
-	Queue        Queue  `json:"queue"`
-	TLS          TLS    `json:"tls"`
+	AuthToken string `json:"auth_token"`
+
+	// TrustedIPs son maquinas concretas que pueden usar la API sin token.
+	//
+	// Existe para convivir con clientes ya desplegados que no saben
+	// mandarlo, mientras se migran. Admite una IP ("192.168.1.20") o un
+	// rango ("192.168.1.0/24").
+	//
+	// Es una lista de maquinas nombradas a proposito, no un interruptor
+	// para apagar la autenticacion: un rango que lo abarque todo (/0) se
+	// rechaza al arrancar. Las rutas de administracion siguen siendo solo
+	// para la propia PC del agente, aunque la IP este en esta lista.
+	TrustedIPs   []string `json:"trusted_ips,omitempty"`
+	MaxPrintSize int64    `json:"max_print_size"`
+	Queue        Queue    `json:"queue"`
+	TLS          TLS      `json:"tls"`
 }
 
 type Queue struct {

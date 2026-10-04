@@ -3,6 +3,7 @@
 package api
 
 import (
+	"collatech-agent/internal/config"
 	"crypto/subtle"
 	"fmt"
 	_ "image/gif"
@@ -82,6 +83,14 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		if s.isAdminRequest(r) && !local {
 			writeJSON(w, http.StatusForbidden, response{OK: false,
 				Error: "este endpoint solo esta disponible desde la PC donde corre el agente"})
+			return
+		}
+		// Una maquina de la lista de confianza entra sin token. Es para
+		// convivir con clientes ya desplegados que no saben mandarlo.
+		// Ojo: esto NO abre las rutas de administracion, que arriba ya se
+		// limitaron a la propia PC del agente.
+		if !local && s.enConfianza(r) {
+			next.ServeHTTP(w, r)
 			return
 		}
 		if !local && s.cfg.AuthToken != "" && !tokenMatches(r, s.cfg.AuthToken) {
@@ -266,4 +275,16 @@ func (s *Server) OrigenesRechazados() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// enConfianza dice si la peticion viene de una maquina de la lista.
+func (s *Server) enConfianza(r *http.Request) bool {
+	if len(s.confianza) == 0 {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return config.Contiene(s.confianza, host)
 }

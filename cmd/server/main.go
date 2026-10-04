@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -178,6 +179,13 @@ func startServer(paths config.Paths, opts options) (*agent, error) {
 			logger.Info("auth_token_generated", nil)
 			log.Printf("Se genero un token de acceso para la red. Lo tienes en http://localhost:%d/panel", cfg.Port)
 		}
+	}
+
+	if cfg.AllowRemote && len(cfg.TrustedIPs) > 0 {
+		log.Printf("AVISO: estas maquinas usan la API SIN token: %s. "+
+			"Es para clientes antiguos mientras se migran; quitalas de trusted_ips en cuanto puedas.",
+			strings.Join(cfg.TrustedIPs, ", "))
+		logger.Info("trusted_ips_activas", map[string]any{"redes": cfg.TrustedIPs})
 	}
 
 	manager := printers.NewManager(logger)

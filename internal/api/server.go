@@ -34,6 +34,10 @@ type Server struct {
 	queue    *queue.Manager
 	logger   *logs.Logger
 
+	// confianza son las maquinas que pueden usar la API sin token, ya
+	// analizadas al arrancar para no volver a leerlas en cada peticion.
+	confianza []config.RedDeConfianza
+
 	// corsVistos recuerda los origenes rechazados para avisar una sola vez
 	// de cada uno y poder ensenarlos en el diagnostico.
 	corsMu     sync.Mutex
@@ -60,7 +64,23 @@ type response struct {
 }
 
 func NewServer(cfg config.Config, paths config.Paths, pm *printers.Manager, qm *queue.Manager, logger *logs.Logger) *Server {
-	return &Server{cfg: cfg, paths: paths, printers: pm, queue: qm, logger: logger}
+	s := &Server{cfg: cfg, paths: paths, printers: pm, queue: qm, logger: logger}
+	// Una entrada invalida se avisa y se descarta entera, en vez de confiar
+	// a medias: con una lista de acceso, aplicar "lo que se entendio" es
+	// peor que no aplicar nada.
+	redes, err := config.ParseTrustedIPs(cfg.TrustedIPs)
+	if err != nil {
+		if logger != nil {
+			logger.Error("trusted_ips_invalida", map[string]any{
+				"error": err.Error(),
+				"efecto": "no se confia en ninguna IP; todas las peticiones de la red seguiran " +
+					"necesitando token",
+			})
+		}
+	} else {
+		s.confianza = redes
+	}
+	return s
 }
 
 // loadSettings devuelve los ajustes, releyendo el archivo solo si cambio su

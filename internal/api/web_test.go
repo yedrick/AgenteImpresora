@@ -242,3 +242,72 @@ func TestLocalhostY127SonElMismoOrigen(t *testing.T) {
 		})
 	}
 }
+
+// TestIPDeConfianzaEntraSinToken: una maquina nombrada en trusted_ips puede
+// usar la API sin token, para convivir con un cliente ya desplegado que no
+// sabe mandarlo. El resto de la red sigue necesitandolo, y las rutas de
+// administracion siguen siendo solo para la propia PC del agente.
+func TestIPDeConfianzaEntraSinToken(t *testing.T) {
+	srv := newTestServer(t, func(c *config.Config) {
+		c.AllowRemote = true
+		c.AuthToken = "el-token"
+		c.TrustedIPs = []string{"192.168.1.20", "10.0.5.0/24"}
+	})
+
+	pedir := func(ruta, desde string) int {
+		req := httptest.NewRequest("GET", ruta, nil)
+		req.RemoteAddr = desde + ":5555"
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	t.Run("la IP nombrada entra", func(t *testing.T) {
+		if got := pedir("/api/status", "192.168.1.20"); got != 200 {
+			t.Errorf("HTTP %d: la IP de confianza deberia entrar sin token", got)
+		}
+	})
+	t.Run("el rango tambien", func(t *testing.T) {
+		if got := pedir("/api/status", "10.0.5.77"); got != 200 {
+			t.Errorf("HTTP %d: la IP del rango de confianza deberia entrar", got)
+		}
+	})
+	t.Run("el resto de la red sigue pidiendo token", func(t *testing.T) {
+		if got := pedir("/api/status", "192.168.1.99"); got != 401 {
+			t.Errorf("HTTP %d: una IP que no esta en la lista deberia dar 401", got)
+		}
+	})
+	t.Run("administracion sigue siendo solo local", func(t *testing.T) {
+		// Aunque la IP sea de confianza: poder imprimir no es poder
+		// reconfigurar el agente ni leer sus registros.
+		if got := pedir("/api/logs", "192.168.1.20"); got != 403 {
+			t.Errorf("HTTP %d: /api/logs deberia seguir bloqueado fuera de la PC del agente", got)
+		}
+	})
+	t.Run("imprimir si", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/api/print/text",
+			strings.NewReader(`{"printer":"P","text":"hola"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "192.168.1.20:5555"
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != 202 && rec.Code != 200 {
+			t.Errorf("HTTP %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+// TestSinListaTodoSigueIgual: sin trusted_ips, nada cambia.
+func TestSinListaTodoSigueIgual(t *testing.T) {
+	srv := newTestServer(t, func(c *config.Config) {
+		c.AllowRemote = true
+		c.AuthToken = "el-token"
+	})
+	req := httptest.NewRequest("GET", "/api/status", nil)
+	req.RemoteAddr = "192.168.1.20:5555"
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Errorf("HTTP %d: sin lista de confianza deberia seguir pidiendo token", rec.Code)
+	}
+}

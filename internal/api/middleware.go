@@ -86,8 +86,18 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		}
 		if !local && s.cfg.AuthToken != "" && !tokenMatches(r, s.cfg.AuthToken) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="CollaTech Agent"`)
+			// El mensaje decia solo "manda la cabecera Authorization", sin
+			// decir de donde sacar el token ni que abrir la URL en el
+			// navegador nunca va a funcionar, porque desde la barra de
+			// direcciones no se pueden poner cabeceras. Quien llegaba aqui
+			// se quedaba sin saber que hacer.
 			writeJSON(w, http.StatusUnauthorized, response{OK: false,
-				Error: "token ausente o incorrecto: envia la cabecera 'Authorization: Bearer <token>'"})
+				Error: "falta el token de acceso. Mandalo en la cabecera " +
+					"'Authorization: Bearer <token>' o 'X-CollaTech-Token: <token>'. " +
+					"Lo encuentras en el panel del agente, pestana Estado, abierto en su propia PC " +
+					"(http://localhost:18743/panel). Abrir esta URL en el navegador no funciona: " +
+					"desde la barra de direcciones no se pueden mandar cabeceras; usa el panel, " +
+					"el SDK o curl -H."})
 			return
 		}
 		next.ServeHTTP(w, r)

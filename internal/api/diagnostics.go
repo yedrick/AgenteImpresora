@@ -45,6 +45,12 @@ func (s *Server) diagnosticData() map[string]any {
 	}
 	ips := localIPv4s()
 	localURL := fmt.Sprintf("%s://127.0.0.1:%d/health", scheme, port)
+	// Si el agente solo escucha en el bucle local, las IP de red NO van a
+	// responder, y eso es lo correcto, no un fallo. Antes se probaban
+	// igual y salian en rojo: parecia que algo estaba roto cuando estaba
+	// bien configurado.
+	soloLocal := s.cfg.Host == "" || s.cfg.Host == "127.0.0.1" || s.cfg.Host == "localhost" || s.cfg.Host == "::1"
+
 	lanChecks := []map[string]any{}
 	panelURLs := []string{fmt.Sprintf("%s://127.0.0.1:%d/panel", scheme, port)}
 	if host != "" {
@@ -53,6 +59,20 @@ func (s *Server) diagnosticData() map[string]any {
 	for _, ip := range ips {
 		healthURL := fmt.Sprintf("%s://%s:%d/health", scheme, ip, port)
 		panelURLs = append(panelURLs, fmt.Sprintf("%s://%s:%d/panel", scheme, ip, port))
+		if soloLocal {
+			lanChecks = append(lanChecks, map[string]any{
+				"ip":  ip,
+				"url": healthURL,
+				"result": map[string]any{
+					"ok":      true,
+					"skipped": true,
+					"detail": "No se prueba: el agente escucha solo en esta PC (host " +
+						s.cfg.Host + "). Es lo correcto si tu aplicacion corre aqui mismo. " +
+						"Para abrirlo a la red, pon host 0.0.0.0 y allow_remote true.",
+				},
+			})
+			continue
+		}
 		lanChecks = append(lanChecks, map[string]any{
 			"ip":     ip,
 			"url":    healthURL,
@@ -163,20 +183,61 @@ func probeURL(url string) map[string]any {
 	return out
 }
 
+// firewallDiagnostics mira el cortafuegos del sistema que toque.
+//
+// Antes solo sabia de netsh, el de Windows, y en Linux o macOS cada
+// comprobacion salia como "REVISAR: command only available on Windows".
+// Eso no es un aviso, es ruido: manda a revisar algo que ni existe en esa
+// maquina y tapa los avisos que si importan.
 func firewallDiagnostics(port int, exe string) map[string]any {
-	return map[string]any{
-		"os":           runtime.GOOS,
-		"port_rule":    runDiagnosticCommand(4*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=GOServer"+strconv.Itoa(port)),
-		"legacy_rule":  runDiagnosticCommand(4*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent 18743"),
-		"program_rule": runDiagnosticCommand(4*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent App"),
-		"listen":       runDiagnosticCommand(4*time.Second, "netstat", "-ano", "-p", "tcp"),
-		"exe":          exe,
+	base := map[string]any{"os": runtime.GOOS, "exe": exe}
+
+	switch runtime.GOOS {
+	case "windows":
+		base["port_rule"] = runDiagnosticCommand(4*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=GOServer"+strconv.Itoa(port))
+		base["legacy_rule"] = runDiagnosticCommand(4*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent 18743")
+		base["program_rule"] = runDiagnosticCommand(4*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent App")
+		base["listen"] = runDiagnosticCommand(4*time.Second, "netstat", "-ano", "-p", "tcp")
+		base["como_abrir"] = `netsh advfirewall firewall add rule name="CollaTech Agent" dir=in action=allow protocol=TCP localport=` + strconv.Itoa(port)
+
+	case "linux":
+		// ufw es lo habitual en Ubuntu. "ufw status" exige root, y el
+		// agente no corre como root salvo que se instale como servicio:
+		// que no se pueda leer no es un fallo, asi que se dice y ya.
+		ufw := runDiagnosticCommand(4*time.Second, "ufw", "status")
+		if texto, _ := ufw["output"].(string); strings.Contains(strings.ToLower(texto), "root") {
+			ufw = map[string]any{
+				"ok":        true,
+				"no_aplica": true,
+				"detail": "Hay que ser root para consultarlo. Miralo tu con: sudo ufw status. " +
+					"Si dice inactive, el cortafuegos no esta estorbando.",
+			}
+		}
+		base["ufw"] = ufw
+		base["listen"] = runDiagnosticCommand(4*time.Second, "ss", "-ltnp")
+		base["como_abrir"] = "sudo ufw allow " + strconv.Itoa(port) + "/tcp"
+
+	case "darwin":
+		base["cortafuegos"] = runDiagnosticCommand(4*time.Second,
+			"/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate")
+		base["listen"] = runDiagnosticCommand(4*time.Second, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN")
+		base["como_abrir"] = "El cortafuegos de macOS pregunta la primera vez que el agente escucha en la red; acepta ahi."
+
+	default:
+		base["nota"] = "No hay comprobacion de cortafuegos para " + runtime.GOOS + "."
 	}
+	return base
 }
 
 func runDiagnosticCommand(timeout time.Duration, name string, args ...string) map[string]any {
-	if runtime.GOOS != "windows" && (strings.EqualFold(name, "netsh") || strings.EqualFold(name, "netstat")) {
-		return map[string]any{"ok": false, "error": "command only available on Windows"}
+	// Un comando que no esta instalado no es un fallo del agente: se dice
+	// y punto, sin marcarlo para revisar.
+	if _, err := exec.LookPath(name); err != nil {
+		return map[string]any{
+			"ok":        true,
+			"no_aplica": true,
+			"detail":    "en esta maquina no esta " + name,
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

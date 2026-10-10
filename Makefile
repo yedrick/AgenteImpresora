@@ -42,8 +42,22 @@ fmt:
 	@test -z "$$(gofmt -l . | grep -v node_modules)" || { echo "sin formatear:"; gofmt -l . | grep -v node_modules; exit 1; }
 	@echo "formato correcto"
 
+# Se revisan los tres sistemas, no solo este.
+#
+# go vet compila tambien los archivos _test.go, asi que esto coge una
+# prueba que use algo de Unix sin su etiqueta de compilacion. Hacia falta:
+# el conjunto llevaba tiempo sin compilar para Windows y nadie lo vio,
+# porque aqui todo pasaba en verde.
+#
+# No se intenta ejecutar nada: los binarios de otro sistema no corren en
+# este. Compilar y analizar es lo que se puede comprobar desde aqui; lo
+# demas lo dice una maquina Windows de verdad.
 vet:
 	go vet ./...
+	@echo "  revisando para Windows..."
+	@GOOS=windows go vet ./...
+	@echo "  revisando para macOS..."
+	@GOOS=darwin go vet ./...
 
 # La version vive en dos sitios que nadie ata: aqui y en el SDK. Si se
 # separan, el cliente recibe un agente y un SDK que dicen cosas distintas.

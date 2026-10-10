@@ -318,13 +318,24 @@ func TestSinListaTodoSigueIgual(t *testing.T) {
 // ningun sitio: el operador prueba 172.17.0.1, le da "connection refused" y
 // cree que el agente esta roto.
 func TestNoSeOfrecenRedesVirtuales(t *testing.T) {
-	virtuales := []string{"docker0", "br-1a2b3c", "veth7f3a", "virbr0", "vmnet8", "vboxnet0", "tailscale0"}
+	virtuales := []string{
+		// Linux y macOS
+		"docker0", "br-1a2b3c", "veth7f3a", "virbr0", "vmnet8", "vboxnet0", "tailscale0", "utun3",
+		// Windows: nombres descriptivos, no prefijos
+		"vEthernet (WSL)", "vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter",
+		"VirtualBox Host-Only Network", "VMware Network Adapter VMnet1",
+		"Npcap Loopback Adapter", "TAP-Windows Adapter V9", "ZeroTier One",
+	}
 	for _, n := range virtuales {
 		if !esInterfazVirtual(n) {
 			t.Errorf("%s deberia descartarse: no es alcanzable desde otra PC", n)
 		}
 	}
-	reales := []string{"eth0", "enp3s0", "wlo1", "wlan0", "en0", "Ethernet", "Wi-Fi"}
+	reales := []string{
+		"eth0", "enp3s0", "wlo1", "wlan0", "en0",
+		// Como los nombra Windows de verdad
+		"Ethernet", "Ethernet 2", "Wi-Fi", "Conexion de area local",
+	}
 	for _, n := range reales {
 		if esInterfazVirtual(n) {
 			t.Errorf("%s se descarto y es una interfaz de red de verdad", n)

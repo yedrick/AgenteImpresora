@@ -128,10 +128,39 @@ func (s *Server) diagnosticData() map[string]any {
 	return report
 }
 
+// herramientaDelSistema devuelve la ruta absoluta de una utilidad de
+// Windows dentro de System32, para no depender del PATH.
+func herramientaDelSistema(nombre string) string {
+	if runtime.GOOS != "windows" {
+		return nombre
+	}
+	raiz := os.Getenv("SystemRoot")
+	if raiz == "" {
+		raiz = `C:\Windows`
+	}
+	return filepath.Join(raiz, "System32", nombre)
+}
+
 // esInterfazVirtual reconoce las interfaces que no salen de esta maquina.
+//
+// Hay que mirar los dos sistemas: en Linux las de Docker y las maquinas
+// virtuales se llaman docker0, veth..., virbr0; en Windows son nombres
+// descriptivos como "vEthernet (WSL)" o "VirtualBox Host-Only Network".
+// Con solo los de Linux, un Windows con WSL o Hyper-V seguia ofreciendo
+// esas IP como direccion a la que conectarse desde otra PC, que es el
+// mismo fallo que se arreglo en Linux.
 func esInterfazVirtual(nombre string) bool {
-	for _, p := range []string{"docker", "br-", "veth", "virbr", "vmnet", "vboxnet", "lxcbr", "cni", "flannel", "tailscale", "zt"} {
-		if strings.HasPrefix(nombre, p) {
+	n := strings.ToLower(nombre)
+
+	// Linux y macOS: el nombre empieza por el prefijo.
+	for _, p := range []string{"docker", "br-", "veth", "virbr", "vmnet", "vboxnet", "lxcbr", "cni", "flannel", "tailscale", "zt", "utun", "bridge"} {
+		if strings.HasPrefix(n, p) {
+			return true
+		}
+	}
+	// Windows: nombres descriptivos, la pista va en medio.
+	for _, p := range []string{"vethernet", "hyper-v", "virtualbox", "vmware", "virtual adapter", "loopback adapter", "tap-windows", "zerotier", "tailscale", "wsl", "docker"} {
+		if strings.Contains(n, p) {
 			return true
 		}
 	}
@@ -211,10 +240,15 @@ func firewallDiagnostics(port int, exe string) map[string]any {
 
 	switch runtime.GOOS {
 	case "windows":
-		base["port_rule"] = runDiagnosticCommand(4*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=GOServer"+strconv.Itoa(port))
-		base["legacy_rule"] = runDiagnosticCommand(4*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent 18743")
-		base["program_rule"] = runDiagnosticCommand(4*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent App")
-		base["listen"] = runDiagnosticCommand(4*time.Second, "netstat", "-ano", "-p", "tcp")
+		// Por ruta absoluta de System32, no por PATH: el agente corre como
+		// LocalSystem cuando esta instalado como servicio, y bastaria con
+		// dejar un netsh.exe en una carpeta del PATH para que lo ejecutara
+		// con esos permisos. El instalador ya lo hacia asi.
+		netsh := herramientaDelSistema("netsh.exe")
+		base["port_rule"] = runDiagnosticCommand(4*time.Second, netsh, "advfirewall", "firewall", "show", "rule", "name=GOServer"+strconv.Itoa(port))
+		base["legacy_rule"] = runDiagnosticCommand(4*time.Second, netsh, "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent 18743")
+		base["program_rule"] = runDiagnosticCommand(4*time.Second, netsh, "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent App")
+		base["listen"] = runDiagnosticCommand(4*time.Second, herramientaDelSistema("netstat.exe"), "-ano", "-p", "tcp")
 		base["como_abrir"] = `netsh advfirewall firewall add rule name="CollaTech Agent" dir=in action=allow protocol=TCP localport=` + strconv.Itoa(port)
 
 	case "linux":

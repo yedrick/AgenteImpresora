@@ -4,7 +4,7 @@
 # de construir el producto aunque el codigo compile para seis destinos. Y el
 # .bat no sellaba la version: el binario respondia "dev" a --version.
 
-VERSION := 1.5.0
+VERSION := 1.6.0
 LDFLAGS := -s -w -X main.version=$(VERSION)
 DIST    := dist
 

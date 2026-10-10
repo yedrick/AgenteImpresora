@@ -18,7 +18,7 @@ src/app/services/collatech-print.service.ts
 Instala el SDK (en la entrega va empaquetado como `.tgz`):
 
 ```bash
-npm install ./collatech-sdk-1.5.0.tgz
+npm install ./collatech-sdk-1.6.0.tgz
 ```
 
 Uso rapido desde un componente:
@@ -83,12 +83,12 @@ cd mi-tienda
 
 ## Paso 2: Copiar SDK a tu proyecto
 
-Copia `collatech-sdk-1.5.0.tgz` (esta en la carpeta `angular/` de la entrega)
+Copia `collatech-sdk-1.6.0.tgz` (esta en la carpeta `angular/` de la entrega)
 dentro de `mi-tienda/`:
 
 ```
 mi-tienda/
-├── collatech-sdk-1.5.0.tgz    <-- COPIAR AQUI
+├── collatech-sdk-1.6.0.tgz    <-- COPIAR AQUI
 ├── src/
 ├── angular.json
 └── package.json
@@ -97,10 +97,10 @@ mi-tienda/
 ## Paso 3: Instalar dependencias
 
 ```bash
-npm install ./collatech-sdk-1.5.0.tgz
+npm install ./collatech-sdk-1.6.0.tgz
 ```
 
-Queda en tu `package.json` como `"collatech-sdk": "file:collatech-sdk-1.5.0.tgz"`.
+Queda en tu `package.json` como `"collatech-sdk": "file:collatech-sdk-1.6.0.tgz"`.
 Al pasar a una version nueva, copia el `.tgz` nuevo y repite el `npm install`.
 
 ## Paso 4: Crear servicio de impresion
@@ -636,7 +636,7 @@ salga el papel. El trabajo nace `Pending`. Para saber como acabo, consulta
 
 ```
 mi-tienda/
-├── collatech-sdk-1.5.0.tgz
+├── collatech-sdk-1.6.0.tgz
 ├── src/
 │   ├── app/
 │   │   ├── services/

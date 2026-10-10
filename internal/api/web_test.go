@@ -311,3 +311,23 @@ func TestSinListaTodoSigueIgual(t *testing.T) {
 		t.Errorf("HTTP %d: sin lista de confianza deberia seguir pidiendo token", rec.Code)
 	}
 }
+
+// TestNoSeOfrecenRedesVirtuales: las interfaces de Docker y de maquinas
+// virtuales existen solo dentro de esta PC. Salian en la lista de
+// "conectate desde otra PC a estas direcciones" y desde fuera no llevan a
+// ningun sitio: el operador prueba 172.17.0.1, le da "connection refused" y
+// cree que el agente esta roto.
+func TestNoSeOfrecenRedesVirtuales(t *testing.T) {
+	virtuales := []string{"docker0", "br-1a2b3c", "veth7f3a", "virbr0", "vmnet8", "vboxnet0", "tailscale0"}
+	for _, n := range virtuales {
+		if !esInterfazVirtual(n) {
+			t.Errorf("%s deberia descartarse: no es alcanzable desde otra PC", n)
+		}
+	}
+	reales := []string{"eth0", "enp3s0", "wlo1", "wlan0", "en0", "Ethernet", "Wi-Fi"}
+	for _, n := range reales {
+		if esInterfazVirtual(n) {
+			t.Errorf("%s se descarto y es una interfaz de red de verdad", n)
+		}
+	}
+}

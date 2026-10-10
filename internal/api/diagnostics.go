@@ -128,6 +128,16 @@ func (s *Server) diagnosticData() map[string]any {
 	return report
 }
 
+// esInterfazVirtual reconoce las interfaces que no salen de esta maquina.
+func esInterfazVirtual(nombre string) bool {
+	for _, p := range []string{"docker", "br-", "veth", "virbr", "vmnet", "vboxnet", "lxcbr", "cni", "flannel", "tailscale", "zt"} {
+		if strings.HasPrefix(nombre, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func localIPv4s() []string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -136,6 +146,13 @@ func localIPv4s() []string {
 	var out []string
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		// Las redes de Docker y de las maquinas virtuales existen solo
+		// dentro de esta PC. Salian en la lista de "conectate desde otra
+		// PC a estas direcciones", y desde otra PC no llevan a ningun
+		// sitio: hacen perder el rato probando una direccion imposible.
+		if esInterfazVirtual(iface.Name) {
 			continue
 		}
 		addrs, err := iface.Addrs()

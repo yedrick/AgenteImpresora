@@ -141,6 +141,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/support-bundle", s.supportBundle)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.saveSettings)
+	mux.HandleFunc("GET /api/cors", s.listCORS)
+	mux.HandleFunc("POST /api/cors", s.saveCORS)
 	mux.HandleFunc("GET /api/printers-config", s.getPrinters)
 	mux.HandleFunc("POST /api/printers-config", s.savePrinters)
 	mux.HandleFunc("GET /api/printer-aliases", s.getPrinterAliases)

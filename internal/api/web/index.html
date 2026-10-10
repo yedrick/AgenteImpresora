@@ -241,6 +241,19 @@
       border-color: var(--brand);
     }
 
+    .list-simple { display: grid; gap: 6px; }
+    .list-simple .fila {
+      display: flex; align-items: center; gap: 8px; justify-content: space-between;
+      padding: 8px 11px; border: 1px solid var(--line); border-radius: var(--radio-s);
+      background: var(--panel2); font-size: 13px;
+    }
+    .list-simple .fila code { background: none; border: 0; padding: 0; word-break: break-all; }
+    .list-simple .fila button { min-height: 32px; padding: 4px 11px; font-size: 12.5px; }
+    .list-simple .nada { color: var(--text2); font-size: 13px; padding: 6px 0; }
+    .row { display: flex; gap: 8px; }
+    .row input { flex: 1; }
+    .row button { flex: none; }
+
     .tab-panel {
       display: none;
     }
@@ -360,6 +373,7 @@
       <button class="tab-button active" data-tab="overview" type="button">Estado</button>
       <button class="tab-button" data-tab="printers" type="button">Impresoras</button>
       <button class="tab-button" data-tab="stations" type="button">Estaciones</button>
+      <button class="tab-button" data-tab="webs" type="button">Webs autorizadas</button>
       <button class="tab-button" data-tab="tests" type="button">Pruebas</button>
       <button class="tab-button" data-tab="logs" type="button">Logs</button>
     </div>
@@ -435,6 +449,39 @@
         <button id="refreshStatus" class="secondary">Ver estado</button>
         <button id="saveSettings" class="secondary">Guardar configuracion</button>
       </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="webs">
+      <div class="section-head">
+        <div>
+          <h2>Webs autorizadas</h2>
+          <p class="hint">Que paginas pueden hablar con este agente desde un navegador.
+             Si tu aplicacion recibe la respuesta pero no puede leerla, su direccion
+             tiene que estar en esta lista.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Rechazadas</h3>
+        <p class="hint">Direcciones que intentaron conectar y no estaban autorizadas.
+           Si la tuya sale aqui, es la que hay que permitir: asi se escribe exactamente.</p>
+        <div id="corsRechazados" class="list-simple">Consultando...</div>
+      </div>
+
+      <div class="card">
+        <h3>Permitidas</h3>
+        <div id="corsPermitidos" class="list-simple"></div>
+        <div class="row" style="margin-top:12px">
+          <input id="corsNueva" placeholder="https://mi-tienda.com o http://192.168.1.20:4200">
+          <button id="corsAnadir" type="button">Anadir</button>
+        </div>
+        <p class="hint">Solo esquema, host y puerto. Sin barra ni ruta al final.
+           El cambio vale al momento, sin reiniciar el agente.</p>
+      </div>
+
+      <p class="hint"><strong>Ojo:</strong> esta lista la obedece el navegador, no es una
+         contrasena. Un programa que no sea un navegador la ignora. Lo que de verdad
+         protege al agente es el token.</p>
     </section>
 
     <section class="tab-panel" data-tab-panel="stations">
@@ -1065,6 +1112,61 @@ Gracias por usar CollaTech</textarea>
       }
     }
 
+    // --- Webs autorizadas --------------------------------------------------
+    //
+    // Lo util aqui son las rechazadas: el agente las va anotando, asi que
+    // quien no consigue conectar ve su direccion exacta y la autoriza de un
+    // clic, en vez de adivinar como la escribe su navegador.
+
+    let corsPermitidos = [];
+
+    async function cargarWebs() {
+      try {
+        const data = await api("/api/cors");
+        corsPermitidos = (data.data && data.data.permitidos) || [];
+        const rechazados = (data.data && data.data.rechazados) || [];
+
+        $("corsPermitidos").innerHTML = corsPermitidos.length
+          ? corsPermitidos.map((o) => `
+              <div class="fila"><code>${esc(o)}</code>
+              <button type="button" class="secondary" data-quitar="${esc(o)}">Quitar</button></div>`).join("")
+          : `<div class="nada">Ninguna. Solo funcionara desde la propia PC del agente.</div>`;
+
+        $("corsRechazados").innerHTML = rechazados.length
+          ? rechazados.map((o) => `
+              <div class="fila"><code>${esc(o)}</code>
+              <button type="button" data-permitir="${esc(o)}">Permitir</button></div>`).join("")
+          : `<div class="nada">Ninguna. Si tu web no conecta, abrela una vez y recarga esto.</div>`;
+
+        document.querySelectorAll("[data-permitir]").forEach((b) => {
+          b.addEventListener("click", () => guardarWebs(corsPermitidos.concat([b.dataset.permitir])));
+        });
+        document.querySelectorAll("[data-quitar]").forEach((b) => {
+          b.addEventListener("click", () => {
+            if (!confirm(`Quitar ${b.dataset.quitar}? Esa web dejara de poder imprimir.`)) return;
+            guardarWebs(corsPermitidos.filter((o) => o !== b.dataset.quitar));
+          });
+        });
+      } catch (error) {
+        $("corsRechazados").innerHTML =
+          `<div class="nada">Esta lista solo se gestiona desde la PC del agente.</div>`;
+        $("corsPermitidos").innerHTML = "";
+      }
+    }
+
+    async function guardarWebs(lista) {
+      try {
+        notify(await api("/api/cors", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(lista),
+        }), "Webs autorizadas guardadas");
+        await cargarWebs();
+      } catch (error) {
+        notifyError(error, "No se pudo guardar");
+      }
+    }
+
     async function loadLogs() {
       try {
         const data = await api("/api/logs?limit=120");
@@ -1136,7 +1238,16 @@ Gracias por usar CollaTech</textarea>
         refreshAfterPrint();
       } catch (error) {
         notifyError(error, "No se pudo probar la estacion");
-        loadLogs();
+        $("corsAnadir").addEventListener("click", () => {
+      const v = $("corsNueva").value.trim();
+      if (!v) { $("corsNueva").focus(); return; }
+      guardarWebs(corsPermitidos.concat([v])).then(() => { $("corsNueva").value = ""; });
+    });
+    $("corsNueva").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("corsAnadir").click();
+    });
+    cargarWebs();
+    loadLogs();
       }
     });
     $("refreshLogs").addEventListener("click", loadLogs);

@@ -32,6 +32,10 @@ import (
 // Lo que si se queda: el diagnostico (configuracion completa, netstat,
 // cortafuegos), los registros, el token y el paquete de soporte.
 var adminPaths = map[string]bool{
+	// Autorizar origenes desde la red permitiria a quien ya estuviera
+	// dentro darse permiso a si mismo, que es justo lo que esta lista
+	// deberia impedir.
+	"/api/cors":           true,
 	"/api/diagnostico":    true,
 	"/api/logs":           true,
 	"/api/token":          true,

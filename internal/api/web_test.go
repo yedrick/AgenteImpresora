@@ -381,3 +381,94 @@ func TestLoSensibleSigueSoloEnLocal(t *testing.T) {
 		})
 	}
 }
+
+// TestAltaDeOrigenesDesdeElPanel: poder autorizar un origen desde el panel
+// evita editar config.json a mano, que es donde la gente se equivoca y
+// luego no entiende por que su web sigue bloqueada.
+func TestAltaDeOrigenesDesdeElPanel(t *testing.T) {
+	srv := newTestServer(t, func(c *config.Config) {
+		c.AllowedCORS = []string{"http://localhost:4200"}
+	})
+
+	guardar := func(cuerpo string, desde string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/api/cors", strings.NewReader(cuerpo))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = desde
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		return rec
+	}
+
+	t.Run("se guarda y se aplica al momento", func(t *testing.T) {
+		rec := guardar(`["http://localhost:4200","https://mi-tienda.com"]`, "127.0.0.1:1234")
+		if rec.Code != 200 {
+			t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+		}
+		// Sin reiniciar nada, el origen nuevo ya vale.
+		req := httptest.NewRequest("GET", "/health", nil)
+		req.Header.Set("Origin", "https://mi-tienda.com")
+		req.RemoteAddr = "127.0.0.1:1234"
+		r2 := httptest.NewRecorder()
+		srv.ServeHTTP(r2, req)
+		if r2.Header().Get("Access-Control-Allow-Origin") != "https://mi-tienda.com" {
+			t.Error("el origen recien autorizado no vale todavia: haria falta reiniciar, y eso se olvida")
+		}
+	})
+
+	t.Run("no se puede autorizar desde la red", func(t *testing.T) {
+		if rec := guardar(`["https://atacante.com"]`, "192.168.1.50:1234"); rec.Code != 403 {
+			t.Errorf("HTTP %d: desde la red no deberia poder darse permiso a si mismo", rec.Code)
+		}
+	})
+
+	t.Run("se rechaza el comodin", func(t *testing.T) {
+		rec := guardar(`["*"]`, "127.0.0.1:1234")
+		if rec.Code != 400 || !strings.Contains(rec.Body.String(), "cajon") {
+			t.Errorf("HTTP %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("se avisa de lo mal escrito", func(t *testing.T) {
+		for _, malo := range []string{`["mi-tienda.com"]`, `["https://mi-tienda.com/panel"]`, `["ftp://x.com"]`} {
+			rec := guardar(malo, "127.0.0.1:1234")
+			if rec.Code != 400 {
+				t.Errorf("se acepto %s (HTTP %d): no coincidiria nunca y nadie sabria por que", malo, rec.Code)
+			}
+		}
+	})
+}
+
+// TestElPanelEscapaLosOrigenesRechazados: los origenes rechazados los
+// manda quien intenta conectar, asi que son texto de un desconocido. Se
+// pintan en el panel, que se abre en la PC del agente y puede autorizarlos
+// de un clic: si no se escapan, basta una peticion con HTML en la cabecera
+// Origin para colar codigo en esa pagina.
+func TestElPanelEscapaLosOrigenesRechazados(t *testing.T) {
+	html, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(html)
+
+	i := strings.Index(s, `corsRechazados").innerHTML`)
+	if i < 0 {
+		t.Fatal("no se encontro el pintado de origenes rechazados: cambio el panel")
+	}
+	bloque := s[i:min(i+600, len(s))]
+
+	if !strings.Contains(bloque, "esc(o)") {
+		t.Error("los origenes rechazados se pintan sin escapar")
+	}
+	// Los atributos tienen que ir entre comillas dobles, que es lo que esc
+	// escapa; con comillas simples no protegeria.
+	if strings.Contains(bloque, "data-permitir='") {
+		t.Error("atributo con comilla simple: esc no escapa ese caracter")
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

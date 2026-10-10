@@ -331,3 +331,53 @@ func TestNoSeOfrecenRedesVirtuales(t *testing.T) {
 		}
 	}
 }
+
+// TestAccesoEnRedSeVeDesdeLaRed: /api/network devuelve las URLs para
+// alcanzar al agente, que es justo lo que quiere ver quien abre el panel
+// desde otra PC. Estaba marcado como administracion y respondia 403, asi
+// que esa seccion mostraba un error en bruto.
+func TestAccesoEnRedSeVeDesdeLaRed(t *testing.T) {
+	srv := newTestServer(t, func(c *config.Config) {
+		c.AllowRemote = true
+		c.AuthToken = "el-token"
+	})
+
+	req := httptest.NewRequest("GET", "/api/network", nil)
+	req.Header.Set("Authorization", "Bearer el-token")
+	req.RemoteAddr = "192.168.1.50:5555"
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Y sin token sigue sin verse.
+	req2 := httptest.NewRequest("GET", "/api/network", nil)
+	req2.RemoteAddr = "192.168.1.50:5555"
+	rec2 := httptest.NewRecorder()
+	srv.ServeHTTP(rec2, req2)
+	if rec2.Code != 401 {
+		t.Errorf("HTTP %d sin token: deberia seguir pidiendolo", rec2.Code)
+	}
+}
+
+// TestLoSensibleSigueSoloEnLocal deja por escrito donde esta la linea.
+func TestLoSensibleSigueSoloEnLocal(t *testing.T) {
+	srv := newTestServer(t, func(c *config.Config) {
+		c.AllowRemote = true
+		c.AuthToken = "el-token"
+		c.TrustedIPs = []string{"192.168.1.50"}
+	})
+	for _, ruta := range []string{"/api/diagnostico", "/api/logs", "/api/token", "/api/support-bundle"} {
+		t.Run(ruta, func(t *testing.T) {
+			req := httptest.NewRequest("GET", ruta, nil)
+			req.Header.Set("Authorization", "Bearer el-token")
+			req.RemoteAddr = "192.168.1.50:5555" // con token Y de confianza
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+			if rec.Code != 403 {
+				t.Errorf("HTTP %d: %s deberia verse solo en la PC del agente", rec.Code, ruta)
+			}
+		})
+	}
+}

@@ -20,10 +20,18 @@ import (
 // o el historial: se atienden solo desde la propia PC del agente, pase lo que
 // pase con allow_remote. /api/diagnostico llegaba a volcar la salida completa
 // de netstat -ano a cualquiera en la red.
+// adminPaths son las rutas que solo responden en la PC donde corre el
+// agente, pase lo que pase con el token o las IPs de confianza.
+//
+// /api/network NO esta aqui a proposito. Devuelve el nombre del equipo y
+// las URLs para alcanzarlo, que es justo lo que quiere ver quien abre el
+// panel desde otra PC. Bloquearlo no protegia nada —quien pregunta ya esta
+// conectado al agente y conoce al menos una de sus direcciones— y dejaba la
+// seccion "Acceso en red" mostrando un error en bruto.
+//
+// Lo que si se queda: el diagnostico (configuracion completa, netstat,
+// cortafuegos), los registros, el token y el paquete de soporte.
 var adminPaths = map[string]bool{
-	// /api/network devuelve el nombre del equipo y todas sus IPv4: es el
-	// mismo tipo de dato que motivo mover /api/diagnostico aqui.
-	"/api/network":        true,
 	"/api/diagnostico":    true,
 	"/api/logs":           true,
 	"/api/token":          true,

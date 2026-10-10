@@ -910,13 +910,29 @@ func TestUnPOSTSinJSONSeRechaza(t *testing.T) {
 }
 
 // /api/network devuelve el nombre del equipo y todas sus IPv4.
-func TestLaInformacionDeRedEsSoloLocal(t *testing.T) {
+// TestLaInformacionDeRedPideIdentificarse: /api/network devuelve el nombre
+// del equipo y las URLs para alcanzarlo.
+//
+// Antes estaba cerrado a la red por completo, igual que el diagnostico. Se
+// revisa esa decision: dejaba la seccion "Acceso en red" del panel
+// mostrando un error en bruto a quien lo abria desde otra PC, que es
+// precisamente quien necesita ver esas rutas. Y no protegia gran cosa:
+// quien pregunta ya esta conectado al agente, conoce al menos una de sus
+// direcciones y, si tiene token, ya puede imprimir y abrir el cajon.
+//
+// Lo de verdad sensible —configuracion completa, registros, el token y el
+// paquete de soporte— sigue sin salir de su PC. Eso lo cubre
+// TestLoSensibleSigueSoloEnLocal.
+func TestLaInformacionDeRedPideIdentificarse(t *testing.T) {
 	h := newTestServer(t, func(c *config.Config) {
 		c.AllowRemote = true
 		c.AuthToken = "secreto"
 	})
-	if rec := get(t, h, "/api/network", "192.168.1.77:5000", "secreto"); rec.Code != http.StatusForbidden {
-		t.Fatalf("esperaba 403 desde la red, obtuve %d", rec.Code)
+	if rec := get(t, h, "/api/network", "192.168.1.77:5000", "secreto"); rec.Code != http.StatusOK {
+		t.Fatalf("con token deberia verse desde la red, obtuve %d", rec.Code)
+	}
+	if rec := get(t, h, "/api/network", "192.168.1.77:5000", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("sin token no deberia verse, obtuve %d", rec.Code)
 	}
 	if rec := get(t, h, "/api/network", "127.0.0.1:5000", ""); rec.Code != http.StatusOK {
 		t.Fatalf("en local deberia responder, obtuve %d", rec.Code)

@@ -132,8 +132,8 @@
       <div class="muted" id="subtitle">Verificando servidor local, red y firewall</div>
     </div>
     <nav>
-      <a href="/panel">Panel</a>
-      <a href="/designer">Designer</a>
+      <!-- Los enlaces a las otras paginas los pone el menu compartido de
+           arriba. Aqui quedaban los de antes y salian dos menus. -->
       <button class="primary" id="refresh">Actualizar</button>
       <button id="copy">Copiar reporte</button>
       <button id="download">Descargar JSON</button>
@@ -297,6 +297,62 @@
       `;
     }
 
+    // Lo que si se puede ver desde otra PC, para no dejar la pagina en
+    // blanco: que el agente responde, su version y las impresoras.
+    function soloEnSuPC() {
+      const html = `
+        <div class="card full">
+          <h2>Este diagnostico solo se ve en la PC del agente</h2>
+          <p>Muestra su configuracion completa, los puertos a la escucha y las reglas
+             del cortafuegos, asi que no se sirve a traves de la red aunque tengas token.</p>
+          <p><strong>Abrela en la PC donde corre el agente:</strong></p>
+          <pre>http://localhost:18743/diagnostico</pre>
+          <p>Desde aqui si puedes ver lo basico:</p>
+          <div id="basico" class="list">Consultando...</div>
+        </div>`;
+      setTimeout(basicoDesdeLaRed, 0);
+      return html;
+    }
+
+    async function basicoDesdeLaRed() {
+      const caja = document.getElementById("basico");
+      if (!caja) return;
+      let token = "";
+      try { token = localStorage.getItem("collatech.token") || ""; } catch (e) { /* modo privado */ }
+      const cab = token ? { Authorization: "Bearer " + token } : {};
+      const filas = [];
+
+      try {
+        const h = await fetch("/health", { cache: "no-store" });
+        filas.push(["El agente responde", h.ok ? status(true, "si") : status(false, "no")]);
+      } catch (e) {
+        filas.push(["El agente responde", status(false, "no se pudo preguntar")]);
+      }
+
+      try {
+        const r = await fetch("/api/status", { cache: "no-store", headers: cab });
+        const j = await r.json();
+        if (r.ok && j.data) {
+          filas.push(["Version", esc(j.data.version || "?")]);
+          filas.push(["Trabajos recientes", String((j.data.jobs || []).length)]);
+        } else {
+          filas.push(["Estado", status(false, (j && j.error) || "HTTP " + r.status)]);
+        }
+      } catch (e) { /* ya se dijo arriba */ }
+
+      try {
+        const r = await fetch("/api/network", { cache: "no-store", headers: cab });
+        const j = await r.json();
+        if (r.ok && j.data) {
+          filas.push(["Nombre de la PC", esc(j.data.hostname || "?")]);
+          filas.push(["Rutas para conectarse",
+            (j.data.urls || []).map(u => `<div>${esc(u)}</div>`).join("") || "ninguna"]);
+        }
+      } catch (e) { /* opcional */ }
+
+      caja.innerHTML = dl(filas);
+    }
+
     async function load() {
       app.innerHTML = `<div class="loading">Cargando diagnostico...</div>`;
       try {
@@ -310,6 +366,14 @@
         headers: token ? { Authorization: "Bearer " + token } : {},
       });
         const json = await res.json().catch(() => null);
+      // Esta pagina muestra la configuracion completa del agente, el
+      // netstat y las reglas del cortafuegos, asi que solo responde en su
+      // propia PC. Antes se soltaba el JSON del 403 tal cual y parecia una
+      // averia: no decia ni por que ni donde hay que abrirla.
+      if (res.status === 403) {
+        app.innerHTML = soloEnSuPC();
+        return;
+      }
       if (!res.ok || !json || !json.data) {
         const motivo = (json && json.error) || `El agente respondio HTTP ${res.status}.`;
         throw new Error(motivo);

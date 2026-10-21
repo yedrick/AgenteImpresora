@@ -1066,3 +1066,39 @@ func TestElPaqueteDeSoporteLlevaContentLength(t *testing.T) {
 		t.Fatalf("el zip no es valido: %v", err)
 	}
 }
+
+// Una tabla con borde tiene que cuadrar con el ticket. Dentro de un ticket
+// con borde, las lineas de borde salian corridas respecto a las filas, sin el
+// marco del ticket a los lados y mas estrechas que el papel; sin borde de
+// ticket, se salian dos caracteres porque no se contaban los │ de los lados.
+func TestLaTablaConBordeCuadra(t *testing.T) {
+	tablas := [][]tableColumn{
+		{{Text: "Producto", Width: 26}, {Text: "Bs", Width: 10, Align: "right"}},
+		{{Text: "Producto", Width: 30}, {Text: "Cant", Width: 6, Align: "right"}, {Text: "Bs", Width: 10, Align: "right"}},
+		{{Text: "A"}, {Text: "B"}},
+	}
+	for _, columnas := range tablas {
+		tbl := &tableDef{Header: true, Border: true, Columns: columnas,
+			Rows: [][]string{{"Producto", "Cant", "Bs"}, {"Café con leche", "2", "24.00"}}}
+		for _, cols := range []int{32, 42, 48} {
+			for _, conMarco := range []bool{true, false} {
+				for _, margen := range []int{0, 2} {
+					b := escpos.New()
+					drawTable(b, tbl, cols, conMarco, margen, margen)
+					var anchos []int
+					for _, linea := range strings.Split(string(b.Bytes()), "\n") {
+						if l := len(decodeBoxLine(linea)); l > 0 {
+							anchos = append(anchos, l)
+						}
+					}
+					for _, a := range anchos {
+						if a != cols {
+							t.Fatalf("cols=%d marco=%v margen=%d %d columnas: lineas de %v, todas deberian medir %d",
+								cols, conMarco, margen, len(columnas), anchos, cols)
+						}
+					}
+				}
+			}
+		}
+	}
+}

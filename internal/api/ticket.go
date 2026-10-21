@@ -32,6 +32,14 @@ func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml
 	}
 	colCount := len(tbl.Columns)
 	sep := tbl.Border
+	// avail es lo que queda para las columnas. Con borde, los dos │ de los
+	// lados tambien ocupan: no contarlos hacia que la tabla midiera dos
+	// caracteres mas que el papel y el final de cada linea saltara a la
+	// siguiente.
+	avail := inner
+	if sep {
+		avail -= 2
+	}
 
 	// Calcular anchos totales
 	colWidths := make([]int, colCount)
@@ -42,8 +50,8 @@ func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml
 			w = 5
 		}
 		// Ajustar si excede el ancho disponible
-		if totalWidth+w > inner {
-			w = inner - totalWidth
+		if totalWidth+w > avail {
+			w = avail - totalWidth
 			if w < 3 {
 				w = 3
 			}
@@ -55,8 +63,8 @@ func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml
 		}
 	}
 	// Si no alcanza, escalar proporcionalmente
-	if totalWidth > inner {
-		ratio := float64(inner) / float64(totalWidth)
+	if totalWidth > avail {
+		ratio := float64(avail) / float64(totalWidth)
 		newTotal := 0
 		for i := range colWidths {
 			w := int(float64(colWidths[i]) * ratio)
@@ -70,17 +78,67 @@ func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml
 			}
 		}
 		// Ajustar ultima columna para llenar exactamente
-		if newTotal < inner {
-			colWidths[colCount-1] += inner - newTotal
+		if newTotal < avail {
+			colWidths[colCount-1] += avail - newTotal
+		}
+		// El minimo de 3 por columna puede dejar el total por encima: se
+		// recorta de la mas ancha hasta que quepa en el papel.
+		for newTotal > avail {
+			ancha := 0
+			for i := range colWidths {
+				if colWidths[i] > colWidths[ancha] {
+					ancha = i
+				}
+			}
+			if colWidths[ancha] <= 1 {
+				break
+			}
+			colWidths[ancha]--
+			newTotal--
+		}
+	}
+
+	// Una tabla con borde propio ocupa todo el ancho: un recuadro que se
+	// queda a medias se ve como un error. Lo que sobra va a la primera
+	// columna, que suele ser la descripcion.
+	if sep {
+		if falta := avail - totalWidth; falta > 0 {
+			colWidths[0] += falta
 		}
 	}
 
 	b.AlignLeft().FontSize("normal")
-	padLine := func(s string) string {
+	// emit pone cada linea de la tabla dentro del ticket: margenes y, si el
+	// ticket lleva borde, el marco a los lados. Antes las lineas de borde se
+	// centraban y las filas no, asi que el recuadro salia descuadrado, y
+	// ninguna llevaba el marco: el borde del ticket se cortaba en la tabla.
+	emit := func(s string, bold bool) {
+		if ticketBorder {
+			if r := []rune(s); len(r) < inner {
+				s += strings.Repeat(" ", inner-len(r))
+			}
+		}
 		if ml > 0 || mr > 0 {
 			s = strings.Repeat(" ", ml) + s + strings.Repeat(" ", mr)
 		}
-		return s
+		if ticketBorder {
+			s = "│" + s + "│"
+		}
+		if bold {
+			b.Bold(true).TextLine(s).Bold(false)
+			return
+		}
+		b.TextLine(s)
+	}
+	rule := func(left, mid, right string) {
+		line := left
+		for i, w := range colWidths {
+			if i > 0 {
+				line += mid
+			}
+			line += strings.Repeat("─", w)
+		}
+		emit(line+right, false)
 	}
 
 	buildRow := func(cells []string, isHeader bool) {
@@ -121,70 +179,18 @@ func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml
 		if sep {
 			line += "│"
 		}
-		if ticketBorder && !sep {
-			// Rellenar hacia la derecha para que la linea mida inner
-			rline := []rune(line)
-			if len(rline) < inner {
-				line += strings.Repeat(" ", inner-len(rline))
-			}
-		}
-		if isHeader && tbl.Header && sep {
-			b.Bold(true).TextLine(padLine(line)).Bold(false)
-		} else {
-			b.TextLine(padLine(line))
-		}
+		emit(line, isHeader && tbl.Header && sep)
 	}
 
-	// Borde superior
 	if sep {
-		var top string
-		for i, w := range colWidths {
-			if i == 0 {
-				top += "┌"
-			} else {
-				top += "┬"
-			}
-			top += strings.Repeat("─", w)
-		}
-		top += "┐"
-		if ticketBorder {
-			// Centrar dentro del border
-			r := []rune(top)
-			pad := (inner - len(r)) / 2
-			if pad > 0 {
-				top = strings.Repeat(" ", pad) + top
-			}
-		}
-		b.TextLine(padLine(top))
+		rule("┌", "┬", "┐")
 	}
-
-	// Header
 	if len(tbl.Rows) > 0 && tbl.Header {
 		buildRow(tbl.Rows[0], true)
-		// Separador header
 		if sep {
-			var mid string
-			for i, w := range colWidths {
-				if i == 0 {
-					mid += "├"
-				} else {
-					mid += "┼"
-				}
-				mid += strings.Repeat("─", w)
-			}
-			mid += "┤"
-			if ticketBorder {
-				r := []rune(mid)
-				pad := (inner - len(r)) / 2
-				if pad > 0 {
-					mid = strings.Repeat(" ", pad) + mid
-				}
-			}
-			b.TextLine(padLine(mid))
+			rule("├", "┼", "┤")
 		}
 	}
-
-	// Filas de datos
 	startRow := 0
 	if tbl.Header {
 		startRow = 1
@@ -192,27 +198,8 @@ func drawTable(b *escpos.Builder, tbl *tableDef, cols int, ticketBorder bool, ml
 	for i := startRow; i < len(tbl.Rows); i++ {
 		buildRow(tbl.Rows[i], false)
 	}
-
-	// Borde inferior
 	if sep {
-		var bot string
-		for i, w := range colWidths {
-			if i == 0 {
-				bot += "└"
-			} else {
-				bot += "┴"
-			}
-			bot += strings.Repeat("─", w)
-		}
-		bot += "┘"
-		if ticketBorder {
-			r := []rune(bot)
-			pad := (inner - len(r)) / 2
-			if pad > 0 {
-				bot = strings.Repeat(" ", pad) + bot
-			}
-		}
-		b.TextLine(padLine(bot))
+		rule("└", "┴", "┘")
 	}
 	b.FontSize("normal").Bold(false)
 }

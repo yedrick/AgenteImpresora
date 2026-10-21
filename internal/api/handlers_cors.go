@@ -39,7 +39,16 @@ func (s *Server) saveCORS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := s.cfg
+	// Se parte del archivo, no de la configuracion en memoria: esa no tiene
+	// lo que se cambio en caliente desde el panel (la conexion con la nube)
+	// y si lo que vino por linea de comandos (--port, --token). Guardar la
+	// de memoria borraba la conexion con la nube al autorizar una web.
+	cfg, err := config.Load(s.paths.Config)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, response{OK: false,
+			Error: "no se pudo leer la configuracion: " + err.Error()})
+		return
+	}
 	cfg.AllowedCORS = limpia
 	if err := config.Save(s.paths.Config, cfg); err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{OK: false,

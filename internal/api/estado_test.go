@@ -185,3 +185,28 @@ func postConToken(t *testing.T, h http.Handler, path, body, remote, token string
 	h.ServeHTTP(rec, req)
 	return rec
 }
+
+// Autorizar una web despues de conectar la nube no puede borrar la conexion:
+// /api/cors guardaba la configuracion de memoria, que no la tenia.
+func TestAutorizarWebNoBorraLaNube(t *testing.T) {
+	h := newTestServer(t, nil)
+	if err := config.Save(config.DefaultPaths(mustWd(t)).Config, config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if rec := post(t, h, "/api/cloud", `{"url":"https://mi-app.com/api/collatech","token":"abcdef123456"}`, ""); rec.Code != http.StatusOK {
+		t.Fatalf("nube: %d %s", rec.Code, rec.Body)
+	}
+	if rec := post(t, h, "/api/cors", `["http://localhost:5173"]`, ""); rec.Code != http.StatusOK {
+		t.Fatalf("cors: %d %s", rec.Code, rec.Body)
+	}
+	disco, err := config.Load(config.DefaultPaths(mustWd(t)).Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disco.Cloud.Token != "abcdef123456" {
+		t.Fatalf("autorizar una web borro la conexion con la nube: %+v", disco.Cloud)
+	}
+	if len(disco.AllowedCORS) != 1 || disco.AllowedCORS[0] != "http://localhost:5173" {
+		t.Fatalf("no se guardo la web: %v", disco.AllowedCORS)
+	}
+}

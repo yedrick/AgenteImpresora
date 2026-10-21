@@ -398,8 +398,15 @@ func (p *devicePrinter) Print(data []byte) error {
 	// Los dispositivos de caracteres no siempre admiten deadline; que falle
 	// aqui no es motivo para abortar la impresion.
 	_ = p.file.SetWriteDeadline(time.Now().Add(writeTimeout))
-	_, err := p.file.Write(data)
-	return err
+	if _, err := p.file.Write(data); err != nil {
+		return err
+	}
+	// Sin esto, en Linux el cierre que viene detras cancelaba el envio a una
+	// impresora USB antes de que saliera. Ver esperarEnvio.
+	if err := esperarEnvio(p.file); err != nil {
+		return fmt.Errorf("%s no termino de recibir el trabajo: %w", p.path, err)
+	}
+	return nil
 }
 
 func (p *devicePrinter) Status() error {

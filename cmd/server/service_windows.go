@@ -104,6 +104,11 @@ func installService(paths config.Paths) error {
 	}
 	_ = sc("description", serviceName, "Agente de impresion ESC/POS CollaTech")
 	_ = sc("failure", serviceName, "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/5000")
+	// Sin esto Windows solo reinicia si el proceso revienta. Si el agente
+	// arranca con un error (el puerto ocupado, por ejemplo) se detiene
+	// "limpio" y se quedaba apagado. La ultima accion se repite en todos
+	// los fallos siguientes, asi que no se rinde.
+	_ = sc("failureflag", serviceName, "1")
 	return sc("start", serviceName)
 }
 

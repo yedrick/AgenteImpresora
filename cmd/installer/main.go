@@ -267,6 +267,9 @@ func installService(exePath string) bool {
 	}
 	_ = run("description", serviceNameArg, "Agente de impresion ESC/POS CollaTech (panel en "+panelURL("localhost")+")")
 	_ = run("failure", serviceNameArg, "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/5000")
+	// Tambien cuando se detiene con error, no solo si revienta: ver
+	// installService en cmd/server.
+	_ = run("failureflag", serviceNameArg, "1")
 
 	return run("start", serviceNameArg) == nil
 }

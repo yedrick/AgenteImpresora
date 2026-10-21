@@ -95,11 +95,16 @@ func systemdUnitText(binPath string, paths config.Paths) string {
 Description=CollaTech Agent - impresion ESC/POS
 After=network-online.target cups.service
 Wants=network-online.target
+# Sin limite de arranques: por defecto, 5 caidas en 10 segundos (un puerto
+# ocupado al arrancar, por ejemplo) hacen que systemd se rinda y deje el
+# agente apagado hasta que alguien lo note.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStart=%s --config %s --data-dir %s
-Restart=on-failure
+# always y no on-failure: tambien vuelve si el proceso sale "limpio".
+Restart=always
 RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict

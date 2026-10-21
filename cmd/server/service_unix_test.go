@@ -18,7 +18,9 @@ func TestUnidadSystemd(t *testing.T) {
 
 	debeContener := []string{
 		"ExecStart=/usr/local/bin/collatech-agent --config " + paths.Config + " --data-dir " + paths.DataDir,
-		"Restart=on-failure",
+		// Siempre encendido: vuelve aunque salga sin error y nunca se rinde.
+		"Restart=always",
+		"StartLimitIntervalSec=0",
 		"WantedBy=multi-user.target",
 		"After=network-online.target cups.service",
 		// Endurecido, pero con permiso de escritura donde hace falta.

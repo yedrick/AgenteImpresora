@@ -1,5 +1,12 @@
 # Ejemplos
 
+## Laravel en la nube — `laravel/`
+
+Todo lo necesario para imprimir desde un Laravel en internet en las
+impresoras de cada local, y saber si están encendidas: tablas, modelos, rutas
+y `Collatech::imprimir($local, 'cocina', $comanda)`. Guía en
+[laravel/README.md](laravel/README.md).
+
 ## Tickets por JSON — `tickets/`
 
 Se mandan tal cual a `POST /api/print/ticket`:

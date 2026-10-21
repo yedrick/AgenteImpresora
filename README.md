@@ -398,7 +398,7 @@ aparece como un puerto COM saliente (`bt://COM5`); en Linux se empareja con
 ## Varias impresoras
 
 Cada impresora se da de alta una vez con sus ajustes, desde el panel
-(pestaña **Impresoras**) o con `POST /api/printers-config`:
+(pestaña **Estaciones**) o con `POST /api/printers-config`:
 
 ```json
 [
@@ -411,6 +411,28 @@ Después basta con `{"printer": "caja", ...}`: el ancho, el corte y el giro
 salen del perfil, así que puedes tener una de 58 mm en cocina y una de 80 mm
 en caja sin repetirlo en cada llamada. Un destino con varias impresoras
 separadas por coma saca una copia en cada una.
+
+Dos ajustes más por impresora, según lo que pida cada modelo:
+
+| Campo | Para qué |
+|---|---|
+| `qr_image` | Dibuja los QR como imagen. Para impresoras sin QR propio (muchas genéricas), que sacan el ticket sin el QR |
+| `feed_bottom` | Líneas que avanza antes de cortar. Bájalo al mínimo con el que no se come la última línea: ahorra papel en cada ticket |
+
+Un recibo en `caja` y una comanda en `cocina` son dos peticiones, cada una a
+su estación, y salen a la vez: la cola imprime en paralelo en impresoras
+distintas.
+
+## Backend en internet (Laravel)
+
+Un backend en la nube no puede llamar al agente, que está en la red del
+local. Así que llama el agente: pregunta cada pocos segundos si hay trabajos,
+los imprime y contesta cómo salieron, y cada 30 segundos avisa de que sigue
+encendido y de cómo están las impresoras. No hace falta abrir puertos.
+
+Se configura en el panel, pestaña **Estado**, con la URL del backend y el
+token del local. El lado de Laravel, listo para copiar, con su guía:
+[examples/laravel](examples/laravel/README.md).
 
 ## ¿Hace falta el driver del fabricante?
 

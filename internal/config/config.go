@@ -39,7 +39,30 @@ type Config struct {
 	MaxPrintSize int64    `json:"max_print_size"`
 	Queue        Queue    `json:"queue"`
 	TLS          TLS      `json:"tls"`
+
+	// Cloud conecta el agente con un backend en internet (por ejemplo
+	// Laravel) que no puede llegar a la red del local.
+	Cloud Cloud `json:"cloud"`
 }
+
+// Cloud es la conexion con el backend. Es el agente quien llama: pregunta
+// cada pocos segundos si hay trabajos y avisa de como estan las impresoras,
+// asi que no hace falta abrir puertos en el router del local.
+type Cloud struct {
+	// URL base de las rutas del backend, por ejemplo
+	// https://mi-app.com/api/collatech. Vacia, el conector esta apagado.
+	URL string `json:"url"`
+	// Token identifica a este local ante el backend.
+	Token string `json:"token"`
+	// PollSeconds es cada cuanto pregunta si hay trabajos. 3 por defecto.
+	PollSeconds int `json:"poll_seconds,omitempty"`
+	// HeartbeatSeconds es cada cuanto informa de que sigue encendido y de
+	// como estan las impresoras. 30 por defecto.
+	HeartbeatSeconds int `json:"heartbeat_seconds,omitempty"`
+}
+
+// Enabled dice si hay datos para conectarse.
+func (c Cloud) Enabled() bool { return c.URL != "" && c.Token != "" }
 
 type Queue struct {
 	Workers    int `json:"workers"`

@@ -19,6 +19,7 @@ import (
 
 	"collatech-agent/internal/config"
 	"collatech-agent/internal/logs"
+	"collatech-agent/internal/nube"
 	"collatech-agent/internal/printers"
 	"collatech-agent/internal/queue"
 	"collatech-agent/internal/settings"
@@ -54,6 +55,12 @@ type Server struct {
 	settingsStat time.Time
 	settingsSize int64
 	settingsOK   bool
+
+	// nube es el conector con el backend en internet; nubeCfg, su
+	// configuracion actual, que el panel puede cambiar en caliente.
+	nubeMu  sync.Mutex
+	nube    *nube.Conector
+	nubeCfg config.Cloud
 }
 
 type response struct {
@@ -152,6 +159,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/stations", s.listStations)
 	mux.HandleFunc("GET /api/stations/{name}", s.getStation)
 	mux.HandleFunc("GET /api/jobs/{id}", s.getJob)
+	mux.HandleFunc("GET /api/cloud", s.getCloud)
+	mux.HandleFunc("POST /api/cloud", s.saveCloud)
 	mux.HandleFunc("GET /api/models", s.listModels)
 	mux.HandleFunc("POST /api/print/text", s.printText)
 	mux.HandleFunc("POST /api/print/ticket", s.printTicket)

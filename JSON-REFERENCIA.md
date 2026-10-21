@@ -646,6 +646,7 @@ Estos responden `403` desde la red, aunque mandes el token:
 | `POST /api/settings` | Cambiar ancho de papel y escala |
 | `GET`+`POST /api/printers-config` | Impresoras dadas de alta y sus ajustes |
 | `POST /api/printer-aliases` | Compatibilidad: solo nombre y destino |
+| `GET`+`POST /api/cloud` | Conexión con un backend en internet: `{"url":"https://...","token":"..."}`. El token nunca se devuelve entero. Ver [examples/laravel](examples/laravel/README.md) |
 
 ## Alias de impresora
 

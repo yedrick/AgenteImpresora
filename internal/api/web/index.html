@@ -418,6 +418,29 @@
         </div>
       </div>
 
+      <div class="section-head" style="margin-top:18px">
+        <div>
+          <h2>Conexion con tu sistema en internet</h2>
+          <p class="hint">Para un backend en la nube (Laravel, por ejemplo) que no puede llegar a esta red. El agente le pregunta cada pocos segundos si hay algo que imprimir y le avisa cada 30 segundos de que sigue encendido y de como estan las impresoras. No hace falta abrir puertos en el router.</p>
+        </div>
+        <span class="badge">Nube</span>
+      </div>
+      <div class="grid">
+        <div>
+          <label for="nubeUrl">URL del backend</label>
+          <input id="nubeUrl" placeholder="https://mi-app.com/api/collatech">
+        </div>
+        <div>
+          <label for="nubeToken">Token de este local</label>
+          <input id="nubeToken" type="password" autocomplete="off" placeholder="php artisan collatech:agente">
+          <p class="hint" id="nubeTokenHint">Lo genera tu backend.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="nubeGuardar">Guardar y conectar</button>
+        <button id="nubeQuitar" class="secondary">Desconectar</button>
+      </div>
+      <pre id="nubeEstado">Sin configurar.</pre>
     </section>
 
     <section class="tab-panel" data-tab-panel="printers">
@@ -1304,6 +1327,61 @@ Gracias por usar CollaTech</textarea>
     });
     cargarWebs();
     loadLogs();
+
+    // --- Conexion con la nube ---------------------------------------------
+    function pintarNube(info) {
+      $("nubeUrl").value = info.url || "";
+      $("nubeTokenHint").textContent = info.token_set
+        ? `Guardado (${info.token_hint || "oculto"}). Dejalo vacio para conservarlo.`
+        : "Lo genera tu backend.";
+      const st = info.status || {};
+      let lineas;
+      if (!st.enabled) {
+        lineas = ["Sin configurar: este agente solo imprime lo que le llega desde esta red."];
+      } else {
+        const visto = st.last_contact && !st.last_contact.startsWith("0001")
+          ? new Date(st.last_contact).toLocaleString() : "nunca";
+        lineas = [
+          `Estado: ${st.connected ? "CONECTADO" : "SIN CONEXION"}`,
+          `Ultimo contacto: ${visto}`,
+          `Trabajos recibidos desde que arranco: ${st.jobs_received || 0}`,
+        ];
+        if (st.last_error) lineas.push(`Ultimo error: ${st.last_error}`);
+      }
+      $("nubeEstado").textContent = lineas.join("\n");
+    }
+
+    async function cargarNube() {
+      try {
+        pintarNube((await api("/api/cloud")).data || {});
+      } catch (_) {
+        // Desde otra PC no se puede ver: es solo para la del agente.
+        $("nubeEstado").textContent = "Solo se puede configurar desde la PC donde esta el agente.";
+      }
+    }
+
+    async function guardarNube(cuerpo, mensaje) {
+      try {
+        const data = await api("/api/cloud", { method: "POST", body: JSON.stringify(cuerpo) });
+        $("nubeToken").value = "";
+        pintarNube(data.data || {});
+        notify(data, mensaje);
+        // Dar tiempo al primer contacto antes de volver a mirar.
+        setTimeout(cargarNube, 2500);
+      } catch (error) {
+        notifyError(error, "No se pudo guardar la conexion");
+      }
+    }
+
+    $("nubeGuardar").addEventListener("click", () => {
+      const cuerpo = { url: $("nubeUrl").value.trim() };
+      const token = $("nubeToken").value.trim();
+      if (token) cuerpo.token = token;
+      guardarNube(cuerpo, "Conexion guardada");
+    });
+    $("nubeQuitar").addEventListener("click", () => guardarNube({ url: "", token: "" }, "Desconectado"));
+    cargarNube();
+    setInterval(cargarNube, 15000);
       }
     });
     $("refreshLogs").addEventListener("click", loadLogs);

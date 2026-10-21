@@ -40,6 +40,8 @@ var adminPaths = map[string]bool{
 	"/api/logs":           true,
 	"/api/token":          true,
 	"/api/support-bundle": true,
+	// La conexion con el backend lleva su token.
+	"/api/cloud": true,
 }
 
 // adminWritePaths son cambios de configuracion: nunca desde la red.

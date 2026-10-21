@@ -23,6 +23,7 @@ import (
 	"collatech-agent/internal/api"
 	"collatech-agent/internal/config"
 	"collatech-agent/internal/logs"
+	"collatech-agent/internal/nube"
 	"collatech-agent/internal/printers"
 	"collatech-agent/internal/queue"
 )
@@ -141,6 +142,7 @@ type agent struct {
 	server *http.Server
 	logger *logs.Logger
 	queue  *queue.Manager
+	nube   *nube.Conector
 }
 
 func startServer(paths config.Paths, opts options) (*agent, error) {
@@ -201,10 +203,25 @@ func startServer(paths config.Paths, opts options) (*agent, error) {
 	})
 	queueManager.Start()
 
+	srv := apiServer(cfg, paths, manager, queueManager, logger)
+	handler := srv.Routes()
+
+	// El conector con la nube imprime pasando por la misma API, asi que se
+	// crea con el handler ya montado.
+	conector := nube.New(nube.Opciones{
+		Handler:    handler,
+		Trabajos:   queueManager,
+		Estaciones: func() any { return srv.EstadoEstaciones() },
+		Logger:     logger,
+		Version:    version,
+		StorageDir: paths.Storage,
+	})
+	srv.SetNube(conector, cfg.Cloud)
+
 	addr := net.JoinHostPort(cfg.Host, fmt.Sprint(cfg.Port))
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           apiServer(cfg, paths, manager, queueManager, logger).Routes(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       20 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -246,11 +263,15 @@ func startServer(paths config.Paths, opts options) (*agent, error) {
 			logger.Error("server_failed", map[string]any{"error": serveErr.Error()})
 		}
 	}()
+	conector.Configurar(cfg.Cloud)
 
-	return &agent{server: server, logger: logger, queue: queueManager}, nil
+	return &agent{server: server, logger: logger, queue: queueManager, nube: conector}, nil
 }
 
 func (a *agent) shutdown() {
+	// Primero el conector: que no recoja trabajos que ya no daria tiempo a
+	// imprimir.
+	a.nube.Detener()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = a.server.Shutdown(ctx)

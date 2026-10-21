@@ -56,6 +56,34 @@ export interface NetworkInfo {
 // Printers
 // ---------------------------------------------------------------------------
 
+/** Estado real de una impresora, consultado sin imprimir. */
+export interface PrinterState {
+  target: string;
+  /** La impresora responde. */
+  online: boolean;
+  /** Puede imprimir ahora: responde, tiene papel y la tapa esta cerrada. */
+  ready: boolean;
+  paper: "ok" | "low" | "out" | "unknown";
+  cover_open?: boolean;
+  /** Esta imprimiendo; no se la consulto para no interrumpir. */
+  printing?: boolean;
+  /** Por que no esta lista, en palabras para el operador. */
+  error?: string;
+  /** Como se comprobo. */
+  detail?: string;
+}
+
+/** Una estacion con el estado de cada impresora a la que imprime. */
+export interface StationState {
+  name: string;
+  description?: string;
+  /** false si el nombre no esta dado de alta y se consulto como destino directo. */
+  configured: boolean;
+  online: boolean;
+  ready: boolean;
+  targets: PrinterState[];
+}
+
 export interface PrinterInfo {
   name: string;
   /** Detalle del estado reportado por Windows ("lista", "sin papel", ...). */

@@ -36,6 +36,8 @@ export type {
   WaitUntilReadyOptions,
   NetworkInfo,
   PrinterInfo,
+  PrinterState,
+  StationState,
   PrinterAlias,
   Settings,
   TemplateName,

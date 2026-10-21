@@ -256,3 +256,27 @@ func detectDevices() []Info {
 	}
 	return out
 }
+
+// estadoSpooler traduce el estado del spooler. Con el driver "Generic / Text
+// Only" Windows no se entera de si hay papel, asi que muchas veces solo se
+// sabe si la cola existe y si esta en pausa.
+func estadoSpooler(name string) Estado {
+	online, detalle := printerStatus(name)
+	e := Estado{Online: true, Detail: "spooler de Windows: " + detalle}
+	switch detalle {
+	case "no se pudo abrir", "nombre no valido":
+		return Estado{Error: fmt.Sprintf("no existe ninguna impresora llamada %q en Windows", name)}
+	case "sin conexion", "no disponible":
+		return Estado{Error: "la impresora esta " + detalle, Detail: e.Detail}
+	case "sin papel":
+		e.Paper = PaperOut
+	case "tapa abierta":
+		e.CoverOpen = true
+	case "ocupada":
+		e.Printing = true
+	}
+	if !online && e.Paper != PaperOut && !e.CoverOpen {
+		e.Error = detalle
+	}
+	return e
+}

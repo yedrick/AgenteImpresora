@@ -287,6 +287,19 @@
       white-space: nowrap;
     }
 
+    .estado-estacion {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      color: var(--muted, #666);
+    }
+    .estado-estacion.ok { color: var(--ok); background: var(--ok-sw); }
+    .estado-estacion.warn { color: var(--warn); background: var(--warn-sw); }
+    .estado-estacion.bad { color: var(--bad); background: var(--bad-sw); }
+
     .toast-stack {
       position: fixed;
       top: 18px;
@@ -404,6 +417,7 @@
           <button id="copyToken" class="secondary">Copiar token</button>
         </div>
       </div>
+
     </section>
 
     <section class="tab-panel" data-tab-panel="printers">
@@ -496,7 +510,7 @@
         <table id="printerTable">
           <thead>
             <tr>
-              <th>Nombre</th><th>Destino</th><th>Modelo</th><th>Papel</th><th>Corte</th>
+              <th>Estado</th><th>Nombre</th><th>Destino</th><th>Modelo</th><th>Papel</th><th>Corte</th>
               <th title="Imprimir girado 180 grados">Girar</th><th title="Dibujar los QR como imagen, para impresoras sin QR propio">QR imagen</th><th>Fuente</th><th>Descripcion</th><th></th>
             </tr>
           </thead>
@@ -981,11 +995,12 @@ Gracias por usar CollaTech</textarea>
     function pintarImpresoras() {
       const tbody = $("printerRows");
       if (!impresoras.length) {
-        tbody.innerHTML = `<tr class="vacio"><td colspan="10">Ninguna impresora dada de alta. Puedes imprimir usando el nombre directo, o anadir una aqui para fijarle su papel y su corte.</td></tr>`;
+        tbody.innerHTML = `<tr class="vacio"><td colspan="11">Ninguna impresora dada de alta. Puedes imprimir usando el nombre directo, o anadir una aqui para fijarle su papel y su corte.</td></tr>`;
         return;
       }
       tbody.innerHTML = impresoras.map((p, i) => `
         <tr data-i="${i}">
+          <td><span class="estado-estacion" data-estado="${esc((p.name || "").toLowerCase())}">&hellip;</span></td>
           <td><input type="text" data-campo="name" value="${esc(p.name)}" placeholder="caja"></td>
           <td><input type="text" data-campo="target" value="${esc(p.target)}" placeholder="tcp://192.168.1.50:9100"></td>
           <td><select data-campo="modelo">${opcionesModelo(p.model)}</select></td>
@@ -1053,8 +1068,34 @@ Gracias por usar CollaTech</textarea>
         if (!$("stationTest").value.trim()) {
           $("stationTest").value = primeraImpresora() || "cocina";
         }
+        pintarEstados();
       } catch (error) {
         show(error);
+      }
+    }
+
+    // Pregunta a cada impresora como esta, sin imprimir: si responde, si
+    // tiene papel y si la tapa esta cerrada.
+    async function pintarEstados() {
+      let estaciones = [];
+      try {
+        estaciones = (await api("/api/stations")).data || [];
+      } catch (_) {
+        return;
+      }
+      for (const est of estaciones) {
+        const celda = document.querySelector(`[data-estado="${CSS.escape(est.name)}"]`);
+        if (!celda) continue;
+        const problemas = (est.targets || []).filter((t) => !t.ready).map((t) => t.error).filter(Boolean);
+        const poco = (est.targets || []).some((t) => t.paper === "low");
+        let texto = "Lista", clase = "ok";
+        if (!est.online) { texto = "No responde"; clase = "bad"; }
+        else if (!est.ready) { texto = problemas[0] || "No lista"; clase = "bad"; }
+        else if (poco) { texto = "Queda poco papel"; clase = "warn"; }
+        else if ((est.targets || []).some((t) => t.printing)) { texto = "Imprimiendo"; }
+        celda.textContent = texto.charAt(0).toUpperCase() + texto.slice(1);
+        celda.className = "estado-estacion " + clase;
+        celda.title = (est.targets || []).map((t) => `${t.target}: ${t.error || t.detail || "lista"}`).join("\n");
       }
     }
 
@@ -1067,6 +1108,7 @@ Gracias por usar CollaTech</textarea>
         notify(data, "Impresoras guardadas");
         impresoras = data.data || [];
         pintarImpresoras();
+        pintarEstados();
         if (!$("stationTest").value.trim()) {
           $("stationTest").value = primeraImpresora() || "cocina";
         }

@@ -191,3 +191,54 @@ func TestElHistorialSeRecorta(t *testing.T) {
 		t.Fatalf("el historial crecio hasta %d, el limite es %d", len(m.jobs), maxHistory)
 	}
 }
+
+// impresoraLenta se queda imprimiendo hasta que se cierra soltar.
+type impresoraLenta struct {
+	empezo chan struct{}
+	soltar chan struct{}
+}
+
+func (p impresoraLenta) Print(string, []byte) error {
+	close(p.empezo)
+	<-p.soltar
+	return nil
+}
+
+// Mientras una impresora imprime, SiLibre no puede ejecutar la consulta: por
+// USB fallaria al abrir el dispositivo y por red se mezclaria con el ticket.
+// Las demas impresoras siguen libres.
+func TestSiLibreNoInterrumpeUnTrabajo(t *testing.T) {
+	p := impresoraLenta{empezo: make(chan struct{}), soltar: make(chan struct{})}
+	m := New(Options{Printers: p, Workers: 1, MaxRetries: 1, StorageDir: t.TempDir()})
+	m.Start()
+	defer m.Stop()
+
+	jobs, err := m.EnqueueMany([]string{"Caja"}, []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-p.empezo
+
+	if m.SiLibre("caja", func() { t.Error("consulto la impresora en mitad de un trabajo") }) {
+		t.Fatal("SiLibre dijo libre una impresora que estaba imprimiendo")
+	}
+	corrio := false
+	if !m.SiLibre("cocina", func() { corrio = true }) || !corrio {
+		t.Fatal("otra impresora tiene que seguir libre")
+	}
+
+	close(p.soltar)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if j, ok := m.Get(jobs[0].ID); ok && j.Status == Completed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("el trabajo no termino")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !m.SiLibre("caja", func() {}) {
+		t.Fatal("al terminar el trabajo la impresora tiene que quedar libre")
+	}
+}

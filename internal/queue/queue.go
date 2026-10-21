@@ -245,6 +245,36 @@ func (m *Manager) List() []Job {
 	return out
 }
 
+// Get devuelve un trabajo por su id. Sirve para que quien imprimio pregunte
+// por el suyo en vez de buscarlo en la lista entera, de la que ademas los
+// viejos se van purgando.
+func (m *Manager) Get(id string) (Job, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	job, ok := m.jobs[id]
+	if !ok {
+		return Job{}, false
+	}
+	return *cloneJob(job), true
+}
+
+// SiLibre ejecuta f solo si no se esta imprimiendo en esa impresora, con la
+// misma exclusion que los trabajos: mientras f corre, ningun trabajo empieza
+// en ella. Devuelve false, sin ejecutar f, si estaba ocupada.
+//
+// Es para consultar el estado: hacerlo durante un trabajo fallaria por USB
+// (el dispositivo admite un solo uso) y por red mezclaria la consulta con los
+// bytes del ticket.
+func (m *Manager) SiLibre(printer string, f func()) bool {
+	lock := m.printerLock(printer)
+	if !lock.TryLock() {
+		return false
+	}
+	defer lock.Unlock()
+	f()
+	return true
+}
+
 func (m *Manager) worker() {
 	defer m.wg.Done()
 	for {

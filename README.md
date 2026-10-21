@@ -299,7 +299,11 @@ Consulta (`GET`):
 ```text
 /health  /api/status  /api/printers  /api/templates  /api/network
 /api/settings  /api/printer-aliases
+/api/stations  /api/stations/{nombre}  /api/jobs/{id}
 ```
+
+`/api/stations` dice, **sin imprimir**, si cada impresora responde, tiene
+papel y la tapa cerrada; `/api/jobs/{id}` cómo terminó un trabajo concreto.
 
 Configuración (`POST`) y administración (`GET`), **solo desde la propia PC**:
 

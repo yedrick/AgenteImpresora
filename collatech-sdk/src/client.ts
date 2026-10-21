@@ -30,6 +30,8 @@ import type {
   LogEntry,
   PaperWidth,
   PrinterProfile,
+  PrintJob,
+  StationState,
   CutMode,
   PrinterFont,
   QRSpec,
@@ -198,6 +200,24 @@ export class CollaTech {
   async printers(): Promise<PrinterInfo[]> {
     const res = await this.get<PrinterInfo[]>("/api/printers");
     return res;
+  }
+
+  /**
+   * Estado real de cada estacion, sin imprimir: si responde, si tiene papel
+   * y si la tapa esta cerrada.
+   */
+  async stations(): Promise<StationState[]> {
+    return this.get<StationState[]>("/api/stations");
+  }
+
+  /** Estado de una estacion, o de un destino directo si no esta dada de alta. */
+  async station(name: string): Promise<StationState> {
+    return this.get<StationState>(`/api/stations/${encodeURIComponent(name)}`);
+  }
+
+  /** Un trabajo por el id que devolvio al imprimir. */
+  async job(id: string): Promise<PrintJob> {
+    return this.get<PrintJob>(`/api/jobs/${encodeURIComponent(id)}`);
   }
 
   // -------------------------------------------------------------------------

@@ -93,6 +93,74 @@ func cupsStatus(name string) (bool, string) {
 	return online, detail
 }
 
+// estadoSpooler mira la cola de CUPS y, si la impresora va por USB o por
+// red, tambien la impresora: CUPS dice "lista" de una cola cuya impresora
+// esta desenchufada hasta que un trabajo falla.
+func estadoSpooler(name string) Estado {
+	lines, err := runLpstat("-p", name)
+	if err != nil || len(lines) == 0 {
+		return Estado{Error: fmt.Sprintf("no existe ninguna impresora llamada %q en CUPS", name)}
+	}
+	online, detalle := parseLpstatLine(lines[0])
+	if !online {
+		return Estado{Error: "la cola de CUPS esta " + detalle, Detail: "CUPS"}
+	}
+	imprimiendo := detalle == "imprimiendo"
+
+	uri := cupsURI(name)
+	switch {
+	case strings.HasPrefix(uri, "usb://"):
+		serial := ""
+		if i := strings.Index(uri, "serial="); i >= 0 {
+			serial = uri[i+len("serial="):]
+			if j := strings.IndexAny(serial, "&?"); j >= 0 {
+				serial = serial[:j]
+			}
+		}
+		if serial == "" {
+			break
+		}
+		enchufada, nodo := usbConectado(serial)
+		if !enchufada {
+			return Estado{Error: "la impresora esta desenchufada o apagada", Detail: "CUPS, buscada por USB"}
+		}
+		if nodo != "" && !imprimiendo {
+			e := estadoDispositivoSO(nodo)
+			// Sin permiso sobre el nodo no se puede preguntar por el papel,
+			// pero imprime CUPS, no el agente: que este enchufada basta.
+			if !e.Online && strings.Contains(e.Error, "permission denied") {
+				return Estado{Online: true, Detail: "CUPS, enchufada por USB; sin permiso para consultar el papel"}
+			}
+			e.Detail = "CUPS, consultada por USB (" + nodo + ")"
+			return e
+		}
+	case strings.HasPrefix(uri, "socket://"):
+		if !imprimiendo {
+			e := estadoTCP(withDefaultPort(strings.TrimSuffix(uri[len("socket://"):], "/")))
+			e.Detail = "CUPS, " + e.Detail
+			return e
+		}
+	}
+	return Estado{Online: true, Printing: imprimiendo, Detail: "CUPS: " + detalle}
+}
+
+// cupsURI devuelve el destino de la cola: usb://..., socket://..., etc.
+func cupsURI(name string) string {
+	if _, err := exec.LookPath("lpstat"); err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, _ := enC(ctx, "lpstat", "-v", name).Output()
+	for _, line := range strings.Split(string(out), "\n") {
+		// "device for TM-T88V: usb://EPSON/TM-T88V?serial=574A..."
+		if i := strings.Index(line, ": "); i >= 0 && strings.HasPrefix(line, "device for ") {
+			return strings.TrimSpace(line[i+2:])
+		}
+	}
+	return ""
+}
+
 // enumSpoolerPrinters lista las colas de CUPS.
 func enumSpoolerPrinters() []Info {
 	lines, err := runLpstat("-p")

@@ -597,6 +597,41 @@ bytes ASCII y de control pasan tal cual).
 | `GET /api/network` | Hostname, IPs y URLs del panel |
 | `GET /api/settings` | Ancho de papel, escala y alias |
 | `GET /api/printer-aliases` | Solo los alias |
+| `GET /api/stations` | **Estado real de cada estación**, sin imprimir: ver abajo |
+| `GET /api/stations/{nombre}` | Lo mismo para una. Un nombre que no está dado de alta se consulta como destino directo, igual que al imprimir |
+| `GET /api/jobs/{id}` | Un trabajo por el `id` que devolvió al imprimir: `Pending`, `Printing`, `Completed` o `Failed` con `error`. `404` si no existe o ya se purgó |
+
+### Estado de las estaciones
+
+```json
+{ "ok": true, "data": [
+  { "name": "caja", "configured": true, "online": true, "ready": false,
+    "targets": [
+      { "target": "tcp://192.168.1.100:9100", "online": true, "ready": false,
+        "paper": "out", "error": "sin papel", "detail": "consultada por red (DLE EOT)" }
+    ] }
+] }
+```
+
+| Campo | Qué dice |
+|---|---|
+| `online` | La impresora responde |
+| `ready` | Puede imprimir ahora: responde, tiene papel y la tapa está cerrada |
+| `paper` | `ok`, `low` (queda poco), `out` (sin papel) o `unknown` (no lo informa) |
+| `cover_open` | Tapa abierta |
+| `printing` | Está imprimiendo; no se la consulta para no interrumpir el trabajo |
+| `error` | Por qué no está lista, en palabras para el operador |
+| `detail` | Cómo se comprobó |
+
+Cómo se pregunta en cada conexión:
+
+| Conexión | Cómo | Sabe de papel y tapa |
+|---|---|---|
+| Red (`tcp://`) | Consulta de estado ESC/POS (`DLE EOT`) | Sí, si la impresora contesta |
+| USB directo en Linux (`/dev/usb/lp*`) | Estado del puerto (`usblp`) | Papel y fuera de línea |
+| CUPS | Estado de la cola y, si va por USB, si sigue **enchufada** (por número de serie) | Si el agente tiene permiso sobre el USB |
+| Windows (spooler) | Estado de la cola | Solo si el driver lo informa |
+| Puerto serie, Bluetooth | Si el puerto se abre | No |
 
 ### Solo desde la PC del agente
 

@@ -172,6 +172,7 @@ Valen para **todos** los endpoints de impresión:
 | `margin_dots` | Margen izquierdo en puntos |
 | `font` | `"a"` normal, `"b"` condensada (entra más texto por línea) |
 | `drawer` | `true` abre el cajón de dinero |
+| `qr_image` | `true` dibuja los QR como imagen. Para impresoras **sin QR propio**, que sacan el ticket sin el QR. Se puede fijar por impresora en *Estaciones* |
 
 > **Espacio arriba:** el agente no emite ni un salto de línea antes del
 > contenido. Si ves papel en blanco al principio, viene de la distancia

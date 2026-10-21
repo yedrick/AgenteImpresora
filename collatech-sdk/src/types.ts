@@ -157,6 +157,11 @@ export interface DocumentOptions {
   font?: PrinterFont;
   /** Abre el cajon de dinero. */
   drawer?: boolean;
+  /**
+   * Dibuja los QR como imagen. Para impresoras sin QR propio, que sacan el
+   * ticket sin el QR. Si se omite, manda la impresora dada de alta.
+   */
+  qr_image?: boolean;
 }
 
 /** Una impresora dada de alta, con sus ajustes propios. */
@@ -171,6 +176,8 @@ export interface PrinterProfile {
   line_spacing?: number;
   font?: PrinterFont;
   feed_bottom?: number;
+  /** Dibuja los QR como imagen, para impresoras sin QR propio. */
+  qr_image?: boolean;
   /**
    * Identificador del catalogo de modelos, si se eligio uno (por ejemplo
    * "epson-tm-t20"). El agente lo guarda para que el panel pueda volver a

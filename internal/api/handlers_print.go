@@ -331,6 +331,7 @@ func (s *Server) printHTML(w http.ResponseWriter, r *http.Request) {
 		WithColumns(res.Doc.Columns()).
 		WithPaperWidth(res.Doc.PaperWidth).
 		WithImageScale(res.Scale).
+		WithQRImage(res.Doc.QRImage).
 		Body(req.HTML)
 
 	b := escpos.Begin(res.Doc).RawBytes(body)

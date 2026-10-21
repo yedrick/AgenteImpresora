@@ -497,7 +497,7 @@
           <thead>
             <tr>
               <th>Nombre</th><th>Destino</th><th>Modelo</th><th>Papel</th><th>Corte</th>
-              <th title="Imprimir girado 180 grados">Girar</th><th>Fuente</th><th>Descripcion</th><th></th>
+              <th title="Imprimir girado 180 grados">Girar</th><th title="Dibujar los QR como imagen, para impresoras sin QR propio">QR imagen</th><th>Fuente</th><th>Descripcion</th><th></th>
             </tr>
           </thead>
           <tbody id="printerRows"></tbody>
@@ -945,6 +945,9 @@ Gracias por usar CollaTech</textarea>
       const sel = (campo) => fila.querySelector(`[data-campo="${campo}"]`);
       sel("paper_width").value = String(m.paper_width || "");
       sel("cut").value = m.cut || "";
+      // De una generica no se sabe si tiene QR propio, y muchas no lo
+      // tienen: como imagen sale en todas las que imprimen imagenes.
+      if (m.id.startsWith("generico")) sel("qr_image").checked = true;
       mostrarAvisoModelo(m);
     }
 
@@ -978,7 +981,7 @@ Gracias por usar CollaTech</textarea>
     function pintarImpresoras() {
       const tbody = $("printerRows");
       if (!impresoras.length) {
-        tbody.innerHTML = `<tr class="vacio"><td colspan="9">Ninguna impresora dada de alta. Puedes imprimir usando el nombre directo, o anadir una aqui para fijarle su papel y su corte.</td></tr>`;
+        tbody.innerHTML = `<tr class="vacio"><td colspan="10">Ninguna impresora dada de alta. Puedes imprimir usando el nombre directo, o anadir una aqui para fijarle su papel y su corte.</td></tr>`;
         return;
       }
       tbody.innerHTML = impresoras.map((p, i) => `
@@ -989,6 +992,7 @@ Gracias por usar CollaTech</textarea>
           <td><select data-campo="paper_width">${opciones(PAPELES, p.paper_width)}</select></td>
           <td><select data-campo="cut">${opciones(CORTES, p.cut)}</select></td>
           <td style="text-align:center"><input type="checkbox" data-campo="upside_down"${p.upside_down ? " checked" : ""}></td>
+          <td style="text-align:center"><input type="checkbox" data-campo="qr_image"${p.qr_image ? " checked" : ""}></td>
           <td><select data-campo="font">${opciones(FUENTES, p.font)}</select></td>
           <td><input type="text" data-campo="description" value="${esc(p.description)}" placeholder="Caja principal"></td>
           <td><button class="quitar" type="button" title="Quitar">&times;</button></td>
@@ -1022,6 +1026,7 @@ Gracias por usar CollaTech</textarea>
           paper_width: Number(dato("paper_width").value || 0),
           cut: dato("cut").value || "",
           upside_down: dato("upside_down").checked,
+          qr_image: dato("qr_image").checked,
           font: dato("font").value || "",
           description: (dato("description").value || "").trim()
         };
@@ -1072,7 +1077,7 @@ Gracias por usar CollaTech</textarea>
 
     $("addPrinter").addEventListener("click", () => {
       impresoras = leerTabla();
-      impresoras.push({ name: "", target: "", model: "", paper_width: 0, cut: "", upside_down: false, font: "", description: "" });
+      impresoras.push({ name: "", target: "", model: "", paper_width: 0, cut: "", upside_down: false, qr_image: false, font: "", description: "" });
       pintarImpresoras();
       const filas = $("printerRows").querySelectorAll('input[data-campo="name"]');
       if (filas.length) filas[filas.length - 1].focus();
@@ -1218,11 +1223,20 @@ Gracias por usar CollaTech</textarea>
         const responses = [];
         const started = performance.now();
         for (let i = 1; i <= copies; i++) {
-          responses.push(await api("/api/print/text", {
+          // Lleva un QR para comprobar de paso que la impresora lo dibuja:
+          // muchas termicas baratas no tienen QR propio.
+          responses.push(await api("/api/print/ticket", {
             method: "POST",
             body: JSON.stringify({
               printer,
-              text: `COLLATECH AGENT\nPrueba estacion: ${printer}\nCopia: ${i}/${copies}\n${new Date().toLocaleString()}`,
+              title: "COLLATECH AGENT",
+              lines: [
+                { text: `Prueba estacion: ${printer}`, align: "center" },
+                { text: `Copia: ${i}/${copies}`, align: "center" },
+                { text: new Date().toLocaleString(), align: "center" },
+                { type: "qr", qr: `CollaTech prueba ${printer} ${i}/${copies}`, align: "center" },
+                { text: "Si el movil lee el QR, todo bien", align: "center", size: "small" }
+              ],
               cut: true
             })
           }));

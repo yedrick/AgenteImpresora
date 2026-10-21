@@ -91,6 +91,10 @@ type docRequest struct {
 	// se arriesgue a que la cuchilla toque la ultima linea.
 	FeedBottom *int `json:"feed_bottom"`
 	MarginDots int  `json:"margin_dots"`
+
+	// QRImage dibuja los QR como imagen. Sin indicar, manda la impresora
+	// dada de alta.
+	QRImage *bool `json:"qr_image"`
 }
 
 // resolved es una peticion ya combinada con los ajustes de la impresora.
@@ -159,6 +163,11 @@ func (s *Server) resolve(req docRequest) (resolved, error) {
 		upside = *req.UpsideDown
 	}
 
+	qrImage := profile.QRImage
+	if req.QRImage != nil {
+		qrImage = *req.QRImage
+	}
+
 	// Sin indicar nada manda el perfil de la impresora; si tampoco dice
 	// nada, el documento usa su valor por defecto.
 	// Por la API, "feed_bottom": 0 significa cortar al limite. Dentro se
@@ -187,6 +196,7 @@ func (s *Server) resolve(req docRequest) (resolved, error) {
 			FeedBottom:  feedBottom,
 			Cut:         cut,
 			Drawer:      req.Drawer,
+			QRImage:     qrImage,
 		},
 	}, nil
 }

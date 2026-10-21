@@ -10,6 +10,8 @@ import (
 
 type Builder struct {
 	buf bytes.Buffer
+	// qrImagen manda los QR como imagen en vez de con el comando GS ( k.
+	qrImagen bool
 }
 
 func New() *Builder { return &Builder{} }
@@ -253,6 +255,13 @@ type QROptions struct {
 	PaperWidth int
 }
 
+// QRComoImagen hace que los QR siguientes se dibujen como imagen. Es para las
+// impresoras sin QR propio, que ignoran GS ( k y sacan el ticket sin el QR.
+func (b *Builder) QRComoImagen(on bool) *Builder {
+	b.qrImagen = on
+	return b
+}
+
 // QR imprime un codigo QR con los valores por defecto.
 func (b *Builder) QR(data string) *Builder {
 	return b.QRWith(data, QROptions{})
@@ -273,6 +282,18 @@ func (b *Builder) QRWith(data string, opt QROptions) *Builder {
 	}
 	if module > 16 {
 		module = 16
+	}
+
+	if b.qrImagen {
+		ancho := opt.PaperWidth
+		if ancho <= 0 {
+			ancho = 384
+		}
+		// Si no se puede dibujar se cae al comando de siempre: en el peor
+		// caso sale igual que sin la opcion.
+		if img, err := QRImage(data, module, ancho, opt.ECLevel); err == nil {
+			return b.Image(img)
+		}
 	}
 
 	// GS ( k: modelo 2

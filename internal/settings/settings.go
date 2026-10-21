@@ -35,6 +35,9 @@ type Printer struct {
 	// para que el panel pueda volver a mostrarlo; los ajustes concretos ya
 	// quedan copiados en los campos de arriba.
 	Model string `json:"model,omitempty"`
+	// QRImage manda los QR como imagen. Para las impresoras que no tienen QR
+	// propio: sin esto el ticket sale entero pero sin el QR.
+	QRImage bool `json:"qr_image,omitempty"`
 	// Description es para que el operador sepa cual es.
 	Description string `json:"description,omitempty"`
 }

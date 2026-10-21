@@ -42,6 +42,7 @@ type HTMLToESCPOS struct {
 	cols       int
 	paperWidth int
 	imageScale int
+	qrImage    bool
 	hasContent bool
 
 	segs  []segment
@@ -88,6 +89,12 @@ func (h *HTMLToESCPOS) WithPaperWidth(dots int) *HTMLToESCPOS {
 	return h
 }
 
+// WithQRImage dibuja los QR como imagen, para impresoras sin QR propio.
+func (h *HTMLToESCPOS) WithQRImage(on bool) *HTMLToESCPOS {
+	h.qrImage = on
+	return h
+}
+
 func (h *HTMLToESCPOS) WithImageScale(pct int) *HTMLToESCPOS {
 	if pct > 0 {
 		h.imageScale = pct
@@ -101,7 +108,7 @@ func (h *HTMLToESCPOS) SetColumns(cols int) { h.WithColumns(cols) }
 // Body devuelve solo el contenido, sin arranque ni corte: de eso se encarga
 // el documento que lo envuelve.
 func (h *HTMLToESCPOS) Body(markup string) []byte {
-	h.builder = escpos.New()
+	h.builder = escpos.New().QRComoImagen(h.qrImage)
 	h.processHTML(markup)
 	h.flushLine()
 	return h.builder.Bytes()

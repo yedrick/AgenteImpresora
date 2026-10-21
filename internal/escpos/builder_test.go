@@ -209,3 +209,29 @@ func TestPrepareImageRecortaElBorde(t *testing.T) {
 		t.Fatalf("raster %dx%d: el borde blanco no se recorto (el contenido son 40x40)", w, h)
 	}
 }
+
+// Con QRComoImagen el QR sale como imagen (GS v 0) y no con GS ( k, que las
+// termicas sin QR propio ignoran: el ticket salia entero pero sin el QR.
+func TestQRComoImagen(t *testing.T) {
+	gsK := []byte{0x1d, 0x28, 0x6b}
+	gsV := []byte{0x1d, 0x76, 0x30}
+
+	nativo := New().QRWith("https://ejemplo.com", QROptions{PaperWidth: 576}).Bytes()
+	if !bytes.Contains(nativo, gsK) || bytes.Contains(nativo, gsV) {
+		t.Fatal("sin la opcion el QR tiene que ir con el comando propio")
+	}
+
+	imagen := New().QRComoImagen(true).QRWith("https://ejemplo.com", QROptions{PaperWidth: 576}).Bytes()
+	if bytes.Contains(imagen, gsK) {
+		t.Fatal("con la opcion se sigue mandando GS ( k")
+	}
+	if !bytes.Contains(imagen, gsV) {
+		t.Fatal("con la opcion el QR no salio como imagen")
+	}
+
+	// Begin la activa desde las opciones del documento.
+	doc := Begin(DocOptions{PaperWidth: 384, QRImage: true}).QR("hola").Bytes()
+	if bytes.Contains(doc, gsK) || !bytes.Contains(doc, gsV) {
+		t.Fatal("DocOptions.QRImage no llega al builder")
+	}
+}

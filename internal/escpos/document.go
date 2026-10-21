@@ -37,6 +37,9 @@ type DocOptions struct {
 
 	Cut    CutMode
 	Drawer bool
+
+	// QRImage dibuja los QR como imagen, para impresoras sin QR propio.
+	QRImage bool
 }
 
 // Columns son las columnas de texto que caben con la fuente normal.
@@ -54,7 +57,7 @@ func (o DocOptions) Columns() int {
 // Begin crea el documento y emite el arranque: reinicio, juego de caracteres
 // y los ajustes que valen para todo el ticket.
 func Begin(opt DocOptions) *Builder {
-	b := New().Initialize()
+	b := New().Initialize().QRComoImagen(opt.QRImage)
 	if opt.LineSpacing > 0 {
 		b.LineSpacing(opt.LineSpacing)
 	}

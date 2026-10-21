@@ -66,6 +66,12 @@ jobs:
         working-directory: collatech-sdk
         run: npm run build
 
+      # Con la regla de fetch del navegador: sin esta prueba el SDK paso meses
+      # sin funcionar en ninguna web mientras en Node iba bien.
+      - name: Pruebas
+        working-directory: collatech-sdk
+        run: npm test
+
       - name: Empaquetar
         working-directory: collatech-sdk
         run: npm pack

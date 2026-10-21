@@ -73,7 +73,13 @@ version-check:
 guia:
 	@node examples/comprobar-guia.js
 
-check: fmt vet version-check test guia
+# El SDK con la regla de fetch del navegador. Se salta si no se instalaron
+# sus dependencias (cd collatech-sdk && npm ci).
+sdk-test:
+	@if [ -d collatech-sdk/node_modules ]; then cd collatech-sdk && npm test --silent; \
+	else echo "sdk-test: sin collatech-sdk/node_modules, se omite (npm ci para activarlo)"; fi
+
+check: fmt vet version-check test guia sdk-test
 	@echo "todo en orden"
 
 # Los seis destinos que el codigo soporta. El ejecutable de Windows va sin

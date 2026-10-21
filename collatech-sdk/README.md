@@ -72,6 +72,35 @@ Tambien se puede inyectar desde el HTML sin recompilar:
 <script>window.__COLLATECH_TOKEN__ = "el-token-del-agente";</script>
 ```
 
+### Desde una web: autoriza su dirección
+
+El agente solo atiende a las webs autorizadas: si no, cualquier página abierta
+en la caja podría imprimir o abrir el cajón. Añade la dirección de tu web
+(`http://localhost:5173` en desarrollo con Vite, `http://localhost:4200` con
+Angular, `https://mi-app.com` en producción) en el panel del agente, pestaña
+**Webs autorizadas**.
+
+Sin eso, el navegador bloquea la respuesta y el SDK lanza `ConnectionError`
+diciendo qué dirección autorizar. Desde Node no hace falta: la restricción es
+del navegador.
+
+### ¿Está lista la impresora? ¿Salió el ticket?
+
+```ts
+// Sin imprimir: si responde, si tiene papel y si la tapa está cerrada.
+const cocina = await printer.station("cocina");
+if (!cocina.ready) {
+  console.warn(cocina.targets.map((t) => t.error).join(", ")); // "sin papel"
+}
+
+// El id que devuelve cada impresión sirve para seguirla.
+const r = await printer.printTicket({ printer: "cocina", lines: [{ text: "2 x Cafe" }] });
+const trabajo = await printer.job(Array.isArray(r) ? r[0].id : r.id);
+// trabajo.status: "Pending" | "Printing" | "Completed" | "Failed" (con trabajo.error)
+```
+
+`printer.stations()` devuelve todas las estaciones a la vez.
+
 ## Uso por framework
 
 ### React / Next.js

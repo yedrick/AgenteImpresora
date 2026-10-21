@@ -116,8 +116,31 @@ export class CollaTech {
     this.timeout = config?.timeout ?? DEFAULT_TIMEOUT;
     this.debug = config?.debug ?? false;
     this.token = config?.token ?? resolveToken();
-    this._fetch = config?.fetch ?? globalThis.fetch;
+    // fetch se llama siempre como funcion suelta, nunca como this._fetch(...)
+    // con el cliente de "this": el navegador exige que fetch se invoque
+    // sobre window y lanza "TypeError: Illegal invocation". Node no lo exige,
+    // asi que en Node funcionaba y en el navegador no salia ni una peticion.
+    const f = config?.fetch ?? globalThis.fetch;
+    this._fetch = (input, init) => f(input, init);
     this.log(`[CollaTech] SDK initialized. URL: ${this.baseUrl}`);
+  }
+
+  /**
+   * Error de conexion con el motivo probable. En el navegador, una web que
+   * no esta en "Webs autorizadas" falla exactamente igual que un agente
+   * apagado (el navegador no deja distinguirlo), y el mensaje de siempre
+   * mandaba a buscar el fallo donde no estaba.
+   */
+  private sinConexion(): ConnectionError {
+    let msg = `Cannot connect to CollaTech Agent at ${this.baseUrl}. Is it running?`;
+    const origen =
+      typeof window !== "undefined" && window.location ? window.location.origin : "";
+    if (origen && origen !== "null" && !this.baseUrl.startsWith(origen)) {
+      msg +=
+        ` Si el agente esta en marcha, lo mas probable es que esta web no este autorizada:` +
+        ` anade ${origen} en el panel del agente (pestana "Webs autorizadas").`;
+    }
+    return new ConnectionError(msg);
   }
 
   // -------------------------------------------------------------------------
@@ -642,9 +665,7 @@ export class CollaTech {
           `Request to ${url} timed out after ${this.timeout}ms`
         );
       }
-      throw new ConnectionError(
-        `Cannot connect to CollaTech Agent at ${this.baseUrl}. Is it running?`
-      );
+      throw this.sinConexion();
     }
   }
 
@@ -674,9 +695,7 @@ export class CollaTech {
           `Request to ${url} timed out after ${this.timeout}ms`
         );
       }
-      throw new ConnectionError(
-        `Cannot connect to CollaTech Agent at ${this.baseUrl}. Is it running?`
-      );
+      throw this.sinConexion();
     }
   }
 

@@ -1,0 +1,141 @@
+<main class="pagina">
+  <header class="cabecera">
+    <h1>Conectar con CollaTech Agent</h1>
+    <p class="sub">Prueba desde Angular que tu web llega al agente y puede imprimir.</p>
+  </header>
+
+  <!-- 1. Datos de conexion -->
+  <section class="tarjeta">
+    <h2><span class="paso">1</span> Datos del agente</h2>
+    <form (ngSubmit)="conectar()" class="formulario">
+      <label>
+        <span>Dirección del agente</span>
+        <input name="url" [(ngModel)]="url" placeholder="http://localhost:18743" autocomplete="off" spellcheck="false" />
+        <small>En esta misma PC: <code>http://localhost:18743</code>. Desde otra PC: <code>http://IP-DEL-AGENTE:18743</code>.</small>
+      </label>
+
+      <label>
+        <span>Key (token de acceso)</span>
+        <div class="con-boton">
+          <input name="key" [(ngModel)]="key" [type]="verKey ? 'text' : 'password'"
+                 placeholder="Solo hace falta desde otra PC" autocomplete="off" spellcheck="false" />
+          <button type="button" class="secundario" (click)="verKey = !verKey">{{ verKey ? 'Ocultar' : 'Ver' }}</button>
+        </div>
+        <small>La muestra el instalador al terminar y el panel del agente, pestaña <b>Estado</b>.</small>
+      </label>
+
+      <button type="submit" class="principal" [disabled]="agente.estado() === 'conectando'">
+        {{ agente.estado() === 'conectando' ? 'Conectando…' : 'Conectar' }}
+      </button>
+    </form>
+  </section>
+
+  <!-- 2. Estado de la conexion -->
+  @if (agente.estado() !== 'sin-conectar') {
+    <section class="tarjeta" aria-live="polite">
+      <h2><span class="paso">2</span> Estado</h2>
+
+      @switch (agente.estado()) {
+        @case ('conectando') {
+          <p class="estado neutro"><span class="punto"></span> Conectando con {{ agente.url() }}…</p>
+        }
+        @case ('conectado') {
+          <p class="estado bien"><span class="punto"></span> Conectado a {{ agente.url() }}</p>
+          @if (agente.esLaMismaPC()) {
+            <p class="nota">Estás en la misma PC que el agente: aquí no pide la key. Desde otra PC sí la pedirá.</p>
+          } @else {
+            <p class="nota">Key aceptada.</p>
+          }
+        }
+        @case ('apagado') {
+          <p class="estado mal"><span class="punto"></span> El agente no responde</p>
+          <ul class="arreglo">
+            <li>Comprueba que está instalado y en marcha: abre <code>{{ agente.detalle() }}/panel</code> en esa PC.</li>
+            <li>En Windows: servicio <b>CollaTech Agent</b>. En Ubuntu: <code>systemctl status collatech-agent</code>.</li>
+            <li>Si está en otra PC: revisa la IP y que el firewall deje pasar el puerto 18743.</li>
+          </ul>
+        }
+        @case ('web-no-autorizada') {
+          <p class="estado aviso"><span class="punto"></span> El agente responde, pero esta web no está autorizada</p>
+          <ol class="arreglo">
+            <li>En la PC del agente, abre <code>http://localhost:18743/panel</code>.</li>
+            <li>Ve a <b>Webs autorizadas</b> y añade exactamente:
+              <span class="copiable"><code>{{ agente.detalle() }}</code>
+                <button type="button" class="secundario mini" (click)="copiar(agente.detalle())">Copiar</button></span>
+            </li>
+            <li>Guarda y vuelve a pulsar <b>Conectar</b>. No hace falta reiniciar el agente.</li>
+          </ol>
+        }
+        @case ('key-incorrecta') {
+          <p class="estado mal"><span class="punto"></span> Key incorrecta o vacía</p>
+          <p class="nota">{{ agente.detalle() }} Cópiala del panel del agente (pestaña <b>Estado</b>), abierto en su propia PC.</p>
+        }
+        @case ('error') {
+          <p class="estado mal"><span class="punto"></span> El agente respondió con un error</p>
+          <p class="nota">{{ agente.detalle() }}</p>
+        }
+      }
+    </section>
+  }
+
+  <!-- 3. Impresoras -->
+  @if (agente.conectado()) {
+    <section class="tarjeta">
+      <div class="titulo-con-accion">
+        <h2><span class="paso">3</span> Impresoras</h2>
+        <button type="button" class="secundario" (click)="refrescar()" [disabled]="refrescando()">
+          {{ refrescando() ? 'Actualizando…' : 'Actualizar' }}
+        </button>
+      </div>
+
+      @if (agente.impresoras().length === 0) {
+        <p class="nota">El agente no ve ninguna impresora. Conéctala y dala de alta en el panel del agente (<code>/impresoras</code>).</p>
+      } @else {
+        <ul class="lista">
+          @for (p of agente.impresoras(); track p.name) {
+            <li class="fila">
+              <div class="datos">
+                <span class="nombre">{{ p.name }}</span>
+                <span class="meta">
+                  <span class="chip" [class.ok]="p.online" [class.off]="!p.online">{{ p.online ? 'En línea' : 'Sin conexión' }}</span>
+                  {{ p.type }}@if (p.address) { · {{ p.address }} }@if (p.status) { · {{ p.status }} }
+                </span>
+              </div>
+              <button type="button" class="principal" (click)="probar(p.name)" [disabled]="imprimiendo() !== null">
+                {{ imprimiendo() === p.name ? 'Imprimiendo…' : 'Imprimir prueba' }}
+              </button>
+            </li>
+          }
+        </ul>
+      }
+
+      @if (resultado(); as r) {
+        <p class="estado" [class.bien]="r.ok" [class.mal]="!r.ok" aria-live="polite">
+          <span class="punto"></span> {{ r.impresora }}: {{ r.texto }}
+        </p>
+      }
+
+      @if (agente.estaciones().length > 0) {
+        <h3>Estaciones dadas de alta</h3>
+        <ul class="lista">
+          @for (e of agente.estaciones(); track e.name) {
+            <li class="fila">
+              <div class="datos">
+                <span class="nombre">{{ e.name }}</span>
+                <span class="meta">
+                  <span class="chip" [class.ok]="e.ready" [class.off]="!e.ready">{{ e.ready ? 'Lista' : 'No lista' }}</span>
+                  @for (t of e.targets; track t.target) {
+                    {{ t.target }}@if (t.error) { ({{ t.error }}) }
+                  }
+                </span>
+              </div>
+              <button type="button" class="secundario" (click)="probar(e.name)" [disabled]="imprimiendo() !== null">
+                {{ imprimiendo() === e.name ? 'Imprimiendo…' : 'Probar' }}
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+  }
+</main>

@@ -1,0 +1,235 @@
+.pagina {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+  display: grid;
+  gap: 16px;
+}
+
+.cabecera h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+}
+.sub {
+  margin: 4px 0 0;
+  color: var(--texto-suave);
+}
+
+.tarjeta {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 20px;
+}
+.tarjeta h2 {
+  margin: 0 0 16px;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tarjeta h3 {
+  margin: 20px 0 8px;
+  font-size: 0.95rem;
+}
+.paso {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--acento);
+  color: var(--sobre-acento);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.formulario {
+  display: grid;
+  gap: 16px;
+}
+.formulario label {
+  display: grid;
+  gap: 6px;
+}
+.formulario label > span {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.formulario small {
+  color: var(--texto-suave);
+  font-size: 0.8rem;
+}
+input {
+  width: 100%;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--borde-fuerte);
+  border-radius: 8px;
+  background: var(--fondo);
+  color: var(--texto);
+}
+input:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+.con-boton {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  transition: background-color 120ms ease, transform 80ms ease;
+}
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+button:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}
+.principal {
+  background: var(--acento);
+  color: var(--sobre-acento);
+}
+.principal:hover:not(:disabled) {
+  background: var(--acento-hover);
+}
+.secundario {
+  background: transparent;
+  color: var(--texto);
+  border-color: var(--borde-fuerte);
+}
+.secundario:hover:not(:disabled) {
+  background: var(--hover);
+}
+.mini {
+  padding: 2px 8px;
+  font-size: 0.8rem;
+}
+
+.estado {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+}
+.punto {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.estado.bien { color: var(--bien); }
+.estado.mal { color: var(--mal); }
+.estado.aviso { color: var(--aviso); }
+.estado.neutro { color: var(--texto-suave); }
+.tarjeta > .estado + .nota,
+.tarjeta > .estado + .arreglo {
+  margin-top: 10px;
+}
+
+.nota {
+  margin: 12px 0 0;
+  color: var(--texto-suave);
+  font-size: 0.9rem;
+}
+.arreglo {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+.copiable {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 4px;
+}
+
+.titulo-con-accion {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.titulo-con-accion h2 {
+  margin: 0;
+}
+
+.lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+}
+.datos {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.nombre {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.meta {
+  color: var(--texto-suave);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.chip.ok { background: var(--bien-fondo); color: var(--bien); }
+.chip.off { background: var(--mal-fondo); color: var(--mal); }
+
+.lista + .estado {
+  margin-top: 14px;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: var(--hover);
+  padding: 1px 5px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .fila {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

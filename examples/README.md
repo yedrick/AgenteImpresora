@@ -49,6 +49,10 @@ PY
 
 ## Angular
 
+`angular-app/` es una app Angular completa para probar la conexión: dirección,
+key, estado, impresoras e impresión de prueba. Guía en
+[angular-app/README.md](angular-app/README.md).
+
 `angular/collatech-print.service.ts` es un servicio listo para copiar.
 La guía completa está en [ANGULAR.md](../ANGULAR.md).
 

@@ -39,7 +39,29 @@ compilar darwin  amd64 collatech-agent-macos-intel
 compilar darwin  arm64 collatech-agent-macos-apple
 compilar windows amd64 CollaTechAgent-windows-amd64.exe
 compilar windows 386   CollaTechAgent-windows-386.exe
-compilar windows amd64 INSTALADOR-windows-amd64.exe ./cmd/installer
+
+# El instalador de Windows lleva el agente dentro. Hay que compilar antes
+# CollaTechAgent.bin y pasar la etiqueta "embedagent", igual que hace
+# BUILD_INSTALLER.bat. Sin eso el instalador compila igual, pero al
+# ejecutarlo dice "no hay CollaTechAgent.exe disponible": asi salio la 1.6.1.
+echo "  INSTALADOR-windows-amd64.exe (con el agente dentro)"
+EMBEBIDO="$RAIZ/cmd/installer/CollaTechAgent.bin"
+trap 'rm -f "$EMBEBIDO"' EXIT
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+  go build -trimpath -ldflags "$LDFLAGS -H windowsgui" -o "$EMBEBIDO" ./cmd/server
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+  go build -trimpath -tags embedagent -ldflags "$LDFLAGS -H windowsgui" \
+  -o "$SALIDA/INSTALADOR-windows-amd64.exe" ./cmd/installer
+rm -f "$EMBEBIDO"
+
+# Que no vuelva a salir un instalador vacio: tiene que pesar mas que el
+# agente que lleva dentro.
+tam_agente=$(stat -c %s "$SALIDA/CollaTechAgent-windows-amd64.exe")
+tam_instalador=$(stat -c %s "$SALIDA/INSTALADOR-windows-amd64.exe")
+if [ "$tam_instalador" -le "$tam_agente" ]; then
+  echo "ERROR: el instalador ($tam_instalador bytes) no lleva el agente dentro ($tam_agente bytes)." >&2
+  exit 1
+fi
 
 # --- Lo que acompana a cada paquete -----------------------------------------
 comunes() {

@@ -285,14 +285,25 @@ func writeUninstallRegistry(installDir string) {
 }
 
 // prepareAgentBinary devuelve el agente embebido en tiempo de compilacion
-// por BUILD_INSTALLER.bat. Antes, si encontraba un go.mod en el directorio
-// actual, lanzaba "go build" con el primer go.exe del PATH y con privilegios
-// de administrador.
+// por BUILD_INSTALLER.bat o scripts/empaquetar.sh. Antes, si encontraba un
+// go.mod en el directorio actual, lanzaba "go build" con el primer go.exe del
+// PATH y con privilegios de administrador.
+//
+// Si el instalador se compilo sin agente dentro, se usa el CollaTechAgent.exe
+// que viene a su lado en el zip. Se busca junto al propio INSTALADOR.exe y no
+// en el directorio actual: quien puede escribir ahi ya puede cambiar el
+// instalador mismo, asi que no se abre ninguna puerta nueva.
 func prepareAgentBinary() ([]byte, error) {
 	if len(agentBinary) > 0 {
 		return agentBinary, nil
 	}
-	return nil, fmt.Errorf("no hay CollaTechAgent.exe disponible (vuelve a generar el instalador con BUILD_INSTALLER.bat)")
+	if exe, err := os.Executable(); err == nil {
+		junto := filepath.Join(filepath.Dir(exe), "CollaTechAgent.exe")
+		if data, err := os.ReadFile(junto); err == nil && len(data) > 0 {
+			return data, nil
+		}
+	}
+	return nil, fmt.Errorf("no hay CollaTechAgent.exe disponible: pon CollaTechAgent.exe en la misma carpeta que INSTALADOR.exe, o vuelve a generar el instalador con BUILD_INSTALLER.bat")
 }
 
 // newAuthToken genera el token compartido que el agente exigira a las

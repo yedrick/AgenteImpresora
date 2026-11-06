@@ -119,6 +119,15 @@ esperar_version 1.0.1 30 || falla "no volvio a la 1.0.1 (responde: $(version))"
 systemctl is-active --quiet collatech-agent || falla "el agente quedo parado"
 echo "OK: 1.0.2 rota -> vuelve a la 1.0.1"
 
+paso "Instalar el .deb encima de un agente en marcha (la actualizacion a mano)"
+# Ahora corre la 1.0.1 que puso el panel. dpkg cambia el ejecutable por el
+# de la 1.0.0; si no reinicia el servicio, seguiria respondiendo la vieja
+# en memoria y el operador creeria que actualizo.
+sudo dpkg --install --force-confold dist/collatech-agent_1.0.0_amd64.deb >/dev/null
+esperar_version 1.0.0 30 || falla "tras dpkg -i sigue corriendo la version anterior (responde: $(version)): el .deb no reinicia el servicio"
+[ "$(sudo sha256sum /etc/collatech/config.json)" = "$CONFIG_ANTES" ] || falla "la configuracion cambio al reinstalar el .deb"
+echo "OK: dpkg -i deja corriendo la version instalada"
+
 paso "Limpieza"
 sudo dpkg --purge collatech-agent >/dev/null
 rm -rf "$T"

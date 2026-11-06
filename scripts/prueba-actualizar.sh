@@ -20,11 +20,27 @@ cd "$RAIZ"
 
 paso() { echo; echo "== $*"; }
 falla() {
-  echo "FALLO: $*" >&2
-  journalctl -u collatech-agent -u collatech-agent-actualizar -u collatech-agent-actualizar.path --no-pager | tail -60 >&2 || true
-  cat /var/lib/collatech/actualizacion/aplicar.log >&2 2>/dev/null || true
+  trap - ERR
+  local diag
+  diag="$(
+    echo "FALLO: $*"
+    echo "--- journalctl"
+    sudo journalctl -u collatech-agent -u collatech-agent-actualizar -u collatech-agent-actualizar.path --no-pager 2>&1 | tail -40
+    echo "--- aplicar.log"
+    sudo cat /var/lib/collatech/actualizacion/aplicar.log 2>&1 | tail -20
+    echo "--- systemctl"
+    systemctl status collatech-agent-actualizar.path --no-pager 2>&1 | tail -8
+  )"
+  echo "$diag" >&2
+  # Los registros de Actions piden iniciar sesion para leerlos; una anotacion
+  # se ve en la pagina de la ejecucion sin mas.
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    local enc="${diag//'%'/'%25'}"; enc="${enc//$'\r'/}"; enc="${enc//$'\n'/'%0A'}"
+    echo "::error title=prueba-actualizar::$enc"
+  fi
   exit 1
 }
+trap 'falla "linea $LINENO: $BASH_COMMAND"' ERR
 version() { curl -sf "$AGENTE/health" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["version"])' 2>/dev/null || true; }
 esperar_version() {
   local quiero="$1" limite="$2"

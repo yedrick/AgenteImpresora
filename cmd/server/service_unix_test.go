@@ -117,3 +117,36 @@ func TestCopiarEjecutable(t *testing.T) {
 		t.Fatal("el binario copiado esta vacio")
 	}
 }
+
+// Las dos unidades que hacen el cambio cuando se actualiza desde el panel.
+// El servicio principal sigue encerrado: solo deja la orden en su carpeta de
+// datos, y estas, fuera del encierro, aplican la actualizacion.
+func TestUnidadesActualizar(t *testing.T) {
+	paths := config.Paths{Config: "/etc/collatech-agent/config.json", DataDir: "/var/lib/collatech-agent"}
+	vigia, aplicador := unidadesActualizarText("/usr/local/bin/collatech-agent", paths)
+
+	for _, want := range []string{
+		"[Path]",
+		"PathExists=/var/lib/collatech-agent/actualizacion/orden.json",
+		"WantedBy=multi-user.target",
+	} {
+		if !strings.Contains(vigia, want) {
+			t.Errorf("la unidad .path no contiene %q:\n%s", want, vigia)
+		}
+	}
+	for _, want := range []string{
+		"Type=oneshot",
+		"ExecStart=/usr/local/bin/collatech-agent --aplicar-actualizacion /var/lib/collatech-agent/actualizacion/orden.json",
+	} {
+		if !strings.Contains(aplicador, want) {
+			t.Errorf("la unidad .service no contiene %q:\n%s", want, aplicador)
+		}
+	}
+	// Tiene que poder escribir en /usr/local/bin y usar systemctl: nada de
+	// encierro aqui.
+	for _, prohibido := range []string{"ProtectSystem", "NoNewPrivileges", "ReadWritePaths"} {
+		if strings.Contains(aplicador, prohibido) {
+			t.Errorf("el aplicador no puede llevar %s: no podria cambiar el ejecutable", prohibido)
+		}
+	}
+}

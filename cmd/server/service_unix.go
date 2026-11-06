@@ -20,6 +20,8 @@ func runService(config.Paths, options) (bool, error) { return false, nil }
 
 const (
 	systemdUnit  = "/etc/systemd/system/collatech-agent.service"
+	unidadVigia  = "/etc/systemd/system/collatech-agent-actualizar.path"
+	unidadAplica = "/etc/systemd/system/collatech-agent-actualizar.service"
 	launchdPlist = "/Library/LaunchDaemons/com.collatech.agent.plist"
 	installedBin = "collatech-agent"
 )
@@ -64,18 +66,28 @@ func uninstallService() error {
 		_ = run("launchctl", "unload", "-w", launchdPlist)
 		return os.Remove(launchdPlist)
 	default:
+		_ = run("systemctl", "disable", "--now", "collatech-agent-actualizar.path")
 		_ = run("systemctl", "stop", "collatech-agent")
 		_ = run("systemctl", "disable", "collatech-agent")
-		if err := os.Remove(systemdUnit); err != nil && !os.IsNotExist(err) {
-			return err
+		for _, u := range []string{systemdUnit, unidadVigia, unidadAplica} {
+			if err := os.Remove(u); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 		}
 		return run("systemctl", "daemon-reload")
 	}
 }
 
 func installSystemd(binPath string, paths config.Paths) error {
-	if err := os.WriteFile(systemdUnit, []byte(systemdUnitText(binPath, paths)), 0o644); err != nil {
-		return fmt.Errorf("no se pudo escribir %s: %w", systemdUnit, err)
+	vigia, aplicador := unidadesActualizarText(binPath, paths)
+	for _, u := range []struct{ ruta, texto string }{
+		{systemdUnit, systemdUnitText(binPath, paths)},
+		{unidadVigia, vigia},
+		{unidadAplica, aplicador},
+	} {
+		if err := os.WriteFile(u.ruta, []byte(u.texto), 0o644); err != nil {
+			return fmt.Errorf("no se pudo escribir %s: %w", u.ruta, err)
+		}
 	}
 	if err := run("systemctl", "daemon-reload"); err != nil {
 		return err
@@ -83,7 +95,37 @@ func installSystemd(binPath string, paths config.Paths) error {
 	if err := run("systemctl", "enable", "collatech-agent"); err != nil {
 		return err
 	}
+	// Sin esto el boton del panel descarga y verifica, pero nadie aplica.
+	if err := run("systemctl", "enable", "--now", "collatech-agent-actualizar.path"); err != nil {
+		return err
+	}
 	return run("systemctl", "restart", "collatech-agent")
+}
+
+// unidadesActualizarText arma las dos unidades que aplican una actualizacion
+// pedida desde el panel. El servicio principal esta encerrado y no puede
+// cambiar su ejecutable: deja la orden en su carpeta de datos, la .path la
+// ve y lanza el .service, que corre como root sin encierro, vuelve a
+// verificar la firma y hace el cambio (ver internal/actualizar).
+func unidadesActualizarText(binPath string, paths config.Paths) (vigia, aplicador string) {
+	orden := filepath.Join(paths.DataDir, "actualizacion", "orden.json")
+	vigia = fmt.Sprintf(`[Unit]
+Description=CollaTech Agent - vigila ordenes de actualizacion del panel
+
+[Path]
+PathExists=%s
+
+[Install]
+WantedBy=multi-user.target
+`, orden)
+	aplicador = fmt.Sprintf(`[Unit]
+Description=CollaTech Agent - aplica una actualizacion pedida desde el panel
+
+[Service]
+Type=oneshot
+ExecStart=%s --aplicar-actualizacion %s
+`, binPath, orden)
+	return vigia, aplicador
 }
 
 // systemdUnitText arma la unidad. ProtectSystem=strict deja todo el sistema

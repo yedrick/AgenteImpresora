@@ -122,3 +122,22 @@ jobs:
             dist/*.deb
             dist/SHA256SUMS.txt
           retention-days: 14
+
+  # El boton "Buscar actualizacion" de punta a punta, con systemd y root de
+  # verdad: instala el .deb, actualiza desde la API del panel a una version
+  # firmada con una clave de prueba y comprueba que una version que no
+  # arranca vuelve sola a la anterior. Ver scripts/prueba-actualizar.sh.
+  actualizar-e2e:
+    name: Actualizar desde el panel (Linux, de punta a punta)
+    runs-on: ubuntu-latest
+    needs: [agente]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Instalar, actualizar y volver atras
+        run: ./scripts/prueba-actualizar.sh

@@ -19,6 +19,10 @@ esac
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
 SALIDA="$RAIZ/dist"
 LDFLAGS="-s -w -X main.version=$VERSION"
+# Solo para la prueba de punta a punta de CI (scripts/prueba-actualizar.sh):
+# ETIQUETAS_GO=actualizarprueba compila con los ganchos de prueba. Lo que se
+# publica nunca lo lleva.
+ETIQUETAS="${ETIQUETAS_GO:-}"
 
 cd "$RAIZ"
 rm -rf "$SALIDA"
@@ -29,7 +33,7 @@ compilar() {
   local os="$1" arch="$2" nombre="$3" paquete="${4:-./cmd/server}"
   echo "  $nombre"
   GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
-    go build -trimpath -ldflags "$LDFLAGS" -o "$SALIDA/$nombre" "$paquete"
+    go build -trimpath -tags "$ETIQUETAS" -ldflags "$LDFLAGS" -o "$SALIDA/$nombre" "$paquete"
 }
 
 echo "Compilando $VERSION:"
@@ -48,7 +52,7 @@ echo "  INSTALADOR-windows-amd64.exe (con el agente dentro)"
 EMBEBIDO="$RAIZ/cmd/installer/CollaTechAgent.bin"
 trap 'rm -f "$EMBEBIDO"' EXIT
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-  go build -trimpath -ldflags "$LDFLAGS -H windowsgui" -o "$EMBEBIDO" ./cmd/server
+  go build -trimpath -tags "$ETIQUETAS" -ldflags "$LDFLAGS -H windowsgui" -o "$EMBEBIDO" ./cmd/server
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
   go build -trimpath -tags embedagent -ldflags "$LDFLAGS -H windowsgui" \
   -o "$SALIDA/INSTALADOR-windows-amd64.exe" ./cmd/installer
@@ -73,7 +77,7 @@ for par in "linux:amd64:" "linux:arm64:" "windows:amd64:.exe" "windows:386:.exe"
   os="${par%%:*}"; resto="${par#*:}"; arch="${resto%%:*}"; ext="${resto#*:}"
   extra=""; [ "$os" = windows ] && extra=" -H windowsgui"
   GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
-    go build -trimpath -ldflags "$LDFLAGS$extra" -o "$SALIDA/actualizacion-$os-$arch$ext" ./cmd/server
+    go build -trimpath -tags "$ETIQUETAS" -ldflags "$LDFLAGS$extra" -o "$SALIDA/actualizacion-$os-$arch$ext" ./cmd/server
 done
 go run ./cmd/firmar manifiesto -dir "$SALIDA" -version "$VERSION" >/dev/null
 
@@ -190,6 +194,30 @@ SupplementaryGroups=lp dialout
 WantedBy=multi-user.target
 EOF
 
+  # Las dos piezas que aplican una actualizacion pedida desde el panel. El
+  # servicio de arriba sigue encerrado: solo deja la orden en su carpeta de
+  # datos; estas, fuera del encierro, hacen el cambio. Mismo texto que
+  # unidadesActualizarText en cmd/server/service_unix.go.
+  cat > "$pkg/lib/systemd/system/collatech-agent-actualizar.path" <<'EOF'
+[Unit]
+Description=CollaTech Agent - vigila ordenes de actualizacion del panel
+
+[Path]
+PathExists=/var/lib/collatech/actualizacion/orden.json
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > "$pkg/lib/systemd/system/collatech-agent-actualizar.service" <<'EOF'
+[Unit]
+Description=CollaTech Agent - aplica una actualizacion pedida desde el panel
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/collatech-agent --aplicar-actualizacion /var/lib/collatech/actualizacion/orden.json
+EOF
+
   cat > "$pkg/DEBIAN/control" <<EOF
 Package: collatech-agent
 Version: $VERSION_DEB
@@ -218,6 +246,9 @@ if [ "$1" = "configure" ]; then
     # Se comprueba que haya arrancado de verdad antes de decirlo. Antes se
     # anunciaba "en marcha" aunque el enable fallara, y el operador se iba
     # tan tranquilo con el agente parado.
+    # La pieza que aplica las actualizaciones del panel. Si falla, el agente
+    # funciona igual; solo el boton de actualizar lo dira.
+    systemctl enable --now collatech-agent-actualizar.path 2>/dev/null || true
     if systemctl enable --now collatech-agent.service 2>/dev/null &&
        systemctl is-active --quiet collatech-agent.service; then
       echo "CollaTech Agent en marcha: http://localhost:18743/panel"
@@ -237,6 +268,7 @@ EOF
 #!/bin/sh
 set -e
 if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
+  systemctl disable --now collatech-agent-actualizar.path || true
   systemctl disable --now collatech-agent.service || true
 fi
 EOF

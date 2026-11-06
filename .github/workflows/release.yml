@@ -63,6 +63,15 @@ jobs:
       - name: Construir y empaquetar
         run: ./scripts/empaquetar.sh "${{ steps.v.outputs.version }}"
 
+      # Sin firma, el boton "Buscar actualizacion" del panel se negaria a
+      # instalar esta version. Por eso, si falta el secreto, la publicacion
+      # falla aqui en vez de salir una version que nadie podria instalar
+      # desde el panel. Como configurarlo: docs/ACTUALIZAR.md.
+      - name: Firmar el manifiesto de actualizacion
+        env:
+          FIRMA_ACTUALIZACIONES: ${{ secrets.FIRMA_ACTUALIZACIONES }}
+        run: go run ./cmd/firmar firmar dist/manifiesto.json
+
       - name: Comprobar que el .deb instala y el agente responde
         run: |
           sudo dpkg --install dist/collatech-agent_*_amd64.deb
@@ -130,7 +139,13 @@ jobs:
         run: |
           mkdir -p publicar
           find descargas -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.deb' \
-            -o -name '*.tgz' -o -name 'SHA256SUMS.txt' \) -exec cp {} publicar/ \;
+            -o -name '*.tgz' -o -name 'SHA256SUMS.txt' -o -name 'actualizacion-*' \
+            -o -name 'manifiesto.json' -o -name 'manifiesto.json.sig' \) -exec cp {} publicar/ \;
+          # El boton del panel necesita todos: si falta alguno, no se publica.
+          for f in manifiesto.json manifiesto.json.sig actualizacion-linux-amd64 \
+                   actualizacion-linux-arm64 actualizacion-windows-amd64.exe actualizacion-windows-386.exe; do
+            test -f "publicar/$f" || { echo "Falta $f para actualizar desde el panel"; exit 1; }
+          done
           ls -lh publicar
 
       - name: Notas de la version

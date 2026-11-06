@@ -97,7 +97,11 @@ func TestVerificarArchivoNoCoincide(t *testing.T) {
 }
 
 func TestClavesOficialesSonValidas(t *testing.T) {
-	for i, c := range ClavesOficiales() {
+	claves := ClavesOficiales()
+	if len(claves) != 2 {
+		t.Fatalf("tiene que haber dos claves oficiales (principal y respaldo), hay %d", len(claves))
+	}
+	for i, c := range claves {
 		if len(c) != ed25519.PublicKeySize {
 			t.Fatalf("clave oficial %d con tamano %d", i, len(c))
 		}

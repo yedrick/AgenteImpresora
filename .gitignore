@@ -23,3 +23,4 @@ certs/
 # Node
 node_modules/
 collatech-sdk/*.tgz
+privada.txt

@@ -11,6 +11,6 @@ package actualizar
 //
 // Ver docs/ACTUALIZAR.md.
 var clavesOficiales = []string{
-	"PENDIENTE-principal",
-	"PENDIENTE-respaldo",
+	"MYPGwfgcW/GUY7lOUjNXsUBeJ2mQz0I+SPF9stfgZMI=",
+	"6TIPdR8s3JybUvx2x196l+5DupdyDM680h5FhLx9cVE=",
 }

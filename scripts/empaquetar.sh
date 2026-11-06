@@ -63,6 +63,20 @@ if [ "$tam_instalador" -le "$tam_agente" ]; then
   exit 1
 fi
 
+# --- Ejecutables para actualizar desde el panel ------------------------------
+# El boton del panel descarga solo el ejecutable de su sistema, comprobado
+# contra manifiesto.json, que GitHub Actions firma al publicar (ver
+# docs/ACTUALIZAR.md). Los de Windows llevan -H windowsgui, como el que mete
+# el instalador, para que una actualizacion no cambie como se comporta.
+echo "  actualizacion-* y manifiesto.json"
+for par in "linux:amd64:" "linux:arm64:" "windows:amd64:.exe" "windows:386:.exe"; do
+  os="${par%%:*}"; resto="${par#*:}"; arch="${resto%%:*}"; ext="${resto#*:}"
+  extra=""; [ "$os" = windows ] && extra=" -H windowsgui"
+  GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+    go build -trimpath -ldflags "$LDFLAGS$extra" -o "$SALIDA/actualizacion-$os-$arch$ext" ./cmd/server
+done
+go run ./cmd/firmar manifiesto -dir "$SALIDA" -version "$VERSION" >/dev/null
+
 # --- Lo que acompana a cada paquete -----------------------------------------
 comunes() {
   local destino="$1"

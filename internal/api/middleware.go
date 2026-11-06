@@ -42,6 +42,11 @@ var adminPaths = map[string]bool{
 	"/api/support-bundle": true,
 	// La conexion con el backend lleva su token.
 	"/api/cloud": true,
+	// Cambiar el ejecutable del agente: nunca desde la red. Aunque alguien
+	// lo lograra, solo podria instalar una version firmada y mas nueva.
+	"/api/actualizacion":          true,
+	"/api/actualizacion/buscar":   true,
+	"/api/actualizacion/instalar": true,
 }
 
 // adminWritePaths son cambios de configuracion: nunca desde la red.

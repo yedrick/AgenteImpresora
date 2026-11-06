@@ -316,5 +316,22 @@ func desde(base, p string) string {
 func apiServer(cfg config.Config, paths config.Paths, manager *printers.Manager, q *queue.Manager, logger *logs.Logger) *api.Server {
 	srv := api.NewServer(cfg, paths, manager, q, logger)
 	srv.Version = version
+	srv.Actualizador = actualizar.NuevoActualizador(actualizar.Opciones{
+		Version:    version,
+		DataDir:    paths.DataDir,
+		ConfigPath: paths.Config,
+		Servicio:   serviceName,
+		Fuente:     actualizar.FuenteOficial(version),
+		Sistema:    actualizar.SistemaActual(paths.DataDir),
+		Claves:     actualizar.ClavesDelAgente(),
+		ColaVacia: func() bool {
+			for _, j := range q.List() {
+				if j.Status == queue.Pending || j.Status == queue.Printing {
+					return false
+				}
+			}
+			return true
+		},
+	})
 	return srv
 }

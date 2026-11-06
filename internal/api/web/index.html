@@ -394,6 +394,20 @@
     <section class="tab-panel active" data-tab-panel="overview">
       <div class="section-head">
         <div>
+          <h2>Actualizaciones</h2>
+          <p class="hint" id="actVersion">Version instalada: consultando...</p>
+        </div>
+        <span class="badge">Version</span>
+      </div>
+      <div class="actions">
+        <button id="buscarActualizacion" class="secondary" type="button">Buscar actualizacion</button>
+        <button id="instalarActualizacion" type="button" style="display:none">Instalar</button>
+        <a id="actNotas" href="#" target="_blank" rel="noopener" style="display:none">Ver novedades</a>
+      </div>
+      <pre id="actEstado" aria-live="polite" style="min-height:0">Consultando...</pre>
+
+      <div class="section-head" style="margin-top:18px">
+        <div>
           <h2>Acceso en red</h2>
           <p class="hint">Para otras PCs o celulares en la misma red, usa una de estas rutas. La ruta por nombre de PC suele seguir funcionando aunque cambie la IP.</p>
         </div>
@@ -1329,6 +1343,156 @@ Gracias por usar CollaTech</textarea>
       if (e.key === "Enter") $("corsAnadir").click();
     });
     cargarWebs();
+
+    // --- Actualizaciones -------------------------------------------------
+    //
+    // El agente solo busca cuando se pulsa el boton. Lo descargado se
+    // verifica con la firma de las publicaciones antes de instalar nada, y si
+    // la version nueva no responde se vuelve sola a la anterior.
+
+    const FASES_ACT = {
+      descargando: "Descargando la version nueva...",
+      verificando: "Verificando la firma...",
+      esperando_cola: "Esperando a que termine la cola de impresion...",
+      instalando: "Instalando y reiniciando el agente. No se imprimira durante unos segundos..."
+    };
+    let actNueva = null;
+    let actSiguiendo = false;
+
+    function textoResultadoAct(r) {
+      const cuando = r.fecha ? " (" + new Date(r.fecha).toLocaleString() + ")" : "";
+      return r.ok
+        ? "Actualizado de la " + r.desde + " a la " + r.hasta + cuando + "."
+        : "No se pudo actualizar a la " + r.hasta + cuando + ":\n" + r.error;
+    }
+
+    function botonesAct(activos) {
+      $("buscarActualizacion").disabled = !activos;
+      $("instalarActualizacion").disabled = !activos;
+    }
+
+    async function cargarActualizacion() {
+      try {
+        const d = (await api("/api/actualizacion")).data || {};
+        $("actVersion").textContent = "Version instalada: " + (d.version_actual || "?");
+        if (!d.soportado) {
+          $("buscarActualizacion").style.display = "none";
+          $("actEstado").textContent = d.motivo || "Aqui no se puede actualizar con el boton.";
+          return;
+        }
+        const e = d.estado || {};
+        if (FASES_ACT[e.fase]) {
+          $("actEstado").textContent = FASES_ACT[e.fase];
+          seguirActualizacion(Date.now());
+        } else if (e.fase === "error") {
+          $("actEstado").textContent = "No se pudo actualizar: " + e.error;
+        } else if (d.ultimo_resultado) {
+          $("actEstado").textContent = textoResultadoAct(d.ultimo_resultado);
+        } else {
+          $("actEstado").textContent = "Pulsa \u00abBuscar actualizacion\u00bb para ver si hay una version nueva.";
+        }
+      } catch (error) {
+        $("buscarActualizacion").style.display = "none";
+        $("actVersion").textContent = "";
+        $("actEstado").textContent = "Las actualizaciones se hacen desde la PC del agente: abre alli http://localhost:18743/panel.";
+      }
+    }
+
+    // Sigue la instalacion hasta saber como acabo. Mientras el agente se
+    // reinicia no contesta: eso es lo esperado, no un error.
+    async function seguirActualizacion(inicio) {
+      if (actSiguiendo) return;
+      actSiguiendo = true;
+      botonesAct(false);
+      let reinicio = false;
+      const limite = Date.now() + 5 * 60 * 1000;
+      let mensaje = "La actualizacion esta tardando mas de lo normal. Recarga esta pagina en un minuto.";
+      while (Date.now() < limite) {
+        await new Promise((r) => setTimeout(r, 1500));
+        let d;
+        try {
+          d = (await api("/api/actualizacion")).data || {};
+        } catch (e) {
+          reinicio = true;
+          $("actEstado").textContent = "Reiniciando el agente...";
+          continue;
+        }
+        $("actVersion").textContent = "Version instalada: " + (d.version_actual || "?");
+        const e = d.estado || {};
+        if (e.fase === "error") { mensaje = "No se pudo actualizar: " + e.error; break; }
+        if (FASES_ACT[e.fase]) {
+          $("actEstado").textContent = FASES_ACT[e.fase];
+          // Linux: si la pieza de systemd no recoge la orden, el agente
+          // nunca se reinicia. Mejor decirlo que esperar para siempre.
+          if (e.fase === "instalando" && !reinicio && Date.now() - inicio > 120000) {
+            mensaje = "La actualizacion no arranco. En Linux revisa: systemctl status collatech-agent-actualizar.path";
+            break;
+          }
+          continue;
+        }
+        const r = d.ultimo_resultado;
+        if (r && r.fecha && new Date(r.fecha).getTime() >= inicio - 5000) {
+          mensaje = textoResultadoAct(r);
+          toast(r.ok ? "Agente actualizado a la " + r.hasta : "No se pudo actualizar", r.ok ? "success" : "error");
+          break;
+        }
+      }
+      $("actEstado").textContent = mensaje;
+      $("instalarActualizacion").style.display = "none";
+      actSiguiendo = false;
+      botonesAct(true);
+    }
+
+    $("buscarActualizacion").addEventListener("click", async () => {
+      botonesAct(false);
+      $("instalarActualizacion").style.display = "none";
+      $("actNotas").style.display = "none";
+      $("actEstado").textContent = "Buscando en GitHub...";
+      try {
+        const d = (await api("/api/actualizacion/buscar", { method: "POST", body: "{}" })).data || {};
+        actNueva = d.nueva;
+        if (!actNueva) {
+          $("actEstado").textContent = "Tienes la ultima version (" + d.version_actual + ").";
+        } else {
+          if (actNueva.url_notas) {
+            $("actNotas").href = actNueva.url_notas;
+            $("actNotas").style.display = "";
+          }
+          if (actNueva.manual_motivo) {
+            $("actEstado").textContent = "Hay una version nueva: " + actNueva.version + ".\n" + actNueva.manual_motivo;
+          } else {
+            $("actEstado").textContent = "Hay una version nueva: " + actNueva.version + ".";
+            $("instalarActualizacion").textContent = "Instalar " + actNueva.version;
+            $("instalarActualizacion").style.display = "";
+          }
+        }
+      } catch (error) {
+        $("actEstado").textContent = (error && error.error) || "No se pudo buscar la actualizacion.";
+      } finally {
+        botonesAct(true);
+      }
+    });
+
+    $("instalarActualizacion").addEventListener("click", async () => {
+      if (!actNueva) return;
+      if (!confirm("\u00bfInstalar la version " + actNueva.version + "?\n\n" +
+          "El agente se reiniciara y no se imprimira durante unos segundos. " +
+          "Si la version nueva no responde, volvera sola a la actual.")) return;
+      botonesAct(false);
+      const inicio = Date.now();
+      try {
+        await api("/api/actualizacion/instalar", {
+          method: "POST",
+          body: JSON.stringify({ version: actNueva.version })
+        });
+        $("actEstado").textContent = FASES_ACT.descargando;
+        seguirActualizacion(inicio);
+      } catch (error) {
+        $("actEstado").textContent = "No se pudo instalar: " + ((error && error.error) || "sin detalle");
+        botonesAct(true);
+      }
+    });
+    cargarActualizacion();
 
     // --- Conexion con la nube ---------------------------------------------
     function pintarNube(info) {

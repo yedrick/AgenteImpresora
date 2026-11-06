@@ -23,3 +23,7 @@ func clavesDePrueba() []ed25519.PublicKey {
 }
 
 func urlDePrueba() string { return os.Getenv("COLLATECH_URL_ACTUALIZACIONES") }
+
+// systemctlUsuario hace que la prueba local use unidades de usuario
+// (systemctl --user), para probar el flujo entero sin ser root.
+func systemctlUsuario() bool { return os.Getenv("COLLATECH_SYSTEMCTL_USUARIO") == "1" }

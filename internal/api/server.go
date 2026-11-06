@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"collatech-agent/internal/actualizar"
 	"collatech-agent/internal/config"
 	"collatech-agent/internal/logs"
 	"collatech-agent/internal/nube"
@@ -47,6 +48,10 @@ type Server struct {
 	// Version del agente, para que el panel y la pagina del SDK la muestren
 	// sin tener que adivinarla. La fija main al arrancar.
 	Version string
+
+	// Actualizador busca e instala versiones nuevas desde el panel. Lo pone
+	// main; si es nil, el panel dice que aqui no se puede.
+	Actualizador *actualizar.Actualizador
 
 	// Los ajustes se leian del disco en CADA impresion, para resolver los
 	// alias. Ahora se cachean y solo se releen si cambia el archivo.
@@ -162,6 +167,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/cloud", s.getCloud)
 	mux.HandleFunc("POST /api/cloud", s.saveCloud)
 	mux.HandleFunc("GET /api/models", s.listModels)
+	mux.HandleFunc("GET /api/actualizacion", s.estadoActualizacion)
+	mux.HandleFunc("POST /api/actualizacion/buscar", s.buscarActualizacion)
+	mux.HandleFunc("POST /api/actualizacion/instalar", s.instalarActualizacion)
 	mux.HandleFunc("POST /api/print/text", s.printText)
 	mux.HandleFunc("POST /api/print/ticket", s.printTicket)
 	mux.HandleFunc("POST /api/print/logo", s.printLogo)

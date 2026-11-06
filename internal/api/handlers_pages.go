@@ -102,5 +102,10 @@ func (s *Server) serveHTML(w http.ResponseWriter, path string) {
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, response{OK: true, Message: "healthy"})
+	// La version la usa quien actualiza para saber que version responde.
+	version := s.Version
+	if version == "" {
+		version = "dev"
+	}
+	writeJSON(w, http.StatusOK, response{OK: true, Message: "healthy", Data: map[string]string{"version": version}})
 }

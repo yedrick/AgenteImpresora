@@ -18,6 +18,10 @@ func TestPublicadoIgnoraLasVariablesDePrueba(t *testing.T) {
 	if n := len(ClavesDelAgente()); n != 2 {
 		t.Fatalf("un binario publicado solo acepta las 2 claves oficiales, acepta %d", n)
 	}
+	t.Setenv("COLLATECH_SYSTEMCTL_USUARIO", "1")
+	if systemctlUsuario() {
+		t.Fatal("un binario publicado no puede cambiar a systemctl --user")
+	}
 	if u := FuenteOficial("1.0.0").URLUltima; u != URLUltimaOficial {
 		t.Fatalf("un binario publicado solo consulta %s, consulta %s", URLUltimaOficial, u)
 	}

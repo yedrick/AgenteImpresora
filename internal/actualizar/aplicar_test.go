@@ -139,6 +139,11 @@ func TestAplicarVuelveAtrasSiNoResponde(t *testing.T) {
 	if resultadoEscrito(t, e).OK {
 		t.Fatal("resultado.json tiene que decir que fallo")
 	}
+	for _, sobra := range []string{e.nuevo, filepath.Join(e.datos, "actualizacion", "copia"), e.exe + ".anterior"} {
+		if _, err := os.Stat(sobra); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("tras volver atras no tiene que quedar %s", sobra)
+		}
+	}
 }
 
 func TestAplicarVuelveAtrasSiVersionDistinta(t *testing.T) {

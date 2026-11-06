@@ -26,7 +26,13 @@ func SistemaActual(dataDir string) Sistema {
 }
 
 func (s sistemaLinux) Soportado() (bool, string) {
-	for _, dir := range []string{"/etc/systemd/system", "/lib/systemd/system", "/usr/lib/systemd/system"} {
+	dirs := []string{"/etc/systemd/system", "/lib/systemd/system", "/usr/lib/systemd/system"}
+	if systemctlUsuario() {
+		if home, err := os.UserHomeDir(); err == nil {
+			dirs = append(dirs, filepath.Join(home, ".config", "systemd", "user"))
+		}
+	}
+	for _, dir := range dirs {
 		if _, err := os.Stat(filepath.Join(dir, UnidadVigia)); err == nil {
 			return true, ""
 		}
@@ -56,6 +62,9 @@ func (s sistemaLinux) Arrancar(ctx context.Context) error {
 func (s sistemaLinux) Lanzar(string) error { return nil }
 
 func systemctl(ctx context.Context, args ...string) error {
+	if systemctlUsuario() {
+		args = append([]string{"--user"}, args...)
+	}
 	out, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("systemctl %v: %v: %s", args, err, out)

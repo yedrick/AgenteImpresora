@@ -9,3 +9,5 @@ import "crypto/ed25519"
 func clavesDePrueba() []ed25519.PublicKey { return nil }
 
 func urlDePrueba() string { return "" }
+
+func systemctlUsuario() bool { return false }

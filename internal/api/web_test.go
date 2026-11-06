@@ -501,6 +501,7 @@ func TestElPanelConectaSusBotonesAlCargar(t *testing.T) {
 		`$("nubeGuardar").addEventListener(`,
 		`cargarWebs();`,
 		`cargarNube();`,
+		`$("buscarActualizacion").addEventListener(`,
 	} {
 		encontrada := false
 		for i, l := range lineas {

@@ -148,6 +148,8 @@ func aplicarCon(ctx context.Context, ordenRuta, versionActual string, sis Sistem
 	if err := sis.Arrancar(ctx); err != nil {
 		registro.printf("la version anterior no arranco: %v", err)
 	}
+	os.Remove(o.Nuevo)
+	os.RemoveAll(copia)
 	res.Error = fmt.Sprintf("la version %s no respondio; se volvio a la %s", o.Version, versionActual)
 	return terminar(res)
 }

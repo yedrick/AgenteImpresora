@@ -249,7 +249,10 @@ if [ "$1" = "configure" ]; then
     # La pieza que aplica las actualizaciones del panel. Si falla, el agente
     # funciona igual; solo el boton de actualizar lo dira.
     systemctl enable --now collatech-agent-actualizar.path 2>/dev/null || true
-    if systemctl enable --now collatech-agent.service 2>/dev/null &&
+    # restart y no "enable --now": al instalar encima, el agente viejo sigue
+    # corriendo en memoria y "--now" no lo toca.
+    if systemctl enable collatech-agent.service 2>/dev/null &&
+       systemctl restart collatech-agent.service 2>/dev/null &&
        systemctl is-active --quiet collatech-agent.service; then
       echo "CollaTech Agent en marcha: http://localhost:18743/panel"
     else

@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"collatech-agent/internal/actualizar"
 	"collatech-agent/internal/api"
 	"collatech-agent/internal/config"
 	"collatech-agent/internal/logs"
@@ -42,6 +43,7 @@ type options struct {
 	install   bool
 	uninstall bool
 	version   bool
+	aplicar   string
 }
 
 func parseFlags() options {
@@ -54,6 +56,9 @@ func parseFlags() options {
 	flag.BoolVar(&o.install, "install", false, "instalar como servicio del sistema y arrancarlo")
 	flag.BoolVar(&o.uninstall, "uninstall", false, "detener y quitar el servicio del sistema")
 	flag.BoolVar(&o.version, "version", false, "mostrar la version y salir")
+	// Lo usa el propio agente al actualizarse desde el panel; no es para
+	// ejecutarlo a mano.
+	flag.StringVar(&o.aplicar, "aplicar-actualizacion", "", "uso interno: aplicar una actualizacion descargada desde el panel")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "CollaTech Agent %s - agente de impresion ESC/POS\n\nUso:\n  %s [opciones]\n\nOpciones:\n", version, os.Args[0])
 		flag.PrintDefaults()
@@ -72,6 +77,25 @@ func main() {
 
 	if opts.version {
 		fmt.Printf("CollaTech Agent %s\n", version)
+		return
+	}
+
+	// Fuera del servicio: cambia el ejecutable, reinicia y comprueba. Ver
+	// internal/actualizar/aplicar.go.
+	if opts.aplicar != "" {
+		orden, err := filepath.Abs(opts.aplicar)
+		if err != nil {
+			log.Fatal(err)
+		}
+		datos := filepath.Dir(filepath.Dir(orden))
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		res := actualizar.Aplicar(ctx, orden, version, actualizar.SistemaActual(datos), actualizar.ClavesDelAgente())
+		if !res.OK {
+			fmt.Fprintln(os.Stderr, "La actualizacion no se completo:", res.Error)
+			os.Exit(1)
+		}
+		fmt.Printf("Actualizado de %s a %s\n", res.Desde, res.Hasta)
 		return
 	}
 

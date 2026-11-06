@@ -33,8 +33,12 @@ type Fuente struct {
 // FuenteOficial apunta a las publicaciones de GitHub. El User-Agent solo
 // lleva el nombre y la version del agente: nada del usuario ni del equipo.
 func FuenteOficial(version string) Fuente {
+	url := URLUltimaOficial
+	if u := urlDePrueba(); u != "" {
+		url = u
+	}
 	return Fuente{
-		URLUltima: URLUltimaOficial,
+		URLUltima: url,
 		Cliente:   &http.Client{Timeout: 15 * time.Second},
 		UserAgent: "CollaTech-Agent/" + version,
 	}

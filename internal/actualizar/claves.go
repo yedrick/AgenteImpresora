@@ -1,5 +1,7 @@
 package actualizar
 
+import "crypto/ed25519"
+
 // clavesOficiales son las claves publicas (Ed25519, base64) que firman las
 // publicaciones. Vale la firma de cualquiera de las dos:
 //
@@ -13,4 +15,10 @@ package actualizar
 var clavesOficiales = []string{
 	"MYPGwfgcW/GUY7lOUjNXsUBeJ2mQz0I+SPF9stfgZMI=",
 	"6TIPdR8s3JybUvx2x196l+5DupdyDM680h5FhLx9cVE=",
+}
+
+// ClavesDelAgente son las claves que acepta este ejecutable: las oficiales y,
+// solo en compilaciones de prueba (etiqueta actualizarprueba), una mas.
+func ClavesDelAgente() []ed25519.PublicKey {
+	return append(ClavesOficiales(), clavesDePrueba()...)
 }

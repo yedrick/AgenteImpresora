@@ -86,3 +86,24 @@ func TestDescargarLimite(t *testing.T) {
 		t.Fatalf("no tiene que quedar nada a medias, quedan %d archivos", len(entradas))
 	}
 }
+
+// Un tiempo maximo global en el cliente cortaba cualquier descarga que
+// tardara mas de 15 s: en un ADSL lento, el boton nunca podia actualizar.
+func TestFuenteOficialSinTiempoMaximoGlobal(t *testing.T) {
+	f := FuenteOficial("1.0.0")
+	if f.Cliente == nil || f.Cliente.Timeout != 0 {
+		t.Fatalf("el cliente no puede tener Timeout global (tiene %v): corta las descargas largas", f.Cliente.Timeout)
+	}
+}
+
+func TestDescargaCortadaLoDice(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.Write([]byte("solo un trozo"))
+	}))
+	defer srv.Close()
+	err := (Fuente{Cliente: srv.Client()}).Descargar(context.Background(), srv.URL, filepath.Join(t.TempDir(), "x"), 1<<20)
+	if err == nil || !strings.Contains(err.Error(), "se corto") {
+		t.Fatalf("una descarga cortada tiene que decir que se corto, tengo %v", err)
+	}
+}

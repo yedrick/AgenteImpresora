@@ -53,7 +53,7 @@ esperar_version() {
 publicar() {   # publicar <version>: el manifiesto y latest.json para lo que haya en $PUBLICACION
   local v="$1"
   go run ./cmd/firmar manifiesto -dir "$PUBLICACION" -version "$v" >/dev/null
-  FIRMA_ACTUALIZACIONES="$(cat "$T/clave/privada.txt")" go run ./cmd/firmar firmar "$PUBLICACION/manifiesto.json" >/dev/null
+  FIRMA_CLAVE_DE_PRUEBA=1 FIRMA_ACTUALIZACIONES="$(cat "$T/clave/privada.txt")" go run ./cmd/firmar firmar "$PUBLICACION/manifiesto.json" >/dev/null
   cat > "$PUBLICACION/latest.json" <<EOF
 {"tag_name":"v$v","html_url":"http://127.0.0.1:$PUERTO_PUB/notas","assets":[
  {"name":"manifiesto.json","browser_download_url":"http://127.0.0.1:$PUERTO_PUB/manifiesto.json"},
@@ -95,6 +95,12 @@ CONFIG_ANTES="$(sudo sha256sum /etc/collatech/config.json)"
 paso "Actualizar a la 1.0.1 desde la API del panel"
 pedir 1.0.1
 esperar_version 1.0.1 90 || falla "no se actualizo a la 1.0.1 (responde: $(version))"
+# El aplicador escribe el resultado justo despues de ver responder a la
+# version nueva: puede tardar un par de segundos mas que /health.
+for _ in $(seq 30); do
+  sudo grep -q '"hasta": "1.0.1"' /var/lib/collatech/actualizacion/resultado.json 2>/dev/null && break
+  sleep 1
+done
 [ "$(sudo sha256sum /etc/collatech/config.json)" = "$CONFIG_ANTES" ] || falla "la configuracion cambio al actualizar"
 sudo grep -q '"ok": true' /var/lib/collatech/actualizacion/resultado.json || falla "resultado.json no dice ok"
 echo "OK: 1.0.0 -> 1.0.1"

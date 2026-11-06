@@ -59,7 +59,7 @@ func prepararEscenario(t *testing.T, versionNueva string) escenario {
 }
 
 func (e escenario) aplicar(salud func(context.Context) (string, error)) Resultado {
-	return aplicarCon(context.Background(), e.orden, "1.6.4", e.sis, []ed25519.PublicKey{e.pub}, opcionesAplicar{
+	return aplicarCon(context.Background(), e.orden, e.config, "1.6.4", e.sis, []ed25519.PublicKey{e.pub}, opcionesAplicar{
 		plazo:     300 * time.Millisecond,
 		intervalo: 20 * time.Millisecond,
 		salud:     func(string) func(context.Context) (string, error) { return salud },
@@ -175,8 +175,108 @@ func TestAplicarRechazaVersionNoMayor(t *testing.T) {
 }
 
 func TestAplicarSinOrden(t *testing.T) {
-	r := aplicarCon(context.Background(), filepath.Join(t.TempDir(), "orden.json"), "1.6.4", &sistemaFalso{}, nil, opcionesAplicar{})
+	r := aplicarCon(context.Background(), filepath.Join(t.TempDir(), "orden.json"), "", "1.6.4", &sistemaFalso{}, nil, opcionesAplicar{})
 	if r.OK || r.Error == "" {
 		t.Fatalf("sin orden tiene que fallar: %+v", r)
+	}
+}
+
+func (e escenario) cambiarOrden(t *testing.T, f func(*Orden)) {
+	t.Helper()
+	var o Orden
+	if err := json.Unmarshal([]byte(leer(t, e.orden)), &o); err != nil {
+		t.Fatal(err)
+	}
+	f(&o)
+	if _, err := escribirOrden(filepath.Dir(e.orden), o); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func noResponde(context.Context) (string, error) { return "", errors.New("connection refused") }
+
+// El servicio esta encerrado y el aplicador corre como root sin encierro:
+// lo que diga la orden sobre rutas no puede decidir donde escribe root.
+func TestAplicarIgnoraConfigDeLaOrden(t *testing.T) {
+	e := prepararEscenario(t, "1.7.0")
+	victima := filepath.Join(e.datos, "victima")
+	os.WriteFile(victima, []byte("intacto"), 0o644)
+	e.cambiarOrden(t, func(o *Orden) { o.Config = victima })
+	// Un agente comprometido cambia la copia de seguridad antes de que lo paren.
+	e.sis.alParar = func() {
+		matches, _ := filepath.Glob(filepath.Join(e.datos, "actualizacion", "copia", "*"))
+		for _, m := range matches {
+			os.WriteFile(m, []byte("ATACADO"), 0o644)
+		}
+	}
+	e.aplicar(noResponde)
+	if leer(t, victima) != "intacto" {
+		t.Fatal("el aplicador escribio en la ruta que decia la orden")
+	}
+	if leer(t, e.config) != `{"auth_token":"original"}` {
+		t.Fatal("la configuracion de verdad tiene que quedar como estaba")
+	}
+}
+
+func TestAplicarRechazaNuevoFueraDeLaCarpeta(t *testing.T) {
+	e := prepararEscenario(t, "1.7.0")
+	otro := filepath.Join(e.datos, "otra", filepath.Base(e.nuevo))
+	os.MkdirAll(filepath.Dir(otro), 0o755)
+	os.WriteFile(otro, []byte("NUEVO"), 0o755) // misma suma, otro sitio
+	e.cambiarOrden(t, func(o *Orden) { o.Nuevo = otro })
+	r := e.aplicar(func(context.Context) (string, error) { return "1.7.0", nil })
+	if r.OK || e.sis.paradas != 0 {
+		t.Fatalf("un ejecutable fuera de la carpeta de la actualizacion no se instala: %+v", r)
+	}
+}
+
+// Entre verificar y copiar, el servicio sigue vivo un momento: si cambia el
+// archivo descargado, lo que se instala tiene que ser lo verificado.
+func TestAplicarInstalaLoVerificado(t *testing.T) {
+	e := prepararEscenario(t, "1.7.0")
+	e.sis.alParar = func() { os.WriteFile(e.nuevo, []byte("MALICIOSO"), 0o755) }
+	r := e.aplicar(func(context.Context) (string, error) { return "1.7.0", nil })
+	if !r.OK {
+		t.Fatalf("resultado: %+v", r)
+	}
+	if got := leer(t, e.exe); got != "NUEVO" {
+		t.Fatalf("se instalo %q en vez de lo verificado", got)
+	}
+}
+
+func TestAplicarNoSigueEnlaces(t *testing.T) {
+	e := prepararEscenario(t, "1.7.0")
+	dir := filepath.Join(e.datos, "actualizacion")
+	var victimas []string
+	for i, enlace := range []string{
+		filepath.Join(dir, nombreResultado),
+		filepath.Join(dir, "aplicar.log"),
+		filepath.Join(e.datos, "storage", "settings.json.nuevo"),
+	} {
+		v := filepath.Join(e.datos, "victima"+string(rune('0'+i)))
+		os.WriteFile(v, []byte("intacto"), 0o644)
+		if err := os.Symlink(v, enlace); err != nil {
+			t.Skip("sin enlaces simbolicos aqui")
+		}
+		victimas = append(victimas, v)
+	}
+	e.aplicar(noResponde)
+	for _, v := range victimas {
+		if leer(t, v) != "intacto" {
+			t.Errorf("se escribio a traves de un enlace en %s", v)
+		}
+	}
+}
+
+// Si no se puede restaurar, el panel no puede decir "se volvio a la X".
+func TestAplicarVueltaAtrasFallidaLoDice(t *testing.T) {
+	e := prepararEscenario(t, "1.7.0")
+	e.sis.alArrancar = func() {
+		e.sis.alArrancar = nil
+		os.Remove(e.exe + ".anterior")
+	}
+	r := e.aplicar(noResponde)
+	if r.OK || !strings.Contains(r.Error, "NO se pudo volver") {
+		t.Fatalf("tiene que decir que no pudo volver: %+v", r)
 	}
 }

@@ -57,7 +57,9 @@ func main() {
 		if len(os.Args) != 3 {
 			uso()
 		}
-		err = firmarArchivo(os.Args[2], os.Getenv("FIRMA_ACTUALIZACIONES"))
+		// FIRMA_CLAVE_DE_PRUEBA=1 solo lo pone scripts/prueba-actualizar.sh,
+		// que firma con una clave de prueba a proposito.
+		err = firmarArchivo(os.Args[2], os.Getenv("FIRMA_ACTUALIZACIONES"), os.Getenv("FIRMA_CLAVE_DE_PRUEBA") == "1")
 	default:
 		uso()
 	}
@@ -170,9 +172,10 @@ func sumaDe(ruta string) (string, error) {
 }
 
 // firmarArchivo firma los bytes exactos de ruta con la semilla en base64 y
-// escribe ruta.sig. Antes de terminar comprueba la firma con la publica, para
-// no publicar nunca una firma que el agente rechazaria.
-func firmarArchivo(ruta, semillaB64 string) error {
+// escribe ruta.sig. Antes comprueba que la clave sea una de las oficiales
+// (salvo permitirNoOficial, para la prueba de CI) y que la firma verifique:
+// asi nunca se publica una firma que las cajas rechazarian.
+func firmarArchivo(ruta, semillaB64 string, permitirNoOficial bool) error {
 	if strings.TrimSpace(semillaB64) == "" {
 		return errors.New("falta el secreto FIRMA_ACTUALIZACIONES: sin el, el boton de actualizar no podria instalar esta version. Ver docs/ACTUALIZAR.md")
 	}
@@ -181,6 +184,11 @@ func firmarArchivo(ruta, semillaB64 string) error {
 		return errors.New("FIRMA_ACTUALIZACIONES no es una clave valida: tiene que ser el contenido de privada.txt tal cual")
 	}
 	priv := ed25519.NewKeyFromSeed(semilla)
+	pub := priv.Public().(ed25519.PublicKey)
+	if !permitirNoOficial && !esOficial(pub) {
+		return fmt.Errorf("la clave de FIRMA_ACTUALIZACIONES (publica %s) no es ninguna de las oficiales de internal/actualizar/claves.go: las cajas rechazarian esta version. Revisa el secreto (docs/ACTUALIZAR.md)",
+			base64.StdEncoding.EncodeToString(pub))
+	}
 	datos, err := os.ReadFile(ruta)
 	if err != nil {
 		return err
@@ -192,4 +200,13 @@ func firmarArchivo(ruta, semillaB64 string) error {
 	publica := base64.StdEncoding.EncodeToString(priv.Public().(ed25519.PublicKey))
 	fmt.Printf("firmado %s con la clave publica %s\n", filepath.Base(ruta), publica)
 	return os.WriteFile(ruta+".sig", []byte(base64.StdEncoding.EncodeToString(firma)+"\n"), 0o644)
+}
+
+func esOficial(pub ed25519.PublicKey) bool {
+	for _, c := range actualizar.ClavesOficiales() {
+		if c.Equal(pub) {
+			return true
+		}
+	}
+	return false
 }

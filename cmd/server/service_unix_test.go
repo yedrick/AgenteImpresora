@@ -136,7 +136,9 @@ func TestUnidadesActualizar(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Type=oneshot",
-		"ExecStart=/usr/local/bin/collatech-agent --aplicar-actualizacion /var/lib/collatech-agent/actualizacion/orden.json",
+		// La configuracion va en los argumentos: la orden la escribe el servicio
+		// encerrado y no puede decidir donde escribe root.
+		"ExecStart=/usr/local/bin/collatech-agent --aplicar-actualizacion /var/lib/collatech-agent/actualizacion/orden.json --config /etc/collatech-agent/config.json",
 	} {
 		if !strings.Contains(aplicador, want) {
 			t.Errorf("la unidad .service no contiene %q:\n%s", want, aplicador)

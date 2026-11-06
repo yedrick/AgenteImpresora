@@ -78,14 +78,20 @@ type sistemaFalso struct {
 	paradas    int
 	arranques  int
 	alArrancar func() // simula lo que hace la version nueva al arrancar
+	alParar    func() // simula lo que pasa justo antes de parar
 }
 
 func (s *sistemaFalso) Soportado() (bool, string)       { return s.soportado, s.motivo }
 func (s *sistemaFalso) RutaEjecutable() (string, error) { return s.exe, nil }
 func (s *sistemaFalso) Parar(context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.paradas++
+	f := s.alParar
+	s.alParar = nil
+	s.mu.Unlock()
+	if f != nil {
+		f()
+	}
 	return nil
 }
 func (s *sistemaFalso) Arrancar(context.Context) error {
@@ -296,5 +302,53 @@ func TestInstalarLanzaOrden(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(o.Nuevo); string(got) != string(binario) {
 		t.Fatal("el ejecutable descargado no es el de la publicacion")
+	}
+}
+
+// Si el aplicador falla antes de reiniciar el servicio, este proceso sigue
+// vivo en "instalando": tiene que enterarse por resultado.json.
+func TestEstadoTomaElResultadoDelAplicador(t *testing.T) {
+	pub, priv := clavePrueba(t)
+	srv := publicacionFalsa{version: "1.7.0", binario: []byte("binario nuevo")}.servir(t, priv)
+	sis := &sistemaFalso{soportado: true}
+	a := nuevoParaPrueba(t, srv, pub, sis, func() bool { return true })
+	a.Buscar(context.Background())
+	if err := a.Instalar("1.7.0"); err != nil {
+		t.Fatal(err)
+	}
+	esperarFase(t, a, "instalando")
+	time.Sleep(20 * time.Millisecond)
+	r := Resultado{Desde: "1.6.4", Hasta: "1.7.0", Error: "no se pudo parar el servicio", Fecha: time.Now()}
+	b, _ := json.Marshal(r)
+	os.WriteFile(filepath.Join(a.carpeta(), nombreResultado), b, 0o644)
+
+	e := a.Estado()
+	if e.Fase != "error" || !strings.Contains(e.Error, "no se pudo parar el servicio") {
+		t.Fatalf("tiene que pasar a error con el motivo del aplicador: %+v", e)
+	}
+	if err := a.Instalar("1.7.0"); err != nil && strings.Contains(err.Error(), "en curso") {
+		t.Fatal("tras el fallo se tiene que poder volver a intentar")
+	}
+}
+
+// Si nadie recoge la orden (la pieza de systemd no esta activa), no se puede
+// quedar en "instalando" para siempre ni dejar la orden para el proximo
+// arranque.
+func TestEstadoInstalandoCaduca(t *testing.T) {
+	pub, priv := clavePrueba(t)
+	srv := publicacionFalsa{version: "1.7.0", binario: []byte("binario nuevo")}.servir(t, priv)
+	sis := &sistemaFalso{soportado: true}
+	a := nuevoParaPrueba(t, srv, pub, sis, func() bool { return true })
+	a.plazoInstalando = 200 * time.Millisecond
+	a.Buscar(context.Background())
+	a.Instalar("1.7.0")
+	esperarFase(t, a, "instalando")
+	time.Sleep(300 * time.Millisecond)
+	e := a.Estado()
+	if e.Fase != "error" || !strings.Contains(e.Error, "no arranco") {
+		t.Fatalf("tiene que caducar con un error claro: %+v", e)
+	}
+	if _, err := os.Stat(filepath.Join(a.carpeta(), nombreOrden)); !os.IsNotExist(err) {
+		t.Fatal("la orden sin recoger tiene que borrarse")
 	}
 }

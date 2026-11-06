@@ -215,7 +215,7 @@ Description=CollaTech Agent - aplica una actualizacion pedida desde el panel
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/collatech-agent --aplicar-actualizacion /var/lib/collatech/actualizacion/orden.json
+ExecStart=/usr/local/bin/collatech-agent --aplicar-actualizacion /var/lib/collatech/actualizacion/orden.json --config /etc/collatech/config.json
 EOF
 
   cat > "$pkg/DEBIAN/control" <<EOF

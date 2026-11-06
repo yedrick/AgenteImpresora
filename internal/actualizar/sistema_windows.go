@@ -4,6 +4,7 @@ package actualizar
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -135,8 +136,16 @@ func (w sistemaWindows) Lanzar(orden string) error {
 	if err := copiarArchivo(exe, aplicador); err != nil {
 		return fmt.Errorf("no se pudo preparar el aplicador: %w", err)
 	}
+	// La configuracion sale de la orden que acaba de escribir este mismo
+	// servicio; en Windows el servicio ya es LocalSystem, no hay frontera.
+	var o Orden
+	if b, err := os.ReadFile(orden); err != nil {
+		return err
+	} else if err := json.Unmarshal(b, &o); err != nil {
+		return err
+	}
 	arrancar := func(banderas uint32) error {
-		cmd := exec.Command(aplicador, "--aplicar-actualizacion", orden)
+		cmd := exec.Command(aplicador, "--aplicar-actualizacion", orden, "--config", o.Config)
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: banderas}
 		if err := cmd.Start(); err != nil {
 			return err

@@ -14,7 +14,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"collatech-agent/internal/config"
 )
@@ -36,12 +38,17 @@ type opcionesAplicar struct {
 //  4. espera hasta 60 s a que responda la version nueva;
 //  5. si no responde, deja todo como estaba y lo arranca otra vez.
 //
+// En Linux el servicio esta encerrado y este proceso corre como root sin
+// encierro, asi que nada de la orden decide donde se escribe: las rutas
+// salen de los argumentos (configPath) y de donde esta la orden, lo que se
+// instala es una copia privada de lo verificado, y no se siguen enlaces.
+//
 // El resultado queda en resultado.json para que el panel lo ensene.
-func Aplicar(ctx context.Context, ordenRuta, versionActual string, sis Sistema, claves []ed25519.PublicKey) Resultado {
-	return aplicarCon(ctx, ordenRuta, versionActual, sis, claves, opcionesAplicar{})
+func Aplicar(ctx context.Context, ordenRuta, configPath, versionActual string, sis Sistema, claves []ed25519.PublicKey) Resultado {
+	return aplicarCon(ctx, ordenRuta, configPath, versionActual, sis, claves, opcionesAplicar{})
 }
 
-func aplicarCon(ctx context.Context, ordenRuta, versionActual string, sis Sistema, claves []ed25519.PublicKey, op opcionesAplicar) Resultado {
+func aplicarCon(ctx context.Context, ordenRuta, configPath, versionActual string, sis Sistema, claves []ed25519.PublicKey, op opcionesAplicar) Resultado {
 	if op.plazo == 0 {
 		op.plazo = 60 * time.Second
 	}
@@ -53,7 +60,18 @@ func aplicarCon(ctx context.Context, ordenRuta, versionActual string, sis Sistem
 	}
 
 	dir := filepath.Dir(ordenRuta)
+	datos := filepath.Dir(dir)
 	res := Resultado{Desde: versionActual, Fecha: time.Now()}
+
+	// Si la carpeta de la actualizacion (o la de datos) fuese un enlace,
+	// todo lo de abajo escribiria donde apunte. No se toca nada.
+	for _, d := range []string{datos, dir} {
+		if err := esCarpetaReal(d); err != nil {
+			res.Error = err.Error()
+			return res
+		}
+	}
+
 	registro := abrirRegistro(dir)
 	defer registro.cerrar()
 
@@ -65,7 +83,9 @@ func aplicarCon(ctx context.Context, ordenRuta, versionActual string, sis Sistem
 			registro.printf("FALLO: %s", r.Error)
 		}
 		if b, err := json.MarshalIndent(r, "", "  "); err == nil {
-			os.WriteFile(filepath.Join(dir, nombreResultado), b, 0o644)
+			if err := escribirNuevo(filepath.Join(dir, nombreResultado), b, 0o644); err != nil {
+				registro.printf("no se pudo escribir el resultado: %v", err)
+			}
 		}
 		return r
 	}
@@ -79,13 +99,22 @@ func aplicarCon(ctx context.Context, ordenRuta, versionActual string, sis Sistem
 	}
 	defer os.Remove(enCurso)
 
-	o, archivo, err := verificarOrden(enCurso, versionActual, claves)
+	// Lo verificado se copia a una carpeta que solo puede leer quien ejecuta
+	// esto: el servicio no puede cambiarlo entre la comprobacion y la copia.
+	privado, err := os.MkdirTemp("", "collatech-aplicar")
+	if err != nil {
+		res.Error = "no se pudo preparar la carpeta de trabajo: " + err.Error()
+		return terminar(res)
+	}
+	defer os.RemoveAll(privado)
+
+	o, verificado, err := verificarOrden(enCurso, dir, privado, versionActual, claves)
 	res.Hasta = o.Version
 	if err != nil {
 		res.Error = err.Error()
 		return terminar(res)
 	}
-	registro.printf("orden verificada: %s -> %s (%s)", versionActual, o.Version, archivo.Nombre)
+	registro.printf("orden verificada: %s -> %s", versionActual, o.Version)
 
 	exe, err := sis.RutaEjecutable()
 	if err != nil {
@@ -93,8 +122,7 @@ func aplicarCon(ctx context.Context, ordenRuta, versionActual string, sis Sistem
 		return terminar(res)
 	}
 
-	copia := filepath.Join(dir, "copia")
-	guardados, err := copiarDatos(o, copia)
+	guardados, err := copiarDatos(configPath, datos, filepath.Join(privado, "copia"))
 	if err != nil {
 		res.Error = "no se pudo hacer la copia de la configuracion: " + err.Error()
 		return terminar(res)
@@ -113,7 +141,7 @@ func aplicarCon(ctx context.Context, ordenRuta, versionActual string, sis Sistem
 		res.Error = "no se pudo apartar el ejecutable actual: " + err.Error()
 		return terminar(res)
 	}
-	if err := copiarArchivoCon(o.Nuevo, exe, 0o755); err != nil {
+	if err := copiarArchivoCon(verificado, exe, 0o755); err != nil {
 		os.Remove(exe)
 		os.Rename(anterior, exe)
 		sis.Arrancar(ctx)
@@ -126,13 +154,13 @@ func aplicarCon(ctx context.Context, ordenRuta, versionActual string, sis Sistem
 	if err := sis.Arrancar(ctx); err != nil {
 		registro.printf("no arranco: %v", err)
 	} else {
-		responde = esperarVersion(ctx, op.salud(o.Config), o.Version, op.plazo, op.intervalo, registro)
+		responde = esperarVersion(ctx, op.salud(configPath), o.Version, op.plazo, op.intervalo, registro)
 	}
 
+	nuevo := filepath.Join(dir, filepath.Base(o.Nuevo))
 	if responde {
 		os.Remove(anterior)
-		os.Remove(o.Nuevo)
-		os.RemoveAll(copia)
+		os.Remove(nuevo)
 		res.OK = true
 		return terminar(res)
 	}
@@ -140,106 +168,135 @@ func aplicarCon(ctx context.Context, ordenRuta, versionActual string, sis Sistem
 	// Vuelta atras: el ejecutable y los datos como estaban.
 	registro.printf("la %s no respondio: volviendo a la %s", o.Version, versionActual)
 	sis.Parar(ctx)
+	var fallos []string
 	os.Remove(exe)
-	if err := os.Rename(anterior, exe); err != nil {
-		registro.printf("no se pudo restaurar el ejecutable: %v", err)
+	if err := renombrarConReintentos(anterior, exe); err != nil {
+		fallos = append(fallos, "ejecutable: "+err.Error())
 	}
-	restaurarDatos(guardados, registro)
+	fallos = append(fallos, restaurarDatos(guardados, registro)...)
 	if err := sis.Arrancar(ctx); err != nil {
-		registro.printf("la version anterior no arranco: %v", err)
+		fallos = append(fallos, "arrancar: "+err.Error())
 	}
-	os.Remove(o.Nuevo)
-	os.RemoveAll(copia)
-	res.Error = fmt.Sprintf("la version %s no respondio; se volvio a la %s", o.Version, versionActual)
+	os.Remove(nuevo)
+	if len(fallos) > 0 {
+		res.Error = fmt.Sprintf("la version %s no respondio y NO se pudo volver a la %s (%s). Reinstala el agente con el instalador o el paquete.",
+			o.Version, versionActual, strings.Join(fallos, "; "))
+	} else {
+		res.Error = fmt.Sprintf("la version %s no respondio; se volvio a la %s", o.Version, versionActual)
+	}
 	return terminar(res)
 }
 
 // verificarOrden lee la orden y comprueba todo lo que el servicio ya
-// comprobo, otra vez y con las claves de este ejecutable.
-func verificarOrden(ruta, versionActual string, claves []ed25519.PublicKey) (Orden, Archivo, error) {
+// comprobo, otra vez y con las claves de este ejecutable. El manifiesto y la
+// firma se leen de la carpeta de la orden, no de donde diga la orden.
+// Devuelve la ruta de una copia privada del ejecutable verificado.
+func verificarOrden(ruta, dir, privado, versionActual string, claves []ed25519.PublicKey) (Orden, string, error) {
 	var o Orden
 	b, err := os.ReadFile(ruta)
 	if err != nil {
-		return o, Archivo{}, err
+		return o, "", err
 	}
 	if err := json.Unmarshal(b, &o); err != nil {
-		return o, Archivo{}, fmt.Errorf("la orden no se puede leer: %w", err)
+		return o, "", fmt.Errorf("la orden no se puede leer: %w", err)
 	}
+	o.Version, o.Plataforma = limpiar(o.Version), limpiar(o.Plataforma)
 	if o.Plataforma != Plataforma() {
-		return o, Archivo{}, fmt.Errorf("la orden es para %s y esto es %s", o.Plataforma, Plataforma())
+		return o, "", fmt.Errorf("la orden es para %s y esto es %s", o.Plataforma, Plataforma())
 	}
-	datos, err := os.ReadFile(o.Manifiesto)
+	datos, err := leerSinEnlaces(filepath.Join(dir, nombreManifiesto))
 	if err != nil {
-		return o, Archivo{}, err
+		return o, "", err
 	}
-	firma, err := os.ReadFile(o.Firma)
+	firma, err := leerSinEnlaces(filepath.Join(dir, nombreFirma))
 	if err != nil {
-		return o, Archivo{}, err
+		return o, "", err
 	}
 	m, err := VerificarManifiesto(datos, firma, claves)
 	if err != nil {
-		return o, Archivo{}, err
+		return o, "", err
 	}
 	if m.Version != o.Version {
-		return o, Archivo{}, fmt.Errorf("la orden dice %s y el manifiesto firmado %s", o.Version, m.Version)
+		return o, "", fmt.Errorf("la orden dice %s y el manifiesto firmado %s", o.Version, m.Version)
 	}
 	if !EsMayor(m.Version, versionActual) {
-		return o, Archivo{}, fmt.Errorf("la %s no es mas nueva que la %s instalada", m.Version, versionActual)
+		return o, "", fmt.Errorf("la %s no es mas nueva que la %s instalada", m.Version, versionActual)
+	}
+	if m.Manual != "" || (m.Minima != "" && Comparar(versionActual, m.Minima) < 0) {
+		return o, "", fmt.Errorf("la %s se instala a mano, no con el boton", m.Version)
 	}
 	archivo, ok := m.Archivos[Plataforma()]
 	if !ok {
-		return o, Archivo{}, fmt.Errorf("el manifiesto no trae ejecutable para %s", Plataforma())
+		return o, "", fmt.Errorf("el manifiesto no trae ejecutable para %s", Plataforma())
 	}
-	if filepath.Base(o.Nuevo) != archivo.Nombre {
-		return o, Archivo{}, fmt.Errorf("la orden apunta a %s y el manifiesto a %s", filepath.Base(o.Nuevo), archivo.Nombre)
+	if archivo.Nombre != filepath.Base(archivo.Nombre) {
+		return o, "", fmt.Errorf("el manifiesto trae un nombre de archivo no valido")
 	}
-	if err := VerificarArchivo(o.Nuevo, archivo.SHA256); err != nil {
-		return o, Archivo{}, err
+	esperado := filepath.Join(dir, archivo.Nombre)
+	if filepath.Clean(o.Nuevo) != esperado {
+		return o, "", fmt.Errorf("la orden apunta a otro ejecutable que el de la publicacion")
 	}
-	return o, archivo, nil
+	verificado := filepath.Join(privado, "nuevo")
+	if err := copiarSinEnlaces(esperado, verificado); err != nil {
+		return o, "", err
+	}
+	if err := VerificarArchivo(verificado, archivo.SHA256); err != nil {
+		return o, "", err
+	}
+	return o, verificado, nil
 }
 
 type guardado struct{ original, copia string }
 
 // copiarDatos guarda lo que una version nueva podria reescribir al arrancar.
-func copiarDatos(o Orden, destino string) ([]guardado, error) {
-	os.RemoveAll(destino)
+// Solo archivos normales: un enlace se salta.
+func copiarDatos(configPath, datos, destino string) ([]guardado, error) {
 	if err := os.MkdirAll(destino, 0o700); err != nil {
 		return nil, err
 	}
 	var out []guardado
 	for i, ruta := range []string{
-		o.Config,
-		filepath.Join(o.Datos, "storage", "settings.json"),
-		filepath.Join(o.Datos, "storage", "jobs.json"),
+		configPath,
+		filepath.Join(datos, "storage", "settings.json"),
+		filepath.Join(datos, "storage", "jobs.json"),
 	} {
-		info, err := os.Stat(ruta)
-		if errors.Is(err, os.ErrNotExist) {
+		if ruta == "" {
+			continue
+		}
+		info, err := os.Lstat(ruta)
+		if errors.Is(err, os.ErrNotExist) || (err == nil && !info.Mode().IsRegular()) {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
 		c := filepath.Join(destino, strconv.Itoa(i)+"-"+filepath.Base(ruta))
-		if err := copiarArchivoCon(ruta, c, info.Mode().Perm()); err != nil {
+		if err := copiarSinEnlaces(ruta, c); err != nil {
 			return nil, err
 		}
+		os.Chmod(c, info.Mode().Perm())
 		out = append(out, guardado{original: ruta, copia: c})
 	}
 	return out, nil
 }
 
-func restaurarDatos(g []guardado, r *registro) {
+func restaurarDatos(g []guardado, r *registro) []string {
+	var fallos []string
 	for _, x := range g {
-		info, err := os.Stat(x.copia)
+		err := esCarpetaReal(filepath.Dir(x.original))
+		var info os.FileInfo
+		if err == nil {
+			info, err = os.Stat(x.copia)
+		}
+		if err == nil {
+			err = copiarArchivoCon(x.copia, x.original, info.Mode().Perm())
+		}
 		if err != nil {
 			r.printf("no se pudo restaurar %s: %v", x.original, err)
-			continue
-		}
-		if err := copiarArchivoCon(x.copia, x.original, info.Mode().Perm()); err != nil {
-			r.printf("no se pudo restaurar %s: %v", x.original, err)
+			fallos = append(fallos, filepath.Base(x.original)+": "+err.Error())
 		}
 	}
+	return fallos
 }
 
 func esperarVersion(ctx context.Context, salud func(context.Context) (string, error), version string, plazo, intervalo time.Duration, r *registro) bool {
@@ -307,6 +364,43 @@ func SaludLocal(configPath string) func(context.Context) (string, error) {
 	}
 }
 
+// esCarpetaReal falla si la ruta no es una carpeta o es un enlace.
+func esCarpetaReal(d string) error {
+	info, err := os.Lstat(d)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("%s no es una carpeta normal: no se toca nada", d)
+	}
+	return nil
+}
+
+// leerSinEnlaces lee un archivo que tiene que ser normal, no un enlace.
+func leerSinEnlaces(ruta string) ([]byte, error) {
+	info, err := os.Lstat(ruta)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s no es un archivo normal", filepath.Base(ruta))
+	}
+	return os.ReadFile(ruta)
+}
+
+// copiarSinEnlaces copia src (que tiene que ser un archivo normal) a dst,
+// creando dst de cero.
+func copiarSinEnlaces(src, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s no es un archivo normal", filepath.Base(src))
+	}
+	return copiarArchivoCon(src, dst, 0o600)
+}
+
 // renombrarConReintentos aguanta unos segundos: en Windows, un servicio
 // recien parado puede tardar en soltar su .exe.
 func renombrarConReintentos(de, a string) error {
@@ -315,11 +409,17 @@ func renombrarConReintentos(de, a string) error {
 		if err = os.Rename(de, a); err == nil {
 			return nil
 		}
+		if errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return err
 }
 
+// copiarArchivoCon escribe en dst.nuevo, creado de cero (O_EXCL no sigue un
+// enlace que alguien haya dejado con ese nombre), y lo renombra a dst
+// (renombrar sustituye un enlace, no escribe a traves de el).
 func copiarArchivoCon(src, dst string, perm os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -327,7 +427,8 @@ func copiarArchivoCon(src, dst string, perm os.FileMode) error {
 	}
 	defer in.Close()
 	tmp := dst + ".nuevo"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
+	os.Remove(tmp)
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
 	if err != nil {
 		return err
 	}
@@ -348,15 +449,49 @@ func copiarArchivoCon(src, dst string, perm os.FileMode) error {
 	return nil
 }
 
-// registro escribe cada paso en actualizacion/aplicar.log y en la salida
-// estandar (en Linux la recoge journalctl).
+// escribirNuevo escribe datos en ruta sin seguir un enlace que hubiera ahi.
+func escribirNuevo(ruta string, datos []byte, perm os.FileMode) error {
+	tmp := ruta + ".nuevo"
+	os.Remove(tmp)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(datos); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, ruta)
+}
+
+// limpiar quita caracteres de control de un texto que viene de la orden,
+// para que no pueda inventar lineas en el registro.
+func limpiar(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// registro escribe cada paso en actualizacion/aplicar.log (nuevo en cada
+// ejecucion, sin seguir enlaces) y en la salida estandar (en Linux la recoge
+// journalctl).
 type registro struct {
 	f *os.File
 	l *log.Logger
 }
 
 func abrirRegistro(dir string) *registro {
-	f, err := os.OpenFile(filepath.Join(dir, "aplicar.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	ruta := filepath.Join(dir, "aplicar.log")
+	os.Remove(ruta)
+	f, err := os.OpenFile(ruta, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	var w io.Writer = os.Stdout
 	if err == nil {
 		w = io.MultiWriter(os.Stdout, f)
@@ -364,7 +499,9 @@ func abrirRegistro(dir string) *registro {
 	return &registro{f: f, l: log.New(w, "actualizar: ", log.LstdFlags)}
 }
 
-func (r *registro) printf(formato string, args ...any) { r.l.Printf(formato, args...) }
+func (r *registro) printf(formato string, args ...any) {
+	r.l.Print(limpiar(fmt.Sprintf(formato, args...)))
+}
 
 func (r *registro) cerrar() {
 	if r.f != nil {

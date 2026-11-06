@@ -49,7 +49,7 @@ func TestManifiestoSinEjecutables(t *testing.T) {
 func TestFirmarSinSecreto(t *testing.T) {
 	ruta := filepath.Join(t.TempDir(), "manifiesto.json")
 	os.WriteFile(ruta, []byte(`{"version":"1.7.0"}`), 0o644)
-	err := firmarArchivo(ruta, "")
+	err := firmarArchivo(ruta, "", false)
 	if err == nil || !strings.Contains(err.Error(), "FIRMA_ACTUALIZACIONES") {
 		t.Fatalf("quiero un error que nombre FIRMA_ACTUALIZACIONES, tengo %v", err)
 	}
@@ -69,7 +69,7 @@ func TestFirmarYVerificar(t *testing.T) {
 	ruta := filepath.Join(dir, "manifiesto.json")
 	datos := []byte(`{"version":"1.7.0","archivos":{}}`)
 	os.WriteFile(ruta, datos, 0o644)
-	if err := firmarArchivo(ruta, string(priv)); err != nil {
+	if err := firmarArchivo(ruta, string(priv), true); err != nil {
 		t.Fatal(err)
 	}
 	firma, err := os.ReadFile(ruta + ".sig")
@@ -89,5 +89,24 @@ func TestGenerarNoPisaClaves(t *testing.T) {
 	}
 	if err := generarClaves(dir); err == nil {
 		t.Fatal("generar otra vez en la misma carpeta pisaria la clave privada: tiene que negarse")
+	}
+}
+
+// Si el secreto de GitHub tiene una clave que no es la oficial, todas las
+// cajas rechazarian la version: mejor que la publicacion falle.
+func TestFirmarConClaveNoOficial(t *testing.T) {
+	dir := t.TempDir()
+	if err := generarClaves(dir); err != nil {
+		t.Fatal(err)
+	}
+	priv, _ := os.ReadFile(filepath.Join(dir, "privada.txt"))
+	ruta := filepath.Join(dir, "manifiesto.json")
+	os.WriteFile(ruta, []byte(`{"version":"1.7.0","archivos":{}}`), 0o644)
+	err := firmarArchivo(ruta, string(priv), false)
+	if err == nil || !strings.Contains(err.Error(), "oficiales") {
+		t.Fatalf("firmar con una clave que no es oficial tiene que fallar, tengo %v", err)
+	}
+	if _, err := os.Stat(ruta + ".sig"); err == nil {
+		t.Fatal("no puede quedar una firma que las cajas rechazarian")
 	}
 }

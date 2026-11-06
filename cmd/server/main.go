@@ -90,7 +90,12 @@ func main() {
 		datos := filepath.Dir(filepath.Dir(orden))
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		res := actualizar.Aplicar(ctx, orden, version, actualizar.SistemaActual(datos), actualizar.ClavesDelAgente())
+		// La configuracion llega por argumento, nunca desde la orden: la orden
+		// la escribe el servicio y esto puede correr como root sin encierro.
+		if opts.config == "" {
+			log.Fatal("--aplicar-actualizacion necesita --config")
+		}
+		res := actualizar.Aplicar(ctx, orden, opts.config, version, actualizar.SistemaActual(datos), actualizar.ClavesDelAgente())
 		if !res.OK {
 			fmt.Fprintln(os.Stderr, "La actualizacion no se completo:", res.Error)
 			os.Exit(1)

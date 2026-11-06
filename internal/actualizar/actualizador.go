@@ -88,14 +88,19 @@ type Opciones struct {
 type Actualizador struct {
 	o          Opciones
 	esperaCola time.Duration
+	// plazoInstalando: si en este tiempo nadie recoge la orden, se da por
+	// fallida.
+	plazoInstalando time.Duration
 
 	mu         sync.Mutex
 	estado     Estado
 	encontrada *Publicacion
+	// desde cuando esta en "instalando"
+	instalandoDesde time.Time
 }
 
 func NuevoActualizador(o Opciones) *Actualizador {
-	return &Actualizador{o: o, esperaCola: 30 * time.Second}
+	return &Actualizador{o: o, esperaCola: 30 * time.Second, plazoInstalando: 3 * time.Minute}
 }
 
 func (a *Actualizador) carpeta() string {
@@ -194,7 +199,7 @@ func (a *Actualizador) Instalar(version string) error {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	switch a.estado.Fase {
+	switch a.revisarLocked().Fase {
 	case "descargando", "verificando", "esperando_cola", "instalando":
 		return errors.New("ya hay una actualizacion en curso")
 	}
@@ -208,9 +213,34 @@ func (a *Actualizador) Instalar(version string) error {
 }
 
 // Estado devuelve la fase de la actualizacion en curso.
+//
+// Si todo va bien, este proceso no llega a ver el final: el aplicador lo
+// para y arranca la version nueva. Si sigue vivo en "instalando" es que el
+// aplicador fallo antes de reiniciar (lo dice resultado.json) o que nadie
+// recogio la orden; en los dos casos se pasa a error para poder reintentar.
 func (a *Actualizador) Estado() Estado {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.revisarLocked()
+}
+
+func (a *Actualizador) revisarLocked() Estado {
+	if a.estado.Fase != "instalando" {
+		return a.estado
+	}
+	if r := a.UltimoResultado(); r != nil && !r.OK && r.Fecha.After(a.instalandoDesde) {
+		a.estado.Fase, a.estado.Error = "error", r.Error
+		return a.estado
+	}
+	if time.Since(a.instalandoDesde) > a.plazoInstalando {
+		// Si el aplicador esta trabajando (aparto la orden), se le espera.
+		if _, err := os.Stat(filepath.Join(a.carpeta(), "orden.en-curso.json")); err == nil {
+			return a.estado
+		}
+		os.Remove(filepath.Join(a.carpeta(), nombreOrden))
+		a.estado.Fase = "error"
+		a.estado.Error = "la actualizacion no arranco: nadie recogio la orden. En Linux revisa: systemctl status collatech-agent-actualizar.path"
+	}
 	return a.estado
 }
 
@@ -230,6 +260,9 @@ func (a *Actualizador) UltimoResultado() *Resultado {
 func (a *Actualizador) fase(f string) {
 	a.mu.Lock()
 	a.estado.Fase = f
+	if f == "instalando" {
+		a.instalandoDesde = time.Now()
+	}
 	a.mu.Unlock()
 }
 

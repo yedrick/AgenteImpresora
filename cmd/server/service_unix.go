@@ -123,8 +123,8 @@ Description=CollaTech Agent - aplica una actualizacion pedida desde el panel
 
 [Service]
 Type=oneshot
-ExecStart=%s --aplicar-actualizacion %s
-`, binPath, orden)
+ExecStart=%s --aplicar-actualizacion %s --config %s
+`, binPath, orden, paths.Config)
 	return vigia, aplicador
 }
 

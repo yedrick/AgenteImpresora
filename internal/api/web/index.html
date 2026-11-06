@@ -1404,8 +1404,10 @@ Gracias por usar CollaTech</textarea>
       if (actSiguiendo) return;
       actSiguiendo = true;
       botonesAct(false);
-      let reinicio = false;
-      const limite = Date.now() + 5 * 60 * 1000;
+      // La descarga puede tardar en una conexion lenta. Si algo se atasca,
+      // el agente pasa a "error" por su cuenta (ver Estado en
+      // internal/actualizar): aqui solo hay un tope de seguridad.
+      const limite = Date.now() + 15 * 60 * 1000;
       let mensaje = "La actualizacion esta tardando mas de lo normal. Recarga esta pagina en un minuto.";
       while (Date.now() < limite) {
         await new Promise((r) => setTimeout(r, 1500));
@@ -1413,7 +1415,6 @@ Gracias por usar CollaTech</textarea>
         try {
           d = (await api("/api/actualizacion")).data || {};
         } catch (e) {
-          reinicio = true;
           $("actEstado").textContent = "Reiniciando el agente...";
           continue;
         }
@@ -1422,12 +1423,6 @@ Gracias por usar CollaTech</textarea>
         if (e.fase === "error") { mensaje = "No se pudo actualizar: " + e.error; break; }
         if (FASES_ACT[e.fase]) {
           $("actEstado").textContent = FASES_ACT[e.fase];
-          // Linux: si la pieza de systemd no recoge la orden, el agente
-          // nunca se reinicia. Mejor decirlo que esperar para siempre.
-          if (e.fase === "instalando" && !reinicio && Date.now() - inicio > 120000) {
-            mensaje = "La actualizacion no arranco. En Linux revisa: systemctl status collatech-agent-actualizar.path";
-            break;
-          }
           continue;
         }
         const r = d.ultimo_resultado;

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -39,7 +40,15 @@ func FuenteOficial(version string) Fuente {
 	}
 	return Fuente{
 		URLUltima: url,
-		Cliente:   &http.Client{Timeout: 15 * time.Second},
+		// Sin tiempo maximo global: cortaria las descargas largas en
+		// conexiones lentas. Se limita la conexion y la espera de la
+		// respuesta, y cada llamada pone su propio plazo.
+		Cliente: &http.Client{Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+		}},
 		UserAgent: "CollaTech-Agent/" + version,
 	}
 }
@@ -47,13 +56,15 @@ func FuenteOficial(version string) Fuente {
 // Ultima devuelve la ultima publicacion.
 func (f Fuente) Ultima(ctx context.Context) (Publicacion, error) {
 	var p Publicacion
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.URLUltima, nil)
 	if err != nil {
 		return p, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	f.firmarPeticion(req)
-	res, err := f.cliente(30 * time.Second).Do(req)
+	res, err := f.cliente().Do(req)
 	if err != nil {
 		return p, fmt.Errorf("No se pudo consultar GitHub (¿hay internet en esta PC?): %w", err)
 	}
@@ -89,12 +100,14 @@ func (f Fuente) Ultima(ctx context.Context) (Publicacion, error) {
 // terminar, asi que nunca queda un archivo a medias con el nombre bueno. Si
 // pasa de max bytes, lo corta y lo borra.
 func (f Fuente) Descargar(ctx context.Context, url, destino string, max int64) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 	f.firmarPeticion(req)
-	res, err := f.cliente(10 * time.Minute).Do(req)
+	res, err := f.cliente().Do(req)
 	if err != nil {
 		return fmt.Errorf("no se pudo descargar %s: %w", url, err)
 	}
@@ -108,6 +121,9 @@ func (f Fuente) Descargar(ctx context.Context, url, destino string, max int64) e
 		return err
 	}
 	n, err := io.Copy(out, io.LimitReader(res.Body, max+1))
+	if err != nil {
+		err = fmt.Errorf("la descarga se corto (revisa la conexion y vuelve a probar): %w", err)
+	}
 	cerrar := out.Close()
 	if err == nil && n > max {
 		err = fmt.Errorf("la descarga de %s pasa de %d bytes: se corta", url, max)
@@ -128,9 +144,9 @@ func (f Fuente) firmarPeticion(req *http.Request) {
 	}
 }
 
-func (f Fuente) cliente(def time.Duration) *http.Client {
+func (f Fuente) cliente() *http.Client {
 	if f.Cliente != nil {
 		return f.Cliente
 	}
-	return &http.Client{Timeout: def}
+	return http.DefaultClient
 }

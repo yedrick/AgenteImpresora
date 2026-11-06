@@ -111,6 +111,12 @@ jobs:
           systemctl is-active --quiet collatech-agent
           for i in $(seq 30); do curl -sf http://127.0.0.1:18743/health && break; sleep 1; done
           curl -sf http://127.0.0.1:18743/health
+          # De fabrica abierto a la red, pero nunca sin token.
+          ip=$(hostname -I | awk '{print $1}')
+          curl -sf "http://$ip:18743/health" || { echo "::error::el .deb no escucha en la red ($ip)"; exit 1; }
+          codigo=$(curl -s -o /dev/null -w '%{http_code}' "http://$ip:18743/api/status")
+          [ "$codigo" = 401 ] || { echo "::error::desde la red sin token responde $codigo, tenia que ser 401"; exit 1; }
+          sudo grep -q '"auth_token": "[^"]' /etc/collatech/config.json || { echo "::error::el agente no genero el token"; exit 1; }
           sudo dpkg --purge collatech-agent
 
       - uses: actions/upload-artifact@v4

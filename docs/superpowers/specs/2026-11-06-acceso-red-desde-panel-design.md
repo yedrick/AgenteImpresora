@@ -41,7 +41,6 @@ diagnostico lo marca como "FALLA bloqueado" sin decir como abrirla.
 - El agente **no toca el cortafuegos de Ubuntu** (enfoque B descartado: una
   pieza con permisos de administrador que la pagina pueda disparar es
   demasiada superficie para un agente que abre un cajon de dinero).
-- No cambia lo que viene de fabrica en el `.deb` (enfoque C descartado).
 - No se abre la administracion a la red.
 
 ## Antiobjetivos (si pasa esto, fallo aunque funcione)
@@ -61,10 +60,20 @@ diagnostico lo marca como "FALLA bloqueado" sin decir como abrirla.
   del cortafuegos para copiar. El agente sigue sin tocar el sistema.
 - **B:** como A, y el agente abre `ufw` el mismo mediante una unidad root.
   Descartado por seguridad.
-- **C:** `.deb` abierto a la red de fabrica. Descartado: expone todas las
-  instalaciones aunque no lo necesiten, y no verifica nada.
+- **C:** `.deb` abierto a la red de fabrica. Al principio descartado; tras
+  revisar el diseno el dueno pidio **ademas** de A que la red venga abierta
+  por defecto siempre, igual que en Windows. Queda A + C: de fabrica
+  abierto (con token obligatorio desde la red, generado al primer
+  arranque) y el interruptor para cerrarlo o volver a abrirlo.
 
 ## Decisiones tomadas
+
+- **De fabrica, abierto a la red** en todos los paquetes (`.deb` y la
+  `config.json` de partida de los zip/tar): `host "0.0.0.0"`,
+  `allow_remote true`, `auth_token ""` (el agente lo genera y lo guarda al
+  arrancar). Las instalaciones que ya existen conservan su configuracion
+  (dpkg no pisa `config.json`); para esas esta el interruptor.
+  `config.Default()` (sin archivo de configuracion) sigue en solo esta PC.
 
 - Se aplica en caliente reabriendo el puerto, no cerrando el proceso: en
   Windows el servicio no se reinicia solo al salir.

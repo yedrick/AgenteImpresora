@@ -193,3 +193,24 @@ func TestQRDeLaRedEsSoloLocal(t *testing.T)
   4. Desmarcar; el mismo `docker run` ya no conecta.
   5. Medir RSS antes y despues (memoria del dueno: medir RAM).
 - [ ] **Step 6:** Commit `Panel: interruptor de red con prueba desde otro aparato`.
+
+### Task 6: de fabrica, abierto a la red
+
+**Files:**
+- Modify: `scripts/empaquetar.sh` (las dos `config.json` de partida: `comunes()` y la del `.deb`)
+- Modify: `.github/workflows/ci.yml` (paso "Comprobar que el .deb es valido e instalable")
+- Modify: `docs/UBUNTU.md`, `docs/superpowers/specs/2026-11-06-acceso-red-desde-panel-design.md` (ya dice A + C)
+
+**Interfaces:** ninguna nueva. `host "0.0.0.0"`, `allow_remote true`, `auth_token ""`.
+
+- [ ] **Step 1: Test que falla (CI)** tras `dpkg --install` en el job de paquetes:
+  ```bash
+  ip=$(hostname -I | awk '{print $1}')
+  curl -sf "http://$ip:18743/health"                       # llega por la red
+  [ "$(curl -s -o /dev/null -w '%{http_code}' "http://$ip:18743/api/status")" = 401 ]  # sin token, no
+  sudo grep -q '"auth_token": "[^"]' /etc/collatech/config.json   # token generado
+  ```
+- [ ] **Step 2:** push → el job "Paquetes de instalacion" FALLA (hoy escucha solo en 127.0.0.1).
+- [ ] **Step 3:** Cambiar las dos `config.json` de `empaquetar.sh`.
+- [ ] **Step 4:** push → el job PASA.
+- [ ] **Step 5:** Commit `Paquetes: abiertos a la red de fabrica, con token obligatorio`.

@@ -87,13 +87,15 @@ comunes() {
   mkdir -p "$destino/configs" "$destino/docs"
   cp README.md JSON-REFERENCIA.md ANGULAR.md "$destino/docs/"
   cp docs/API.md "$destino/docs/" 2>/dev/null || true
-  # Config de partida sin token: el agente genera uno al arrancar.
+  # Config de partida abierta a la red (como el instalador de Windows) y sin
+  # token: el agente genera uno al arrancar, asi que desde la red nunca se
+  # imprime sin el. Se cierra desde el panel: Estado -> Acceso en red.
   cat > "$destino/configs/config.json" <<'EOF'
 {
-  "host": "127.0.0.1",
+  "host": "0.0.0.0",
   "port": 18743,
   "allowed_cors": ["http://localhost:18743"],
-  "allow_remote": false,
+  "allow_remote": true,
   "auth_token": "",
   "max_print_size": 2097152,
   "queue": { "workers": 4, "max_retries": 2 }
@@ -155,10 +157,10 @@ for par in "amd64:collatech-agent-linux-amd64" "arm64:collatech-agent-linux-arm6
 
   cat > "$pkg/etc/collatech/config.json" <<'EOF'
 {
-  "host": "127.0.0.1",
+  "host": "0.0.0.0",
   "port": 18743,
   "allowed_cors": ["http://localhost:18743"],
-  "allow_remote": false,
+  "allow_remote": true,
   "auth_token": "",
   "max_print_size": 2097152,
   "queue": { "workers": 4, "max_retries": 2 }

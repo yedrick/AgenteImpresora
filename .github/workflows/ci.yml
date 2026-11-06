@@ -119,6 +119,21 @@ jobs:
           sudo grep -q '"auth_token": "[^"]' /etc/collatech/config.json || { echo "::error::el agente no genero el token"; exit 1; }
           sudo dpkg --purge collatech-agent
 
+      - name: Actualizar encima de la 1.6.3 sin tocar su configuracion
+        run: |
+          # Una caja de verdad: 1.6.3 instalada y una web autorizada desde el
+          # panel. Actualizar con el .deb nuevo, sin terminal (como lo haria
+          # un script), no puede preguntar ni cambiar su config.json.
+          deb=$(ls dist/collatech-agent_*_amd64.deb)
+          curl -sfLO https://github.com/yedrick/AgenteImpresora/releases/download/v1.6.3/collatech-agent_1.6.3_amd64.deb
+          sudo dpkg --install collatech-agent_1.6.3_amd64.deb
+          sudo sed -i 's#"http://localhost:18743"#"http://localhost:18743", "https://mi-tienda.com"#' /etc/collatech/config.json
+          antes=$(sudo sha256sum /etc/collatech/config.json)
+          sudo dpkg --install "$deb" </dev/null || { echo "::error::actualizar encima de la 1.6.3 fallo (pregunta de dpkg por config.json?)"; exit 1; }
+          [ "$(sudo sha256sum /etc/collatech/config.json)" = "$antes" ] || { echo "::error::actualizar cambio el config.json de la caja"; exit 1; }
+          sudo dpkg --purge collatech-agent
+          [ ! -e /etc/collatech/config.json ] || { echo "::error::purge dejo /etc/collatech/config.json"; exit 1; }
+
       - uses: actions/upload-artifact@v4
         with:
           name: paquetes-${{ github.sha }}

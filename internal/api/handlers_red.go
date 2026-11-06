@@ -160,6 +160,8 @@ func (s *Server) postRed(w http.ResponseWriter, r *http.Request) {
 
 	s.redMu.Lock()
 	s.cfg.Host, s.cfg.AllowRemote, s.cfg.AuthToken = hostNuevo, activo, cfg.AuthToken
+	// Una conexion de antes del cambio no prueba que ahora llegue.
+	s.conexiones = nil
 	s.redMu.Unlock()
 
 	if s.logger != nil {
@@ -179,9 +181,11 @@ func (s *Server) conectar(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	if isLocalRequest(r) {
+	if isLocalRequest(r) || mismaMaquina(r) {
 		// Desde esta misma PC no se cruza la red ni el cortafuegos: si
 		// contara, la prueba saldria bien aunque nadie de fuera llegara.
+		// Tambien vale para la IP de red de esta PC, que es la que ensena
+		// el panel: el trafico va por dentro de la maquina.
 		fmt.Fprint(w, paginaConectar("Esta es la misma PC",
 			"Abre esta direccion desde otro aparato de la red (un celular u otra computadora) para comprobar que llega."))
 		return
@@ -198,6 +202,25 @@ func (s *Server) conectar(w http.ResponseWriter, r *http.Request) {
 	s.redMu.Unlock()
 	fmt.Fprint(w, paginaConectar("Conectado a CollaTech Agent",
 		"Este aparato llega al agente por la red. Ya puedes cerrar esta pagina."))
+}
+
+// mismaMaquina dice si la peticion sale de la misma IP en la que entra,
+// es decir, de esta PC aunque use su direccion de red.
+func mismaMaquina(r *http.Request) bool {
+	local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	if !ok {
+		return false
+	}
+	ipLocal, _, err := net.SplitHostPort(local.String())
+	if err != nil {
+		return false
+	}
+	ipRemota, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	a, b := net.ParseIP(ipLocal), net.ParseIP(ipRemota)
+	return a != nil && b != nil && a.Equal(b)
 }
 
 func paginaConectar(titulo, texto string) string {

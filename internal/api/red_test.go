@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -273,5 +276,41 @@ func TestQRDeLaRedEsSoloLocal(t *testing.T) {
 	h, _ := redActiva(t)
 	if rec := get(t, h, "/api/red/qr.png", "192.168.1.77:5000", "secreto"); rec.Code != http.StatusForbidden {
 		t.Fatalf("el QR desde la red tiene que ser 403, es %d", rec.Code)
+	}
+}
+
+// Abrir en esta PC la direccion de red que ensena el panel llega con la IP
+// de red como origen, no 127.0.0.1, pero va por dentro de la maquina: no
+// cruza ni la red ni el cortafuegos. No puede contar como prueba.
+func TestConectarPorLaIPDeEstaPCNoCuenta(t *testing.T) {
+	h, _ := redActiva(t)
+	req := httptest.NewRequest(http.MethodGet, "/conectar", nil)
+	req.RemoteAddr = "192.168.1.12:57484"
+	req = req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey,
+		&net.TCPAddr{IP: net.ParseIP("192.168.1.12"), Port: 18743}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "misma PC") {
+		t.Fatalf("quiero 200 diciendo 'misma PC', tengo %d %s", rec.Code, rec.Body.String())
+	}
+	if c := conexionesDe(t, h); len(c) != 0 {
+		t.Fatalf("no puede contar como conexion desde la red: %v", c)
+	}
+}
+
+// Una conexion de antes de apagar y volver a encender no prueba que ahora
+// llegue (puede haber cambiado el cortafuegos): al cambiar se olvidan.
+func TestCambiarLaRedOlvidaLasConexiones(t *testing.T) {
+	s, _ := newTestServerAPI(t, func(c *config.Config) {
+		c.Host, c.AllowRemote, c.AuthToken = "0.0.0.0", true, "secreto"
+	})
+	f := &reabrirFalso{}
+	s.Reabrir = f.Reabrir
+	h := s.Routes()
+	get(t, h, "/conectar", "192.168.1.77:5000", "")
+	post(t, h, "/api/red", `{"activo":false}`, "")
+	post(t, h, "/api/red", `{"activo":true}`, "")
+	if c := conexionesDe(t, h); len(c) != 0 {
+		t.Fatalf("tras apagar y encender no puede quedar la conexion vieja: %v", c)
 	}
 }

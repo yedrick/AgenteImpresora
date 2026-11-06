@@ -518,3 +518,32 @@ func TestElPanelConectaSusBotonesAlCargar(t *testing.T) {
 		}
 	}
 }
+
+// El interruptor de red tiene que estar en el panel y engancharse al cargar,
+// no dentro de otro bloque (ya paso con "Anadir" de Webs autorizadas).
+func TestPanelTieneInterruptorDeRed(t *testing.T) {
+	b, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, debe := range []string{`id="redActivo"`, `id="redQR"`, `id="redEstado"`, `id="redConsejos"`, `"/api/red"`} {
+		if !strings.Contains(html, debe) {
+			t.Errorf("falta %s en el panel", debe)
+		}
+	}
+	lineas := strings.Split(html, "\n")
+	// Basta con que una aparicion este a nivel superior (la que se ejecuta
+	// al cargar); cargarRed() tambien se llama, con razon, desde dentro.
+	for _, buscada := range []string{`$("redActivo").addEventListener(`, `cargarRed();`} {
+		arriba := false
+		for _, l := range lineas {
+			if strings.HasPrefix(l, "    "+buscada) {
+				arriba = true
+			}
+		}
+		if !arriba {
+			t.Errorf("%q no esta a nivel superior: no se ejecutaria al abrir el panel", buscada)
+		}
+	}
+}

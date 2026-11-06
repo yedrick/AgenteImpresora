@@ -9,6 +9,7 @@ import (
 	_ "image/png"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,7 @@ func (s *Server) network(w http.ResponseWriter, r *http.Request) {
 		"host":         vivoHost,
 		"port":         port,
 		"allow_remote": remoto,
+		"sistema":      runtime.GOOS,
 		"urls":         urls,
 	}})
 }

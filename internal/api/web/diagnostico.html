@@ -247,7 +247,7 @@
               ["Puerto", esc(data.server.port)],
               ["Host", esc(data.server.host)],
               ["Escucha", esc(data.server.listen_addr)],
-              ["Acceso LAN", data.server.allow_remote ? status(true, "habilitado") : status(false, "bloqueado")],
+              ["Acceso LAN", data.server.allow_remote ? status(true, "habilitado") : `${status(false, "bloqueado")} <span class="hint">Actívalo en el panel: Estado → Acceso en red.</span>`],
               ["TLS", data.server.tls_enabled ? `<span class="status warn">HTTPS activo</span>` : `<span class="status ok">HTTP normal</span>`],
             ])}
           </div>

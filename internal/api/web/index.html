@@ -368,6 +368,16 @@
     #printerTable .quitar { background: none; border: 1px solid var(--line); color: var(--text2); padding: 4px 9px; font-size: 13px; line-height: 1; border-radius: 6px; cursor: pointer; }
     #printerTable .quitar:hover { border-color: #dc2626; color: #dc2626; }
     #printerTable .vacio td { color: var(--text2); text-align: center; padding: 18px 8px; }
+    .red-caja { border: 1px solid var(--line, #d0d5dd); border-radius: 10px; padding: 14px 16px; margin: 10px 0 14px; }
+    .red-interruptor { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
+    .red-interruptor input { width: 20px; height: 20px; }
+    .red-estado { margin: 8px 0 0; }
+    .red-estado.bien { color: var(--ok); font-weight: 600; }
+    .red-url { font-size: 1.05rem; word-break: break-all; }
+    .red-qr { display: block; image-rendering: pixelated; background: #fff; padding: 6px; border-radius: 6px; }
+    .red-consejos { margin-top: 12px; }
+    .red-consejos ol { margin: 6px 0 0; padding-left: 20px; }
+    .red-consejos li { margin: 4px 0; }
   </style>
 </head>
 <body>
@@ -409,9 +419,19 @@
       <div class="section-head" style="margin-top:18px">
         <div>
           <h2>Acceso en red</h2>
-          <p class="hint">Para otras PCs o celulares en la misma red, usa una de estas rutas. La ruta por nombre de PC suele seguir funcionando aunque cambie la IP.</p>
+          <p class="hint">Con esto activado, cualquier aparato de la misma red (celulares, tablets, otras PCs) puede imprimir por este agente, siempre con el token. Desactivado, solo imprime esta PC.</p>
         </div>
         <span class="badge">LAN</span>
+      </div>
+      <div class="red-caja">
+        <label class="red-interruptor"><input type="checkbox" id="redActivo"> <span>Acceso desde la red</span></label>
+        <p id="redEstado" class="red-estado" aria-live="polite">Consultando...</p>
+        <div id="redPrueba" style="display:none">
+          <p class="hint">Para comprobarlo de verdad, abre esta dirección desde <b>otro aparato</b> de la misma red (el celular o otra PC). Abrirla en esta misma PC no sirve: no cruza la red.</p>
+          <p><code id="redURL" class="red-url"></code></p>
+          <img id="redQR" class="red-qr" alt="Código QR con la dirección de prueba" width="168" height="168">
+        </div>
+        <div id="redConsejos" class="red-consejos" style="display:none"></div>
       </div>
       <div class="actions">
         <button id="refreshNetwork" class="secondary">Actualizar rutas</button>
@@ -931,8 +951,10 @@ Gracias por usar CollaTech</textarea>
         for (const url of info.urls || []) {
           lines.push(url);
         }
-        lines.push("");
-        lines.push("Si no abre desde otra PC, ejecuta ABRIR_FIREWALL_LAN.bat como administrador.");
+        if (info.sistema === "windows") {
+          lines.push("");
+          lines.push("Si no abre desde otra PC, ejecuta ABRIR_FIREWALL_LAN.bat como administrador.");
+        }
         network.textContent = lines.join("\n");
       } catch (error) {
         network.textContent = JSON.stringify(error, null, 2);
@@ -1784,9 +1806,120 @@ Gracias por usar CollaTech</textarea>
 
     $("supportBundle")?.addEventListener("click", descargarSoporte);
 
+    // --- Acceso desde la red ---------------------------------------------
+    // El interruptor abre o cierra el agente a la red sin reiniciarlo. La
+    // prueba de verdad es abrir /conectar desde OTRO aparato: desde esta PC
+    // siempre "funciona", porque no cruza ni la red ni el cortafuegos.
+    let redActivaDesde = 0;
+    let redSondeo = null;
+
+    async function cargarRed() {
+      try {
+        pintarRed((await api("/api/red")).data || {});
+      } catch (e) {
+        $("redEstado").textContent = "No se pudo consultar el acceso desde la red.";
+      }
+    }
+
+    function haceCuanto(hora) {
+      const s = Math.max(0, Math.round((Date.now() - new Date(hora).getTime()) / 1000));
+      if (s < 60) return "hace " + s + " s";
+      const m = Math.round(s / 60);
+      return m < 60 ? "hace " + m + " min" : new Date(hora).toLocaleTimeString();
+    }
+
+    function pintarRed(d) {
+      const estado = $("redEstado");
+      $("redActivo").checked = !!d.activo;
+      estado.classList.remove("bien");
+      if (!d.activo) {
+        estado.textContent = "Desactivado: solo esta PC puede imprimir.";
+        $("redPrueba").style.display = "none";
+        $("redConsejos").style.display = "none";
+        redActivaDesde = 0;
+        clearInterval(redSondeo);
+        redSondeo = null;
+        return;
+      }
+      if (!redActivaDesde) redActivaDesde = Date.now();
+      const conexiones = d.conexiones || [];
+      const url = (d.urls_prueba || [])[0];
+      if (conexiones.length) {
+        estado.textContent = "✅ Funciona: conectó desde " + conexiones[0].ip + " (" + haceCuanto(conexiones[0].hora) + ").";
+        estado.classList.add("bien");
+      } else if (url) {
+        estado.textContent = "Activado. Falta comprobarlo desde otro aparato: abre la dirección de abajo.";
+      } else {
+        estado.textContent = "Activado, pero esta PC no tiene IP de red: conéctala a la WiFi o al cable.";
+      }
+      if (url) {
+        $("redPrueba").style.display = "";
+        $("redURL").textContent = url;
+        const qr = $("redQR");
+        if (qr.dataset.url !== url) {
+          qr.dataset.url = url;
+          qr.src = "/api/red/qr.png?u=" + encodeURIComponent(url);
+        }
+      } else {
+        $("redPrueba").style.display = "none";
+      }
+      const consejos = $("redConsejos");
+      if (!conexiones.length && Date.now() - redActivaDesde > 60000) {
+        const cortafuegos = d.sistema === "windows"
+          ? "Abre el puerto en el Firewall de Windows, en una consola como administrador:"
+          : "Si el cortafuegos está activo, ábrelo una vez en una terminal:";
+        consejos.innerHTML =
+          "<b>¿El otro aparato no llega?</b><ol>" +
+          "<li>Que esté en la misma red que esta PC, y no en la WiFi de invitados: esas aíslan los aparatos entre sí.</li>" +
+          "<li>" + cortafuegos + "<br><code id=\"redComando\">" + esc(d.cortafuegos || "") + "</code> " +
+          "<button type=\"button\" class=\"secondary\" id=\"redCopiar\">Copiar</button></li>" +
+          "<li>Que la dirección sea exactamente la de arriba, con <code>:" + esc(String(d.puerto || "")) + "</code>.</li></ol>";
+        consejos.style.display = "";
+      } else {
+        consejos.style.display = "none";
+      }
+      // Consulta cada 3 s mientras esta activo, para marcar la conexion en
+      // cuanto llegue. Solo con la pestana Estado a la vista.
+      if (!redSondeo) {
+        redSondeo = setInterval(() => {
+          if (document.visibilityState === "visible" && $("redActivo").offsetParent !== null) cargarRed();
+        }, 3000);
+      }
+    }
+
+    $("redActivo").addEventListener("change", async (ev) => {
+      const activo = ev.target.checked;
+      ev.target.disabled = true;
+      $("redEstado").textContent = activo ? "Abriendo a la red..." : "Cerrando a la red...";
+      try {
+        const d = (await api("/api/red", { method: "POST", body: JSON.stringify({ activo }) })).data || {};
+        redActivaDesde = 0;
+        pintarRed(d);
+        showLocalToken();
+        loadNetwork();
+      } catch (e) {
+        ev.target.checked = !activo;
+        notifyError(e, "No se pudo cambiar el acceso desde la red");
+        cargarRed();
+      } finally {
+        ev.target.disabled = false;
+      }
+    });
+
+    $("redConsejos").addEventListener("click", async (ev) => {
+      if (ev.target.id !== "redCopiar") return;
+      try {
+        await navigator.clipboard.writeText($("redComando").textContent.trim());
+        notify({ ok: true }, "Comando copiado");
+      } catch (e) {
+        notifyError(e, "No se pudo copiar; selecciónalo a mano");
+      }
+    });
+
     checkHealth();
     showLocalToken();
     loadNetwork();
+    cargarRed();
     cargarCatalogo().then(loadAliases);
     // Las impresoras primero: loadSettings preselecciona la por defecto en
     // el desplegable y necesita que ya este lleno.

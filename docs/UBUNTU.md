@@ -146,6 +146,30 @@ reinicia los servicios `epurasd` y `cups`.
 **Si la ruta tiene espacios**, `cd` falla con *"too many arguments"*. Pon la
 ruta entre comillas, o usa la carpeta con guiones bajos.
 
+## Imprimir desde otros aparatos de la red
+
+Desde la 1.6.4 el `.deb` viene abierto a la red: cualquier celular, tablet u
+otra PC de la misma red puede imprimir por este agente **mandando el token**
+(`Authorization: Bearer <token>`). El token se genera solo al primer
+arranque; lo ves y lo copias en el panel, pestana **Estado**.
+
+Para abrirlo o cerrarlo: panel → **Estado** → **Acceso en red** → casilla
+**Acceso desde la red**. El cambio vale al momento, sin reiniciar.
+
+Para comprobar que llega de verdad, abre la direccion que muestra el panel
+(`http://<ip-de-esta-pc>:18743/conectar`, tambien en QR) **desde otro
+aparato**. El panel marca "Funciona: conecto desde ...". Abrirla en la misma
+PC no cuenta: no cruza la red.
+
+Si el otro aparato no llega:
+
+- Que este en la misma red y no en la WiFi de invitados (aisla los aparatos).
+- Si `sudo ufw status` dice `active`, abre el puerto una vez:
+  `sudo ufw allow 18743/tcp`.
+
+Las instalaciones anteriores conservan su configuracion al actualizar: si la
+tuya era "solo esta PC", activala con la casilla.
+
 ## Cuando algo no sale
 
 | Sintoma | Por que | Que hacer |

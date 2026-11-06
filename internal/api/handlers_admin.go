@@ -40,11 +40,12 @@ func (s *Server) network(w http.ResponseWriter, r *http.Request) {
 	for _, ip := range localIPv4s() {
 		urls = append(urls, fmt.Sprintf("http://%s:%d/panel", ip, port))
 	}
+	vivoHost, remoto, _ := s.red()
 	writeJSON(w, http.StatusOK, response{OK: true, Data: map[string]any{
 		"hostname":     host,
-		"host":         s.cfg.Host,
+		"host":         vivoHost,
 		"port":         port,
-		"allow_remote": s.cfg.AllowRemote,
+		"allow_remote": remoto,
 		"urls":         urls,
 	}})
 }
@@ -68,9 +69,10 @@ func (s *Server) readLogs(w http.ResponseWriter, r *http.Request) {
 // responde a peticiones desde la propia PC: sirve para que el operador lo
 // copie del panel y lo configure en las demas estaciones.
 func (s *Server) readToken(w http.ResponseWriter, r *http.Request) {
+	_, remoto, token := s.red()
 	writeJSON(w, http.StatusOK, response{OK: true, Data: map[string]any{
-		"required": s.cfg.AllowRemote && s.cfg.AuthToken != "",
-		"token":    s.cfg.AuthToken,
+		"required": remoto && token != "",
+		"token":    token,
 	}})
 }
 

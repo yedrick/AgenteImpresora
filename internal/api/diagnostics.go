@@ -32,15 +32,17 @@ func (s *Server) diagnosticReport(w http.ResponseWriter, r *http.Request) {
 // diagnosticData arma el informe. Esta separado del manejador para poder
 // incluirlo tambien en el paquete de soporte.
 func (s *Server) diagnosticData() map[string]any {
+	// Copia viva: host y allow_remote cambian desde el panel sin reiniciar.
+	cfg := s.cfgViva()
 	host, _ := os.Hostname()
 	cwd, _ := os.Getwd()
 	exe, _ := os.Executable()
-	port := s.cfg.Port
+	port := cfg.Port
 	if port == 0 {
 		port = config.DefaultPort
 	}
 	scheme := "http"
-	if s.cfg.TLS.Enabled {
+	if cfg.TLS.Enabled {
 		scheme = "https"
 	}
 	ips := localIPv4s()
@@ -49,7 +51,7 @@ func (s *Server) diagnosticData() map[string]any {
 	// responder, y eso es lo correcto, no un fallo. Antes se probaban
 	// igual y salian en rojo: parecia que algo estaba roto cuando estaba
 	// bien configurado.
-	soloLocal := s.cfg.Host == "" || s.cfg.Host == "127.0.0.1" || s.cfg.Host == "localhost" || s.cfg.Host == "::1"
+	soloLocal := cfg.Host == "" || cfg.Host == "127.0.0.1" || cfg.Host == "localhost" || cfg.Host == "::1"
 
 	lanChecks := []map[string]any{}
 	panelURLs := []string{fmt.Sprintf("%s://127.0.0.1:%d/panel", scheme, port)}
@@ -67,7 +69,7 @@ func (s *Server) diagnosticData() map[string]any {
 					"ok":      true,
 					"skipped": true,
 					"detail": "No se prueba: el agente escucha solo en esta PC (host " +
-						s.cfg.Host + "). Es lo correcto si tu aplicacion corre aqui mismo. " +
+						cfg.Host + "). Es lo correcto si tu aplicacion corre aqui mismo. " +
 						"Para abrirlo a la red, pon host 0.0.0.0 y allow_remote true.",
 				},
 			})
@@ -93,11 +95,11 @@ func (s *Server) diagnosticData() map[string]any {
 		},
 		"server": map[string]any{
 			"scheme":       scheme,
-			"host":         s.cfg.Host,
+			"host":         cfg.Host,
 			"port":         port,
-			"listen_addr":  fmt.Sprintf("%s:%d", s.cfg.Host, port),
-			"allow_remote": s.cfg.AllowRemote,
-			"tls_enabled":  s.cfg.TLS.Enabled,
+			"listen_addr":  fmt.Sprintf("%s:%d", cfg.Host, port),
+			"allow_remote": cfg.AllowRemote,
+			"tls_enabled":  cfg.TLS.Enabled,
 			"panel_urls":   panelURLs,
 		},
 		"network": map[string]any{
@@ -109,7 +111,7 @@ func (s *Server) diagnosticData() map[string]any {
 		"firewall": firewallDiagnostics(port, exe),
 		"config": map[string]any{
 			"path":   s.paths.Config,
-			"active": redactConfig(s.cfg),
+			"active": redactConfig(cfg),
 			"raw":    redactRawConfig(configRaw),
 		},
 		// Lo que se ha rechazado por CORS desde que arranco. Es el dato que
@@ -117,13 +119,13 @@ func (s *Server) diagnosticData() map[string]any {
 		// responda 200: el navegador descarta la respuesta por falta de
 		// cabecera y no queda rastro en ningun sitio.
 		"cors": map[string]any{
-			"permitidos": s.cfg.AllowedCORS,
+			"permitidos": cfg.AllowedCORS,
 			"rechazados": s.OrigenesRechazados(),
 			"nota": "localhost, 127.0.0.1 y [::1] cuentan como el mismo origen. " +
 				"Si tu aplicacion aparece en 'rechazados', anade ese origen exacto " +
 				"a allowed_cors en la configuracion y reinicia el agente.",
 		},
-		"advice": diagnosticAdvice(s.cfg, ips),
+		"advice": diagnosticAdvice(cfg, ips),
 	}
 	return report
 }
@@ -249,7 +251,7 @@ func firewallDiagnostics(port int, exe string) map[string]any {
 		base["legacy_rule"] = runDiagnosticCommand(4*time.Second, netsh, "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent 18743")
 		base["program_rule"] = runDiagnosticCommand(4*time.Second, netsh, "advfirewall", "firewall", "show", "rule", "name=CollaTech Agent App")
 		base["listen"] = runDiagnosticCommand(4*time.Second, herramientaDelSistema("netstat.exe"), "-ano", "-p", "tcp")
-		base["como_abrir"] = `netsh advfirewall firewall add rule name="CollaTech Agent" dir=in action=allow protocol=TCP localport=` + strconv.Itoa(port)
+		base["como_abrir"] = comandoCortafuegos(runtime.GOOS, port)
 
 	case "linux":
 		// ufw es lo habitual en Ubuntu. "ufw status" exige root, y el
@@ -257,13 +259,13 @@ func firewallDiagnostics(port int, exe string) map[string]any {
 		// que no se pueda leer no es un fallo, asi que se dice y ya.
 		base["ufw"] = resultadoUfw(runDiagnosticCommand(4*time.Second, "ufw", "status"))
 		base["listen"] = runDiagnosticCommand(4*time.Second, "ss", "-ltnp")
-		base["como_abrir"] = "sudo ufw allow " + strconv.Itoa(port) + "/tcp"
+		base["como_abrir"] = comandoCortafuegos(runtime.GOOS, port)
 
 	case "darwin":
 		base["cortafuegos"] = runDiagnosticCommand(4*time.Second,
 			"/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate")
 		base["listen"] = runDiagnosticCommand(4*time.Second, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN")
-		base["como_abrir"] = "El cortafuegos de macOS pregunta la primera vez que el agente escucha en la red; acepta ahi."
+		base["como_abrir"] = comandoCortafuegos(runtime.GOOS, port)
 
 	default:
 		base["nota"] = "No hay comprobacion de cortafuegos para " + runtime.GOOS + "."

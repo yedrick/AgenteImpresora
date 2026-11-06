@@ -66,6 +66,16 @@ type Server struct {
 	nubeMu  sync.Mutex
 	nube    *nube.Conector
 	nubeCfg config.Cloud
+
+	// redMu protege cfg.Host, cfg.AllowRemote y cfg.AuthToken, que el
+	// interruptor del panel cambia en caliente. redCambio deja un solo
+	// cambio a la vez.
+	redMu     sync.RWMutex
+	redCambio sync.Mutex
+
+	// Reabrir cambia donde escucha el agente sin reiniciarlo. Lo pone
+	// main; si es nil, el interruptor dice que aqui no se puede.
+	Reabrir func(host string) error
 }
 
 type response struct {
@@ -147,6 +157,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /api/network", s.network)
+	mux.HandleFunc("GET /api/red", s.getRed)
+	mux.HandleFunc("POST /api/red", s.postRed)
 	mux.HandleFunc("GET /api/diagnostico", s.diagnosticReport)
 	mux.HandleFunc("GET /api/logs", s.readLogs)
 	mux.HandleFunc("GET /api/token", s.readToken)
@@ -186,9 +198,9 @@ func (s *Server) Routes() http.Handler {
 	h = s.guard(h)
 	h = s.rateLimit(h)
 	h = s.requireJSON(h)
-	if !s.cfg.AllowRemote {
-		h = s.localhostOnly(h)
-	}
+	// Siempre montado: decide en cada peticion, porque el acceso desde la
+	// red se activa y desactiva desde el panel sin reiniciar.
+	h = s.localhostOnly(h)
 	h = s.cors(h)
 	h = s.recoverPanics(h)
 	return h

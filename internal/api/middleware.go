@@ -47,6 +47,9 @@ var adminPaths = map[string]bool{
 	"/api/actualizacion":          true,
 	"/api/actualizacion/buscar":   true,
 	"/api/actualizacion/instalar": true,
+	// Abrir o cerrar el agente a la red: abrirlo desde la propia red no
+	// tiene sentido y cerrarlo dejaria fuera al resto.
+	"/api/red": true,
 }
 
 // adminWritePaths son cambios de configuracion: nunca desde la red.
@@ -112,7 +115,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !local && s.cfg.AuthToken != "" && !tokenMatches(r, s.cfg.AuthToken) {
+		if _, _, token := s.red(); !local && token != "" && !tokenMatches(r, token) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="CollaTech Agent"`)
 			// El mensaje decia solo "manda la cabecera Authorization", sin
 			// decir de donde sacar el token ni que abrir la URL en el
@@ -179,7 +182,7 @@ func (s *Server) recoverPanics(next http.Handler) http.Handler {
 
 func (s *Server) localhostOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isLocalRequest(r) {
+		if _, remoto, _ := s.red(); !remoto && !isLocalRequest(r) {
 			writeJSON(w, http.StatusForbidden, response{OK: false, Error: "local connections only"})
 			return
 		}

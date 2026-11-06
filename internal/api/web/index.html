@@ -1317,7 +1317,10 @@ Gracias por usar CollaTech</textarea>
         refreshAfterPrint();
       } catch (error) {
         notifyError(error, "No se pudo probar la estacion");
-        $("corsAnadir").addEventListener("click", () => {
+        loadLogs();
+      }
+    });
+    $("corsAnadir").addEventListener("click", () => {
       const v = $("corsNueva").value.trim();
       if (!v) { $("corsNueva").focus(); return; }
       guardarWebs(corsPermitidos.concat([v])).then(() => { $("corsNueva").value = ""; });
@@ -1326,7 +1329,6 @@ Gracias por usar CollaTech</textarea>
       if (e.key === "Enter") $("corsAnadir").click();
     });
     cargarWebs();
-    loadLogs();
 
     // --- Conexion con la nube ---------------------------------------------
     function pintarNube(info) {
@@ -1382,8 +1384,6 @@ Gracias por usar CollaTech</textarea>
     $("nubeQuitar").addEventListener("click", () => guardarNube({ url: "", token: "" }, "Desconectado"));
     cargarNube();
     setInterval(cargarNube, 15000);
-      }
-    });
     $("refreshLogs").addEventListener("click", loadLogs);
     $("clearView").addEventListener("click", () => {
       output.textContent = "Vista limpiada.";

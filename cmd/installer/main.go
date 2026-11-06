@@ -53,6 +53,25 @@ type installResult struct {
 	firewallOK bool
 	serviceOK  bool
 	authToken  string
+	// actualizado indica que ya habia una instalacion y se conservo su
+	// configuracion (token, webs autorizadas, nube).
+	actualizado bool
+}
+
+// installDir es la carpeta de instalacion: C:\Program Files\CollaTech Agent.
+func installDir() string {
+	return filepath.Join(os.Getenv("ProgramFiles"), "CollaTech Agent")
+}
+
+// configInstalada es el config.json de una instalacion anterior. Si existe,
+// el instalador actualiza en vez de instalar de cero.
+func configInstalada() string {
+	return filepath.Join(installDir(), "configs", "config.json")
+}
+
+func yaInstalado() bool {
+	_, err := os.Stat(configInstalada())
+	return err == nil
 }
 
 func main() {
@@ -72,14 +91,19 @@ func main() {
 		return
 	}
 
-	confirm := messageBox(
-		"Esto instalara CollaTech Agent en este equipo:\n\n"+
-			"- Servicio de impresion en segundo plano\n"+
-			"- Inicio automatico al encender la PC\n"+
-			"- Puerto "+portText+" habilitado en el Firewall (red local)\n\n"+
-			"¿Continuar con la instalacion?",
-		appTitle, mbYesNo|mbIconQuestion)
-	if confirm != idYes {
+	pregunta := "Esto instalara CollaTech Agent en este equipo:\n\n" +
+		"- Servicio de impresion en segundo plano\n" +
+		"- Inicio automatico al encender la PC\n" +
+		"- Puerto " + portText + " habilitado en el Firewall (red local)\n\n" +
+		"¿Continuar con la instalacion?"
+	if yaInstalado() {
+		pregunta = "CollaTech Agent ya esta instalado en este equipo.\n\n" +
+			"Se actualizara a la version nueva conservando tu configuracion:\n" +
+			"token de acceso, webs autorizadas, conexion con la nube e impresoras.\n\n" +
+			"El servicio se detendra unos segundos mientras se actualiza.\n\n" +
+			"¿Actualizar ahora?"
+	}
+	if messageBox(pregunta, appTitle, mbYesNo|mbIconQuestion) != idYes {
 		return
 	}
 
@@ -97,7 +121,13 @@ func main() {
 
 func successSummary(r *installResult) string {
 	var b strings.Builder
-	b.WriteString("Instalacion completada.\n\n")
+	if r.actualizado {
+		b.WriteString("Actualizacion completada.\n\n" +
+			"Se conservaron el token, las webs autorizadas, la conexion con la\n" +
+			"nube y las impresoras dadas de alta.\n\n")
+	} else {
+		b.WriteString("Instalacion completada.\n\n")
+	}
 	fmt.Fprintf(&b, "Ubicacion: %s\n", r.installDir)
 	if r.serviceOK {
 		b.WriteString("Servicio de Windows: instalado y en ejecucion (auto-arranque al encender la PC)\n")
@@ -126,8 +156,8 @@ func successSummary(r *installResult) string {
 }
 
 func install() (*installResult, error) {
-	programFiles := os.Getenv("ProgramFiles")
-	installDir := filepath.Join(programFiles, "CollaTech Agent")
+	installDir := installDir()
+	actualizando := yaInstalado()
 	startMenu := filepath.Join(os.Getenv("ProgramData"), "Microsoft", "Windows", "Start Menu", "Programs", "CollaTech Agent")
 
 	agentData, err := prepareAgentBinary()
@@ -146,14 +176,27 @@ func install() (*installResult, error) {
 	}
 
 	os.MkdirAll(filepath.Join(tmpDir, "configs"), 0755)
-	// El agente queda accesible en la LAN, asi que se instala con un token de
-	// acceso y sin CORS comodin: con allowed_cors ["*"] y sin autenticacion,
-	// cualquier web que abriera el cajero podia imprimir y abrir el cajon.
-	authToken, err := newAuthToken()
-	if err != nil {
-		return nil, fmt.Errorf("no se pudo generar el token de acceso: %w", err)
+	// Al actualizar se conserva el config.json que ya habia. Antes se
+	// reescribia: el token cambiaba (las demas PCs dejaban de poder imprimir)
+	// y se perdian las webs autorizadas y la conexion con la nube.
+	var authToken string
+	if actualizando {
+		previa, err := config.Load(configInstalada())
+		if err != nil {
+			return nil, fmt.Errorf("ya hay una instalacion, pero su configuracion (%s) no se puede leer: %w", configInstalada(), err)
+		}
+		authToken = previa.AuthToken
+	} else {
+		// El agente queda accesible en la LAN, asi que se instala con un
+		// token de acceso y sin CORS comodin: con allowed_cors ["*"] y sin
+		// autenticacion, cualquier web que abriera el cajero podia imprimir
+		// y abrir el cajon.
+		authToken, err = newAuthToken()
+		if err != nil {
+			return nil, fmt.Errorf("no se pudo generar el token de acceso: %w", err)
+		}
 	}
-	config := fmt.Sprintf(`{"host":"0.0.0.0","port":%d,"log_level":"info","allowed_cors":["http://localhost:%d","http://127.0.0.1:%d"],"allow_remote":true,"auth_token":%q,"max_print_size":2097152,"queue":{"workers":4,"max_retries":2},"tls":{"enabled":false,"cert_file":"certs/cert.pem","key_file":"certs/key.pem"}}`, config.DefaultPort, config.DefaultPort, config.DefaultPort, authToken)
+	configJSON := fmt.Sprintf(`{"host":"0.0.0.0","port":%d,"log_level":"info","allowed_cors":["http://localhost:%d","http://127.0.0.1:%d"],"allow_remote":true,"auth_token":%q,"max_print_size":2097152,"queue":{"workers":4,"max_retries":2},"tls":{"enabled":false,"cert_file":"certs/cert.pem","key_file":"certs/key.pem"}}`, config.DefaultPort, config.DefaultPort, config.DefaultPort, authToken)
 
 	uninstallPs1 := fmt.Sprintf(`Add-Type -AssemblyName PresentationFramework
 $nl = [Environment]::NewLine
@@ -211,14 +254,26 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powers
 		}
 	}
 
-	os.MkdirAll(filepath.Join(tmpDir, "certs"), 0755)
-	genCert(filepath.Join(tmpDir, "certs"))
-	os.WriteFile(filepath.Join(tmpDir, "configs", "config.json"), []byte(config), 0600)
+	if !actualizando {
+		os.WriteFile(filepath.Join(tmpDir, "configs", "config.json"), []byte(configJSON), 0600)
+	}
+	if _, err := os.Stat(filepath.Join(installDir, "certs", "cert.pem")); err != nil {
+		os.MkdirAll(filepath.Join(tmpDir, "certs"), 0755)
+		genCert(filepath.Join(tmpDir, "certs"))
+	}
 
 	if err := os.MkdirAll(installDir, 0755); err != nil {
 		return nil, fmt.Errorf("no se pudo crear %s (¿se ejecuto como administrador?): %w", installDir, err)
 	}
-	copyDir(tmpDir, installDir)
+	// Windows no deja sobrescribir un .exe en marcha. Antes se copiaba con el
+	// servicio funcionando, el error se ignoraba y seguia corriendo la
+	// version vieja: "actualizar" no actualizaba nada.
+	if err := detenerAgente(filepath.Join(installDir, "CollaTechAgent.exe")); err != nil {
+		return nil, err
+	}
+	if err := copyDir(tmpDir, installDir); err != nil {
+		return nil, fmt.Errorf("no se pudieron copiar los archivos a %s: %w", installDir, err)
+	}
 
 	os.MkdirAll(startMenu, 0755)
 
@@ -240,6 +295,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powers
 		firewallOK: firewallOK,
 		serviceOK:  serviceOK,
 		authToken:  authToken,
+
+		actualizado: actualizando,
 	}, nil
 }
 
@@ -404,18 +461,56 @@ func localIPv4s() []string {
 	return out
 }
 
-func copyDir(src, dst string) {
-	filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+// copyDir copia src dentro de dst y devuelve el primer error. Antes los
+// ignoraba todos, y una copia a medias se daba por buena.
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		rel, _ := filepath.Rel(src, path)
 		target := filepath.Join(dst, rel)
 		if info.IsDir() {
-			os.MkdirAll(target, 0755)
-		} else {
-			data, _ := os.ReadFile(path)
-			os.WriteFile(target, data, 0644)
+			return os.MkdirAll(target, 0755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, data, info.Mode().Perm()); err != nil {
+			return fmt.Errorf("%s: %w", rel, err)
 		}
 		return nil
 	})
+}
+
+// detenerAgente para el servicio y cualquier CollaTechAgent.exe abierto, y
+// espera a que Windows suelte el ejecutable para poder reemplazarlo.
+func detenerAgente(exePath string) error {
+	if _, err := os.Stat(exePath); err != nil {
+		return nil // instalacion nueva: no hay nada que parar
+	}
+	run := func(tool string, args ...string) {
+		cmd := exec.Command(systemTool(tool), args...)
+		cmd.SysProcAttr = hideWindow(nil)
+		_ = cmd.Run()
+	}
+	run("sc.exe", "stop", serviceNameArg)
+	for i := 0; i < 60; i++ {
+		// Un .exe en ejecucion no se puede abrir para escribir: cuando esto
+		// funciona, ya se puede reemplazar.
+		if f, err := os.OpenFile(exePath, os.O_WRONLY, 0); err == nil {
+			f.Close()
+			return nil
+		}
+		if i == 12 {
+			// El servicio no se detuvo en 3 s, o hay una copia abierta a mano.
+			run("taskkill.exe", "/F", "/IM", "CollaTechAgent.exe")
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return fmt.Errorf("CollaTechAgent.exe sigue en uso y no se puede reemplazar.\n\n" +
+		"Reinicia la PC y vuelve a ejecutar el instalador.")
 }
 
 // vbsEscape doubles embedded double-quotes, VBScript's own escape convention

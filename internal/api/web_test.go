@@ -483,3 +483,37 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// El boton "Anadir" de Webs autorizadas y toda la seccion de la nube se
+// colaron dentro del catch de "Probar estacion": solo se conectaban si
+// fallaba una prueba de impresion. El panel no dejaba autorizar ninguna web y
+// nadie lo vio, porque el JavaScript seguia siendo valido. Lo que arranca el
+// panel tiene que estar al nivel de arriba del script (4 espacios), no
+// metido en un bloque.
+func TestElPanelConectaSusBotonesAlCargar(t *testing.T) {
+	b, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineas := strings.Split(string(b), "\n")
+	for _, buscada := range []string{
+		`$("corsAnadir").addEventListener(`,
+		`$("nubeGuardar").addEventListener(`,
+		`cargarWebs();`,
+		`cargarNube();`,
+	} {
+		encontrada := false
+		for i, l := range lineas {
+			if strings.TrimSpace(l) != buscada && !strings.HasPrefix(strings.TrimSpace(l), buscada) {
+				continue
+			}
+			encontrada = true
+			if !strings.HasPrefix(l, "    "+buscada) {
+				t.Errorf("linea %d: %q esta metida dentro de otro bloque; asi no se ejecuta al abrir el panel", i+1, strings.TrimSpace(l))
+			}
+		}
+		if !encontrada {
+			t.Errorf("no aparece %q en el panel", buscada)
+		}
+	}
+}

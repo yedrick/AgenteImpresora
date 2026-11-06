@@ -255,16 +255,7 @@ func firewallDiagnostics(port int, exe string) map[string]any {
 		// ufw es lo habitual en Ubuntu. "ufw status" exige root, y el
 		// agente no corre como root salvo que se instale como servicio:
 		// que no se pueda leer no es un fallo, asi que se dice y ya.
-		ufw := runDiagnosticCommand(4*time.Second, "ufw", "status")
-		if texto, _ := ufw["output"].(string); strings.Contains(strings.ToLower(texto), "root") {
-			ufw = map[string]any{
-				"ok":        true,
-				"no_aplica": true,
-				"detail": "Hay que ser root para consultarlo. Miralo tu con: sudo ufw status. " +
-					"Si dice inactive, el cortafuegos no esta estorbando.",
-			}
-		}
-		base["ufw"] = ufw
+		base["ufw"] = resultadoUfw(runDiagnosticCommand(4*time.Second, "ufw", "status"))
 		base["listen"] = runDiagnosticCommand(4*time.Second, "ss", "-ltnp")
 		base["como_abrir"] = "sudo ufw allow " + strconv.Itoa(port) + "/tcp"
 
@@ -278,6 +269,24 @@ func firewallDiagnostics(port int, exe string) map[string]any {
 		base["nota"] = "No hay comprobacion de cortafuegos para " + runtime.GOOS + "."
 	}
 	return base
+}
+
+// resultadoUfw convierte un "ufw status" que no se pudo leer en un aviso.
+// Sin root falla por permisos; como servicio corre con ProtectSystem=strict,
+// /run es de solo lectura y ufw revienta al crear /run/ufw.lock. En ninguno
+// de los dos casos el cortafuegos esta mal: no se pudo mirar desde dentro.
+func resultadoUfw(r map[string]any) map[string]any {
+	texto, _ := r["output"].(string)
+	texto = strings.ToLower(texto)
+	if strings.Contains(texto, "root") || strings.Contains(texto, "read-only file system") {
+		return map[string]any{
+			"ok":        true,
+			"no_aplica": true,
+			"detail": "El agente no puede consultarlo desde dentro. Miralo tu con: sudo ufw status. " +
+				"Si dice inactive, el cortafuegos no esta estorbando.",
+		}
+	}
+	return r
 }
 
 func runDiagnosticCommand(timeout time.Duration, name string, args ...string) map[string]any {

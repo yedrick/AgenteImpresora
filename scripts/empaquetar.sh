@@ -148,24 +148,12 @@ done
 for par in "amd64:collatech-agent-linux-amd64" "arm64:collatech-agent-linux-arm64"; do
   arch="${par%%:*}"; binario="${par##*:}"
   pkg="$SALIDA/.deb-$arch"; rm -rf "$pkg"
-  mkdir -p "$pkg/DEBIAN" "$pkg/usr/local/bin" "$pkg/etc/collatech" \
+  mkdir -p "$pkg/DEBIAN" "$pkg/usr/local/bin" \
            "$pkg/var/lib/collatech" "$pkg/lib/systemd/system" \
            "$pkg/usr/share/doc/collatech-agent"
   cp "$SALIDA/$binario" "$pkg/usr/local/bin/collatech-agent"
   chmod 755 "$pkg/usr/local/bin/collatech-agent"
   cp README.md JSON-REFERENCIA.md "$pkg/usr/share/doc/collatech-agent/"
-
-  cat > "$pkg/etc/collatech/config.json" <<'EOF'
-{
-  "host": "0.0.0.0",
-  "port": 18743,
-  "allowed_cors": ["http://localhost:18743"],
-  "allow_remote": true,
-  "auth_token": "",
-  "max_print_size": 2097152,
-  "queue": { "workers": 4, "max_retries": 2 }
-}
-EOF
 
   cat > "$pkg/lib/systemd/system/collatech-agent.service" <<'EOF'
 [Unit]
@@ -234,15 +222,34 @@ Description: Agente de impresion ESC/POS para impresoras termicas
  panel web, disenador de tickets y SDK para JavaScript.
 EOF
 
-  cat > "$pkg/DEBIAN/conffiles" <<'EOF'
-/etc/collatech/config.json
-EOF
-
+  # config.json NO va en el paquete (ni como conffile): la crea postinst
+  # si falta. Como conffile, cambiar la de fabrica hacia que dpkg
+  # preguntara al actualizar en cada caja cuya config ya habia tocado el
+  # panel, y sin terminal la actualizacion fallaba. Asi, la de cada caja
+  # no se toca nunca al actualizar.
   cat > "$pkg/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
 if [ "$1" = "configure" ]; then
   chmod 750 /var/lib/collatech 2>/dev/null || true
+  # Solo en una instalacion nueva. Abierta a la red, como en Windows, y sin
+  # token: el agente genera uno al arrancar, asi que desde la red nunca se
+  # imprime sin el. Se cierra en el panel: Estado -> Acceso en red.
+  if [ ! -e /etc/collatech/config.json ]; then
+    mkdir -p /etc/collatech
+    cat > /etc/collatech/config.json <<'JSON'
+{
+  "host": "0.0.0.0",
+  "port": 18743,
+  "allowed_cors": ["http://localhost:18743"],
+  "allow_remote": true,
+  "auth_token": "",
+  "max_print_size": 2097152,
+  "queue": { "workers": 4, "max_retries": 2 }
+}
+JSON
+    chmod 600 /etc/collatech/config.json
+  fi
   if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
     # Se comprueba que haya arrancado de verdad antes de decirlo. Antes se
@@ -278,6 +285,18 @@ if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
 fi
 EOF
   chmod 755 "$pkg/DEBIAN/prerm"
+
+  cat > "$pkg/DEBIAN/postrm" <<'EOF'
+#!/bin/sh
+set -e
+# La config la creo postinst, asi que dpkg no la conoce: purge la borra
+# aqui. "remove" la deja, por si se vuelve a instalar.
+if [ "$1" = "purge" ]; then
+  rm -f /etc/collatech/config.json /etc/collatech/config.json.tmp
+  rmdir /etc/collatech 2>/dev/null || true
+fi
+EOF
+  chmod 755 "$pkg/DEBIAN/postrm"
 
   dpkg-deb --build --root-owner-group "$pkg" \
     "$SALIDA/collatech-agent_${VERSION_DEB}_${arch}.deb" >/dev/null

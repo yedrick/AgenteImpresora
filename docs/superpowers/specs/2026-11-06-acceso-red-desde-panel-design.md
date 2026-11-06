@@ -72,7 +72,7 @@ diagnostico lo marca como "FALLA bloqueado" sin decir como abrirla.
   `config.json` de partida de los zip/tar): `host "0.0.0.0"`,
   `allow_remote true`, `auth_token ""` (el agente lo genera y lo guarda al
   arrancar). Las instalaciones que ya existen conservan su configuracion
-  (dpkg no pisa `config.json`); para esas esta el interruptor.
+  (desde esta version `config.json` no va en el `.deb`: `postinst` la crea solo si falta, asi que actualizar nunca la toca ni hace preguntar a dpkg); para esas esta el interruptor.
   `config.Default()` (sin archivo de configuracion) sigue en solo esta PC.
 
 - Se aplica en caliente reabriendo el puerto, no cerrando el proceso: en

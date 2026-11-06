@@ -49,7 +49,8 @@ var adminPaths = map[string]bool{
 	"/api/actualizacion/instalar": true,
 	// Abrir o cerrar el agente a la red: abrirlo desde la propia red no
 	// tiene sentido y cerrarlo dejaria fuera al resto.
-	"/api/red": true,
+	"/api/red":        true,
+	"/api/red/qr.png": true,
 }
 
 // adminWritePaths son cambios de configuracion: nunca desde la red.

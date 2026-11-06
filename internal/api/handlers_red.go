@@ -3,12 +3,25 @@ package api
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"runtime"
 	"strconv"
+	"time"
+
+	"rsc.io/qr"
 
 	"collatech-agent/internal/config"
 )
+
+// Conexion es un aparato que abrio /conectar desde la red.
+type Conexion struct {
+	IP   string    `json:"ip"`
+	Hora time.Time `json:"hora"`
+}
+
+// maxConexiones acota la lista: es para ver la prueba, no un historial.
+const maxConexiones = 10
 
 // Donde escucha el agente segun el interruptor.
 const (
@@ -62,7 +75,11 @@ func (s *Server) estadoRed() map[string]any {
 	for _, ip := range localIPv4s() {
 		urls = append(urls, fmt.Sprintf("%s://%s:%d/conectar", esquema, ip, s.puerto()))
 	}
+	s.redMu.RLock()
+	conexiones := append([]Conexion{}, s.conexiones...)
+	s.redMu.RUnlock()
 	return map[string]any{
+		"conexiones":      conexiones,
 		"activo":          remoto,
 		"puerto":          s.puerto(),
 		"token_requerido": remoto && token != "",
@@ -149,4 +166,64 @@ func (s *Server) postRed(w http.ResponseWriter, r *http.Request) {
 		s.logger.Info("acceso_red_cambiado", map[string]any{"activo": activo, "host": hostNuevo})
 	}
 	writeJSON(w, http.StatusOK, response{OK: true, Data: s.estadoRed()})
+}
+
+// conectar es la pagina que se abre desde otro aparato para comprobar que
+// llega por la red. No pide token (desde la barra de direcciones del movil
+// no se pueden mandar cabeceras) y por eso no ensena nada: ni token, ni
+// configuracion, ni impresoras.
+func (s *Server) conectar(w http.ResponseWriter, r *http.Request) {
+	if _, remoto, _ := s.red(); !remoto {
+		http.Error(w, "El acceso desde la red esta desactivado.", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if isLocalRequest(r) {
+		// Desde esta misma PC no se cruza la red ni el cortafuegos: si
+		// contara, la prueba saldria bien aunque nadie de fuera llegara.
+		fmt.Fprint(w, paginaConectar("Esta es la misma PC",
+			"Abre esta direccion desde otro aparato de la red (un celular u otra computadora) para comprobar que llega."))
+		return
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	s.redMu.Lock()
+	s.conexiones = append([]Conexion{{IP: ip, Hora: time.Now()}}, s.conexiones...)
+	if len(s.conexiones) > maxConexiones {
+		s.conexiones = s.conexiones[:maxConexiones]
+	}
+	s.redMu.Unlock()
+	fmt.Fprint(w, paginaConectar("Conectado a CollaTech Agent",
+		"Este aparato llega al agente por la red. Ya puedes cerrar esta pagina."))
+}
+
+func paginaConectar(titulo, texto string) string {
+	return `<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>` + titulo + `</title>
+<style>body{font-family:system-ui,sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f7f9;color:#14171c}
+main{max-width:28rem;padding:24px;text-align:center}h1{font-size:1.6rem}p{line-height:1.5}
+@media (prefers-color-scheme:dark){body{background:#14171c;color:#eef0f3}}</style>
+</head><body><main><h1>` + titulo + `</h1><p>` + texto + `</p></main></body></html>`
+}
+
+// qrRed devuelve el QR de la direccion de prueba, para abrirla con la
+// camara del movil sin teclearla.
+func (s *Server) qrRed(w http.ResponseWriter, r *http.Request) {
+	urls, _ := s.estadoRed()["urls_prueba"].([]string)
+	if len(urls) == 0 {
+		http.Error(w, "esta PC no tiene una IP de red", http.StatusNotFound)
+		return
+	}
+	code, err := qr.Encode(urls[0], qr.M)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(code.PNG())
 }

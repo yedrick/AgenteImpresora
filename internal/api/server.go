@@ -76,6 +76,10 @@ type Server struct {
 	// Reabrir cambia donde escucha el agente sin reiniciarlo. Lo pone
 	// main; si es nil, el interruptor dice que aqui no se puede.
 	Reabrir func(host string) error
+
+	// conexiones son los ultimos aparatos que abrieron /conectar (bajo
+	// redMu). Solo en memoria: sirven para ver la prueba en el momento.
+	conexiones []Conexion
 }
 
 type response struct {
@@ -159,6 +163,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/network", s.network)
 	mux.HandleFunc("GET /api/red", s.getRed)
 	mux.HandleFunc("POST /api/red", s.postRed)
+	mux.HandleFunc("GET /api/red/qr.png", s.qrRed)
+	mux.HandleFunc("GET /conectar", s.conectar)
 	mux.HandleFunc("GET /api/diagnostico", s.diagnosticReport)
 	mux.HandleFunc("GET /api/logs", s.readLogs)
 	mux.HandleFunc("GET /api/token", s.readToken)

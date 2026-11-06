@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -200,5 +201,77 @@ func TestComandoCortafuegos(t *testing.T) {
 	}
 	if c := comandoCortafuegos("windows", 18743); !strings.Contains(c, "netsh") || !strings.Contains(c, "localport=18743") {
 		t.Fatalf("windows: %q", c)
+	}
+}
+
+func redActiva(t *testing.T) (http.Handler, *Server) {
+	t.Helper()
+	s, _ := newTestServerAPI(t, func(c *config.Config) {
+		c.Host, c.AllowRemote, c.AuthToken = "0.0.0.0", true, "secreto"
+	})
+	return s.Routes(), s
+}
+
+func conexionesDe(t *testing.T, h http.Handler) []any {
+	t.Helper()
+	c, _ := leerRed(t, h)["conexiones"].([]any)
+	return c
+}
+
+func TestConectarAnotaLaIPDeOtroAparato(t *testing.T) {
+	h, _ := redActiva(t)
+	rec := get(t, h, "/conectar", "192.168.1.77:5000", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Conectado") {
+		t.Fatalf("quiero 200 con 'Conectado', tengo %d %s", rec.Code, rec.Body.String())
+	}
+	c := conexionesDe(t, h)
+	if len(c) != 1 || c[0].(map[string]any)["ip"] != "192.168.1.77" {
+		t.Fatalf("tenia que anotar 192.168.1.77: %v", c)
+	}
+}
+
+func TestConectarDesdeEstaPCNoCuenta(t *testing.T) {
+	h, _ := redActiva(t)
+	rec := get(t, h, "/conectar", "127.0.0.1:5000", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "misma PC") {
+		t.Fatalf("quiero 200 diciendo 'misma PC', tengo %d %s", rec.Code, rec.Body.String())
+	}
+	if c := conexionesDe(t, h); len(c) != 0 {
+		t.Fatalf("abrirlo desde esta PC no prueba nada de la red: %v", c)
+	}
+}
+
+func TestConectarConRedApagada(t *testing.T) {
+	s, _ := newTestServerAPI(t, nil)
+	if rec := get(t, s.Routes(), "/conectar", "127.0.0.1:5000", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("con la red apagada quiero 404, tengo %d", rec.Code)
+	}
+}
+
+func TestConectarNoEnsenaNadaUtil(t *testing.T) {
+	h, _ := redActiva(t)
+	cuerpo := get(t, h, "/conectar", "192.168.1.77:5000", "").Body.String()
+	for _, prohibido := range []string{"secreto", "auth_token", "printer"} {
+		if strings.Contains(cuerpo, prohibido) {
+			t.Fatalf("/conectar no puede contener %q:\n%s", prohibido, cuerpo)
+		}
+	}
+}
+
+func TestConexionesSeQuedanEnDiez(t *testing.T) {
+	h, _ := redActiva(t)
+	for i := 1; i <= 25; i++ {
+		get(t, h, "/conectar", "192.168.1."+strconv.Itoa(i)+":5000", "")
+	}
+	c := conexionesDe(t, h)
+	if len(c) != 10 || c[0].(map[string]any)["ip"] != "192.168.1.25" {
+		t.Fatalf("quiero las 10 ultimas, la primera .25: %v", c)
+	}
+}
+
+func TestQRDeLaRedEsSoloLocal(t *testing.T) {
+	h, _ := redActiva(t)
+	if rec := get(t, h, "/api/red/qr.png", "192.168.1.77:5000", "secreto"); rec.Code != http.StatusForbidden {
+		t.Fatalf("el QR desde la red tiene que ser 403, es %d", rec.Code)
 	}
 }

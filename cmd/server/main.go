@@ -25,6 +25,7 @@ import (
 	"collatech-agent/internal/config"
 	"collatech-agent/internal/logs"
 	"collatech-agent/internal/nube"
+	"collatech-agent/internal/oyente"
 	"collatech-agent/internal/printers"
 	"collatech-agent/internal/queue"
 )
@@ -257,27 +258,37 @@ func startServer(paths config.Paths, opts options) (*agent, error) {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// El socket se abre de forma sincrona. Antes el Listen ocurria dentro de
-	// la goroutine, asi que un puerto ocupado solo dejaba una linea en el log
-	// mientras el servicio le informaba "Running" al gestor.
-	ln, err := net.Listen("tcp", addr)
+	var tlsCfg *tls.Config
+	if cfg.TLS.Enabled {
+		cert, certErr := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if certErr != nil {
+			queueManager.Stop()
+			logger.Error("server_failed", map[string]any{"error": certErr.Error(), "cert": cfg.TLS.CertFile})
+			logger.Close()
+			return nil, fmt.Errorf("no se pudo cargar el certificado TLS: %w", certErr)
+		}
+		tlsCfg = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+		server.TLSConfig = tlsCfg
+	}
+
+	// El socket se abre de forma sincrona (un puerto ocupado sale como
+	// error, no como una linea en el log mientras el servicio dice
+	// "Running"), y se puede cambiar en caliente desde el panel: activar o
+	// desactivar el acceso desde la red no reinicia el agente.
+	oye, err := oyente.Abrir(server, cfg.Host, cfg.Port, tlsCfg)
 	if err != nil {
 		queueManager.Stop()
 		logger.Error("server_failed", map[string]any{"error": err.Error(), "addr": addr})
 		logger.Close()
 		return nil, fmt.Errorf("no se pudo escuchar en %s: %w", addr, err)
 	}
-	if cfg.TLS.Enabled {
-		cert, certErr := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
-		if certErr != nil {
-			ln.Close()
-			queueManager.Stop()
-			logger.Error("server_failed", map[string]any{"error": certErr.Error(), "cert": cfg.TLS.CertFile})
-			logger.Close()
-			return nil, fmt.Errorf("no se pudo cargar el certificado TLS: %w", certErr)
+	srv.Reabrir = func(host string) error {
+		if err := oye.Reabrir(host); err != nil {
+			return err
 		}
-		server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
-		ln = tls.NewListener(ln, server.TLSConfig)
+		logger.Info("server_reabierto", map[string]any{"host": host, "port": cfg.Port})
+		log.Printf("CollaTech Agent escuchando ahora en %s", net.JoinHostPort(host, fmt.Sprint(cfg.Port)))
+		return nil
 	}
 
 	scheme := "http"
@@ -287,11 +298,6 @@ func startServer(paths config.Paths, opts options) (*agent, error) {
 	log.Printf("CollaTech Agent %s escuchando en %s://%s", version, scheme, addr)
 	logger.Info("server_started", map[string]any{"addr": addr, "tls": cfg.TLS.Enabled, "version": version})
 
-	go func() {
-		if serveErr := server.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
-			logger.Error("server_failed", map[string]any{"error": serveErr.Error()})
-		}
-	}()
 	conector.Configurar(cfg.Cloud)
 
 	return &agent{server: server, logger: logger, queue: queueManager, nube: conector}, nil

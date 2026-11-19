@@ -102,7 +102,13 @@ func (s *Server) getStation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Un nombre que no esta dado de alta se imprime tal cual, asi que
-	// tambien se consulta tal cual.
+	// tambien se consulta tal cual; con el mismo limite que al imprimir.
+	if !cfg.DestinoDadoDeAlta(name) {
+		if err := s.printers.ComprobarDestinoDirecto(name); err != nil {
+			s.badRequest(w, err.Error())
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, response{OK: true,
 		Data: s.estadoEstacion(settings.Printer{Name: name, Target: name}, false)})
 }

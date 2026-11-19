@@ -81,12 +81,8 @@ func (c *canvas) invert(x, y, w, h int) {
 	}
 }
 
-// blit copia una imagen sobre el lienzo, quedandose con el pixel mas oscuro.
-func (c *canvas) blit(src image.Image, x, y int) {
-	c.blitClip(src, x, y, 1<<30)
-}
-
-// blitClip es igual pero recorta a maxW puntos desde x. Hace falta porque un
+// blitClip copia una imagen sobre el lienzo, quedandose con el pixel mas
+// oscuro, y recorta a maxW puntos desde x. Hace falta porque un
 // QR o un glifo mas ancho que su columna se dibujaba encima de la columna
 // vecina, no solo fuera de su caja.
 func (c *canvas) blitClip(src image.Image, x, y, maxW int) {

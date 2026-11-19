@@ -11,7 +11,7 @@ go version
 if errorlevel 1 (
   echo.
   echo ERROR: Go no esta instalado o no esta en PATH.
-  echo Instala Go 1.22+ y vuelve a ejecutar.
+  echo Instala Go 1.26+ y vuelve a ejecutar.
   pause
   exit /b 1
 )

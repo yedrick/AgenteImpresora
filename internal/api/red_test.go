@@ -284,7 +284,7 @@ func TestQRDeLaRedEsSoloLocal(t *testing.T) {
 // cruza ni la red ni el cortafuegos. No puede contar como prueba.
 func TestConectarPorLaIPDeEstaPCNoCuenta(t *testing.T) {
 	h, _ := redActiva(t)
-	req := httptest.NewRequest(http.MethodGet, "/conectar", nil)
+	req := peticion(http.MethodGet, "/conectar", nil)
 	req.RemoteAddr = "192.168.1.12:57484"
 	req = req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey,
 		&net.TCPAddr{IP: net.ParseIP("192.168.1.12"), Port: 18743}))

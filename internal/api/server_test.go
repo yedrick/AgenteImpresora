@@ -28,7 +28,7 @@ import (
 
 func newTestServer(t *testing.T, tune func(*config.Config)) http.Handler {
 	t.Helper()
-	// t.Chdir pide Go 1.24; el modulo declara 1.22, asi que se hace a mano.
+	// A mano y no con t.Chdir, que se anadio cuando el modulo declaraba Go 1.22.
 	dir := t.TempDir()
 	prev, err := os.Getwd()
 	if err != nil {
@@ -60,7 +60,7 @@ func newTestServer(t *testing.T, tune func(*config.Config)) http.Handler {
 
 func post(t *testing.T, h http.Handler, path, body, remote string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req := peticion(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if remote == "" {
 		remote = "127.0.0.1:5000"
@@ -73,7 +73,7 @@ func post(t *testing.T, h http.Handler, path, body, remote string) *httptest.Res
 
 func get(t *testing.T, h http.Handler, path, remote, token string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req := peticion(http.MethodGet, path, nil)
 	if remote == "" {
 		remote = "127.0.0.1:5000"
 	}
@@ -124,7 +124,7 @@ func TestElPanicDevuelveJSON(t *testing.T) {
 		panic("boom")
 	}))
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/x", nil))
+	h.ServeHTTP(rec, peticion(http.MethodGet, "/api/x", nil))
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("esperaba 500, obtuve %d", rec.Code)
 	}
@@ -160,7 +160,7 @@ func TestImprimirDesdeLaRedExigeToken(t *testing.T) {
 	})
 	body := `{"printer":"P","text":"hola","cut":true}`
 
-	req := httptest.NewRequest(http.MethodPost, "/api/print/text", strings.NewReader(body))
+	req := peticion(http.MethodPost, "/api/print/text", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "192.168.1.77:5000"
 	rec := httptest.NewRecorder()
@@ -169,7 +169,7 @@ func TestImprimirDesdeLaRedExigeToken(t *testing.T) {
 		t.Fatalf("sin token: esperaba 401, obtuve %d", rec.Code)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/print/text", strings.NewReader(body))
+	req = peticion(http.MethodPost, "/api/print/text", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "192.168.1.77:5000"
 	req.Header.Set("Authorization", "Bearer equivocado")
@@ -179,7 +179,7 @@ func TestImprimirDesdeLaRedExigeToken(t *testing.T) {
 		t.Fatalf("token incorrecto: esperaba 401, obtuve %d", rec.Code)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/print/text", strings.NewReader(body))
+	req = peticion(http.MethodPost, "/api/print/text", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "192.168.1.77:5000"
 	req.Header.Set("Authorization", "Bearer secreto")
@@ -195,7 +195,7 @@ func TestCORSNoAceptaOrigenPorPrefijo(t *testing.T) {
 	h := newTestServer(t, func(c *config.Config) {
 		c.AllowedCORS = []string{"http://localhost"}
 	})
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := peticion(http.MethodGet, "/health", nil)
 	req.Header.Set("Origin", "http://localhost.atacante.com")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -203,7 +203,7 @@ func TestCORSNoAceptaOrigenPorPrefijo(t *testing.T) {
 		t.Fatalf("se autorizo un origen que solo comparte prefijo: %q", got)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/health", nil)
+	req = peticion(http.MethodGet, "/health", nil)
 	req.Header.Set("Origin", "http://localhost")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -634,7 +634,7 @@ func TestPaqueteDeSoporte(t *testing.T) {
 	// Un trabajo para que la cola tenga algo.
 	post(t, h, "/api/print/text", `{"printer":"P","text":"hola"}`, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/support-bundle", nil)
+	req := peticion(http.MethodGet, "/api/support-bundle", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -822,7 +822,7 @@ func TestVistaPrevia(t *testing.T) {
 	body := `{"width":576,"scale":2,"layout":{"rows":[{"cols":[
 	  {"weight":1,"items":[{"text":"Factura"}]},
 	  {"dots":120,"items":[{"qr":"https://ejemplo.com"}]}]}]}}`
-	req := httptest.NewRequest(http.MethodPost, "/api/preview", strings.NewReader(body))
+	req := peticion(http.MethodPost, "/api/preview", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "127.0.0.1:5000"
 	rec := httptest.NewRecorder()
@@ -860,7 +860,7 @@ func TestElOrigenNullNoSeAutoriza(t *testing.T) {
 		c.AllowRemote = true
 		c.AuthToken = "SECRETO"
 	})
-	req := httptest.NewRequest(http.MethodGet, "/api/token", nil)
+	req := peticion(http.MethodGet, "/api/token", nil)
 	req.Header.Set("Origin", "null")
 	req.RemoteAddr = "127.0.0.1:5000"
 	rec := httptest.NewRecorder()
@@ -885,7 +885,7 @@ func TestUnPOSTSinJSONSeRechaza(t *testing.T) {
 	h := newTestServer(t, nil)
 	cuerpo := `{"printer":"P","drawer":true,"lines":[{"text":"hola"}]}`
 	for _, tipo := range []string{"text/plain", "application/x-www-form-urlencoded", "multipart/form-data", ""} {
-		req := httptest.NewRequest(http.MethodPost, "/api/print/ticket", strings.NewReader(cuerpo))
+		req := peticion(http.MethodPost, "/api/print/ticket", strings.NewReader(cuerpo))
 		if tipo != "" {
 			req.Header.Set("Content-Type", tipo)
 		}
@@ -898,7 +898,7 @@ func TestUnPOSTSinJSONSeRechaza(t *testing.T) {
 	}
 	// Con el tipo correcto si pasa, incluido el juego de caracteres.
 	for _, tipo := range []string{"application/json", "application/json; charset=utf-8"} {
-		req := httptest.NewRequest(http.MethodPost, "/api/print/ticket", strings.NewReader(cuerpo))
+		req := peticion(http.MethodPost, "/api/print/ticket", strings.NewReader(cuerpo))
 		req.Header.Set("Content-Type", tipo)
 		req.RemoteAddr = "127.0.0.1:5000"
 		rec := httptest.NewRecorder()
@@ -1101,4 +1101,13 @@ func TestLaTablaConBordeCuadra(t *testing.T) {
 			}
 		}
 	}
+}
+
+// peticion es httptest.NewRequest dirigida a localhost, como llega una
+// peticion de verdad. httptest pone "example.com" de Host, y a quien entra
+// sin token el agente le exige venir dirigido a un nombre suyo.
+func peticion(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.Host = "localhost:18743"
+	return req
 }

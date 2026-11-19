@@ -125,6 +125,11 @@ func (s *Server) resolve(req docRequest) (resolved, error) {
 	if known {
 		targets = profile.Targets()
 	}
+	if !known && !general.DestinoDadoDeAlta(name) {
+		if err := s.printers.ComprobarDestinoDirecto(name); err != nil {
+			return resolved{}, err
+		}
+	}
 	if len(targets) == 0 {
 		return resolved{}, fmt.Errorf("la impresora %q no tiene ningun destino configurado", name)
 	}

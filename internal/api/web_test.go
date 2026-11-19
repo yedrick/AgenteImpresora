@@ -147,7 +147,7 @@ func TestLaPreviaMuestraElGiro(t *testing.T) {
 		body := fmt.Sprintf(`{"width":576,"scale":1,"upside_down":%v,
 			"layout":{"padding":0,"rows":[{"cols":[{"weight":1,"items":[{"text":"ARRIBA","size":"xl"}]}]},
 			{"cols":[{"weight":1,"items":[{"type":"space","height":60}]}]}]}}`, girado)
-		req := httptest.NewRequest("POST", "/api/preview", strings.NewReader(body))
+		req := peticion("POST", "/api/preview", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = "127.0.0.1:1234"
 		rec := httptest.NewRecorder()
@@ -212,7 +212,7 @@ func TestLocalhostY127SonElMismoOrigen(t *testing.T) {
 	}
 	for _, origen := range permitidos {
 		t.Run("permite "+origen, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/health", nil)
+			req := peticion("GET", "/health", nil)
 			req.Header.Set("Origin", origen)
 			req.RemoteAddr = "127.0.0.1:1234"
 			rec := httptest.NewRecorder()
@@ -231,7 +231,7 @@ func TestLocalhostY127SonElMismoOrigen(t *testing.T) {
 		"http://localhost.atacante.com:4200",
 	} {
 		t.Run("bloquea "+origen, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/health", nil)
+			req := peticion("GET", "/health", nil)
 			req.Header.Set("Origin", origen)
 			req.RemoteAddr = "127.0.0.1:1234"
 			rec := httptest.NewRecorder()
@@ -255,7 +255,7 @@ func TestIPDeConfianzaEntraSinToken(t *testing.T) {
 	})
 
 	pedir := func(ruta, desde string) int {
-		req := httptest.NewRequest("GET", ruta, nil)
+		req := peticion("GET", ruta, nil)
 		req.RemoteAddr = desde + ":5555"
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, req)
@@ -285,7 +285,7 @@ func TestIPDeConfianzaEntraSinToken(t *testing.T) {
 		}
 	})
 	t.Run("imprimir si", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/api/print/text",
+		req := peticion("POST", "/api/print/text",
 			strings.NewReader(`{"printer":"P","text":"hola"}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = "192.168.1.20:5555"
@@ -303,7 +303,7 @@ func TestSinListaTodoSigueIgual(t *testing.T) {
 		c.AllowRemote = true
 		c.AuthToken = "el-token"
 	})
-	req := httptest.NewRequest("GET", "/api/status", nil)
+	req := peticion("GET", "/api/status", nil)
 	req.RemoteAddr = "192.168.1.20:5555"
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -353,7 +353,7 @@ func TestAccesoEnRedSeVeDesdeLaRed(t *testing.T) {
 		c.AuthToken = "el-token"
 	})
 
-	req := httptest.NewRequest("GET", "/api/network", nil)
+	req := peticion("GET", "/api/network", nil)
 	req.Header.Set("Authorization", "Bearer el-token")
 	req.RemoteAddr = "192.168.1.50:5555"
 	rec := httptest.NewRecorder()
@@ -363,7 +363,7 @@ func TestAccesoEnRedSeVeDesdeLaRed(t *testing.T) {
 	}
 
 	// Y sin token sigue sin verse.
-	req2 := httptest.NewRequest("GET", "/api/network", nil)
+	req2 := peticion("GET", "/api/network", nil)
 	req2.RemoteAddr = "192.168.1.50:5555"
 	rec2 := httptest.NewRecorder()
 	srv.ServeHTTP(rec2, req2)
@@ -381,7 +381,7 @@ func TestLoSensibleSigueSoloEnLocal(t *testing.T) {
 	})
 	for _, ruta := range []string{"/api/diagnostico", "/api/logs", "/api/token", "/api/support-bundle"} {
 		t.Run(ruta, func(t *testing.T) {
-			req := httptest.NewRequest("GET", ruta, nil)
+			req := peticion("GET", ruta, nil)
 			req.Header.Set("Authorization", "Bearer el-token")
 			req.RemoteAddr = "192.168.1.50:5555" // con token Y de confianza
 			rec := httptest.NewRecorder()
@@ -402,7 +402,7 @@ func TestAltaDeOrigenesDesdeElPanel(t *testing.T) {
 	})
 
 	guardar := func(cuerpo string, desde string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest("POST", "/api/cors", strings.NewReader(cuerpo))
+		req := peticion("POST", "/api/cors", strings.NewReader(cuerpo))
 		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = desde
 		rec := httptest.NewRecorder()
@@ -416,7 +416,7 @@ func TestAltaDeOrigenesDesdeElPanel(t *testing.T) {
 			t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
 		}
 		// Sin reiniciar nada, el origen nuevo ya vale.
-		req := httptest.NewRequest("GET", "/health", nil)
+		req := peticion("GET", "/health", nil)
 		req.Header.Set("Origin", "https://mi-tienda.com")
 		req.RemoteAddr = "127.0.0.1:1234"
 		r2 := httptest.NewRecorder()

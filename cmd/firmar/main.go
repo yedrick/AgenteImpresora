@@ -105,13 +105,29 @@ func generarClaves(dir string) error {
 
 func dentroDeRepositorio(dir string) string {
 	for d := dir; ; d = filepath.Dir(d) {
-		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+		if esRepositorio(filepath.Join(d, ".git")) {
 			return d
 		}
 		if filepath.Dir(d) == d {
 			return ""
 		}
 	}
+}
+
+// esRepositorio distingue un .git de verdad de una carpeta que solo se llama
+// asi: en un repositorio es una carpeta con HEAD dentro, o un archivo en los
+// worktrees y submodulos. Una carpeta .git vacia en /tmp bastaba para que
+// generar claves se negara en cualquier carpeta temporal.
+func esRepositorio(git string) bool {
+	fi, err := os.Stat(git)
+	if err != nil {
+		return false
+	}
+	if !fi.IsDir() {
+		return true
+	}
+	_, err = os.Stat(filepath.Join(git, "HEAD"))
+	return err == nil
 }
 
 // escribirManifiesto lee los actualizacion-* de dir y escribe

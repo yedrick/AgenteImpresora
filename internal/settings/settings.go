@@ -78,6 +78,27 @@ func (s Settings) Find(name string) (Printer, bool) {
 	return Printer{}, false
 }
 
+// DestinoDadoDeAlta dice si destino es el de alguna impresora dada de alta, o
+// la impresora por defecto. Lo que el operador configuro en el panel ya esta
+// autorizado, se pida por su nombre o por el destino tal cual.
+func (s Settings) DestinoDadoDeAlta(destino string) bool {
+	key := strings.ToLower(strings.TrimSpace(destino))
+	if key == "" {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(s.DefaultPrinter)) == key {
+		return true
+	}
+	for _, p := range s.Printers {
+		for _, t := range p.Targets() {
+			if strings.ToLower(t) == key {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Targets parte el destino de una impresora en sus destinos reales.
 func (p Printer) Targets() []string {
 	parts := strings.FieldsFunc(p.Target, func(r rune) bool {

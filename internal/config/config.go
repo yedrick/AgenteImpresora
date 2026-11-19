@@ -35,10 +35,19 @@ type Config struct {
 	// para apagar la autenticacion: un rango que lo abarque todo (/0) se
 	// rechaza al arrancar. Las rutas de administracion siguen siendo solo
 	// para la propia PC del agente, aunque la IP este en esta lista.
-	TrustedIPs   []string `json:"trusted_ips,omitempty"`
-	MaxPrintSize int64    `json:"max_print_size"`
-	Queue        Queue    `json:"queue"`
-	TLS          TLS      `json:"tls"`
+	TrustedIPs []string `json:"trusted_ips,omitempty"`
+
+	// AllowedHosts son nombres con los que se llega al agente ademas de
+	// localhost, sus IPs y el nombre del equipo. Solo hace falta si se le
+	// puso un nombre propio (un dominio con certificado, por ejemplo): a una
+	// peticion que entra sin token se le exige venir dirigida a un nombre
+	// conocido, para que una web no se haga pasar por local apuntando su
+	// dominio a 127.0.0.1.
+	AllowedHosts []string `json:"allowed_hosts,omitempty"`
+
+	MaxPrintSize int64 `json:"max_print_size"`
+	Queue        Queue `json:"queue"`
+	TLS          TLS   `json:"tls"`
 
 	// Cloud conecta el agente con un backend en internet (por ejemplo
 	// Laravel) que no puede llegar a la red del local.

@@ -115,6 +115,15 @@ Límites: `qr` hasta 2953 caracteres, `barcode` hasta 253. Pasarse devuelve
 Las impresoras USB se direccionan por su nombre en Windows; `USB001` es un
 puerto del spooler, no un destino válido.
 
+**Destinos sin dar de alta.** Escrito tal cual en `printer`, un destino solo
+se acepta si es una impresora: una cola del sistema, un equipo de la red o
+un puerto de impresora (`/dev/usb/lp*`, `/dev/ttyUSB*`, `/dev/ttyACM*`,
+`/dev/ttyS*`, `/dev/rfcomm*`, `COMn`, `LPTn`). Un archivo, otro dispositivo
+o una dirección de la propia PC del agente (`127.0.0.1`, `localhost`)
+responden `400`: hay que darlos de alta en el panel, pestaña **Impresoras**,
+y usar su nombre. Así se prueba también sin impresora, con un archivo como
+destino.
+
 ## Alias de impresora
 
 Permiten manejar estaciones lógicas: `cocina`, `recepcion`, `facturas`,

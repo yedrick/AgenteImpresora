@@ -43,7 +43,7 @@ func benchPost(b *testing.B, h http.Handler, path, body string) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req := peticion(http.MethodPost, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = "127.0.0.1:5000"
 		rec := httptest.NewRecorder()

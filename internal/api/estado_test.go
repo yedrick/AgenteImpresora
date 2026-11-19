@@ -70,8 +70,12 @@ func TestConsultarUnTrabajo(t *testing.T) {
 	if err := os.WriteFile("rollo.bin", nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Un archivo solo vale como impresora si se dio de alta.
 	destino := "device://" + filepath.Join(mustWd(t), "rollo.bin")
-	rec := post(t, h, "/api/print/text", `{"printer":"`+destino+`","text":"hola"}`, "")
+	if rec := post(t, h, "/api/printers-config", `[{"name":"rollo","target":"`+destino+`"}]`, ""); rec.Code != http.StatusOK {
+		t.Fatalf("alta: %d %s", rec.Code, rec.Body)
+	}
+	rec := post(t, h, "/api/print/text", `{"printer":"rollo","text":"hola"}`, "")
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("imprimir: %d %s", rec.Code, rec.Body)
 	}
@@ -177,7 +181,7 @@ func TestConfigurarNube(t *testing.T) {
 
 func postConToken(t *testing.T, h http.Handler, path, body, remote, token string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req := peticion(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.RemoteAddr = remote

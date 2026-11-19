@@ -110,3 +110,28 @@ func TestFirmarConClaveNoOficial(t *testing.T) {
 		t.Fatal("no puede quedar una firma que las cajas rechazarian")
 	}
 }
+
+// Generar claves dentro de un repositorio se rechaza, pero una carpeta .git
+// vacia mas arriba (la habia en /tmp) no es un repositorio.
+func TestDentroDeRepositorio(t *testing.T) {
+	raiz := t.TempDir()
+	dentro := filepath.Join(raiz, "a", "b")
+	if err := os.MkdirAll(dentro, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(raiz, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if repo := dentroDeRepositorio(dentro); repo == raiz {
+		t.Fatalf("una carpeta .git vacia se tomo por repositorio")
+	}
+	if err := os.WriteFile(filepath.Join(raiz, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if repo := dentroDeRepositorio(dentro); repo != raiz {
+		t.Fatalf("no se detecto el repositorio: %q", repo)
+	}
+	if err := generarClaves(dentro); err == nil {
+		t.Fatal("generar claves dentro de un repositorio tenia que fallar")
+	}
+}

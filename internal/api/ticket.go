@@ -509,17 +509,6 @@ func drawBoxLine(b *escpos.Builder, line ticketLine, r []rune, cols int, border 
 	}
 }
 
-func ticketCols(width int) int {
-	switch {
-	case width >= 576:
-		return 48
-	case width >= 512:
-		return 42
-	default:
-		return 32
-	}
-}
-
 // templateName normaliza el nombre: quita la extension y se queda con la
 // plantilla conocida. Antes se usaba strings.Contains en cadena, asi que
 // "factura-qr" caia en la rama "qr" porque se evaluaba antes.

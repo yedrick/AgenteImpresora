@@ -19,7 +19,7 @@ peticiones desde otras PCs deben enviar.
 - Una impresora térmica compatible ESC/POS
 - En Linux y macOS, CUPS instalado si vas a imprimir por el spooler
   (`lp` y `lpstat`); para TCP/IP o USB directo no hace falta
-- Go 1.22 o superior solo para compilar
+- Go 1.26 o superior solo para compilar
 
 ## Descargar
 
@@ -62,7 +62,7 @@ enlaces de descarga oficiales.
 
 ## Compilar desde el codigo
 
-Solo hace falta Go 1.22 o superior.
+Solo hace falta Go 1.26 o superior.
 
 ```bash
 make build     # el agente para esta maquina
@@ -217,6 +217,14 @@ equipo. El panel pedirá el token la primera vez.
 Los trabajos hacia **una misma impresora** siempre salen en orden, uno detrás
 de otro, sea cual sea el número de `workers`; los `workers` solo permiten
 imprimir en paralelo en impresoras distintas.
+
+`allowed_hosts` (opcional) son nombres con los que se llega al agente además
+de `localhost`, sus IPs y el nombre del equipo, que valen siempre. Solo hace
+falta si le pusiste un nombre propio, por ejemplo
+`"allowed_hosts": ["agente.mi-tienda.com"]`. A una petición que entra sin
+token (desde la propia PC o desde una IP de `trusted_ips`) dirigida a otro
+nombre el agente responde `403`: es lo que impide que una web apunte su
+dominio a `127.0.0.1` y se haga pasar por el operador.
 
 `max_retries` es el número **total de intentos**, no de reintentos: con `2`,
 el agente prueba una vez, espera 1 segundo y prueba una segunda vez.
@@ -387,6 +395,15 @@ Valores aceptados en `printer`:
 En Windows, las impresoras USB se direccionan por **su nombre en el sistema**,
 no por el puerto: `USB001` no es un destino válido. En Linux puedes usar
 directamente `/dev/usb/lp0`.
+
+**Destinos sin dar de alta.** Escrito tal cual en `printer`, un destino solo
+se acepta si es una impresora: una cola del sistema, un equipo de la red o
+un puerto de impresora (`/dev/usb/lp*`, `/dev/ttyUSB*`, `/dev/ttyACM*`,
+`/dev/ttyS*`, `/dev/rfcomm*`, `COMn`, `LPTn`). Un archivo, otro dispositivo
+o una dirección de la propia PC del agente (`127.0.0.1`, `localhost`)
+responden `400`: hay que darlos de alta en el panel, pestaña **Impresoras**,
+y usar su nombre. Así se prueba también sin impresora, con un archivo como
+destino.
 
 Para Bluetooth, el emparejado lo hace el sistema: en Windows la impresora
 aparece como un puerto COM saliente (`bt://COM5`); en Linux se empareja con

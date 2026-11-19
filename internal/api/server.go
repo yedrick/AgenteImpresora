@@ -40,6 +40,10 @@ type Server struct {
 	// analizadas al arrancar para no volver a leerlas en cada peticion.
 	confianza []config.RedDeConfianza
 
+	// hostsPropios son los nombres por los que se llega a este agente, en
+	// minusculas. Ver hostPermitido.
+	hostsPropios map[string]bool
+
 	// corsVistos recuerda los origenes rechazados para avisar una sola vez
 	// de cada uno y poder ensenarlos en el diagnostico.
 	corsMu     sync.Mutex
@@ -91,6 +95,7 @@ type response struct {
 
 func NewServer(cfg config.Config, paths config.Paths, pm *printers.Manager, qm *queue.Manager, logger *logs.Logger) *Server {
 	s := &Server{cfg: cfg, paths: paths, printers: pm, queue: qm, logger: logger}
+	s.hostsPropios = nombresDelAgente(cfg.AllowedHosts)
 	// Una entrada invalida se avisa y se descarta entera, en vez de confiar
 	// a medias: con una lista de acceso, aplicar "lo que se entendio" es
 	// peor que no aplicar nada.

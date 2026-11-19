@@ -11,6 +11,8 @@ import (
 	_ "image/png"
 	"net"
 	"net/http"
+	"net/netip"
+	"os"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -103,6 +105,18 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			return
 		}
 		local := isLocalRequest(r)
+		// Quien entra sin token (esta PC o una IP de confianza) tiene que
+		// venir dirigido al agente por un nombre conocido. Una web puede
+		// apuntar su dominio a 127.0.0.1 (DNS rebinding): el navegador la
+		// trata como su propio origen, CORS no interviene y la peticion
+		// llega por el bucle local. Lo unico que la delata es el Host.
+		if (local || s.enConfianza(r)) && !s.hostPermitido(r.Host) {
+			writeJSON(w, http.StatusForbidden, response{OK: false,
+				Error: "esta peticion llega dirigida a " + r.Host + ", que no es un nombre de este agente. " +
+					"Usa localhost, la IP del equipo o su nombre; si le pusiste un nombre propio, " +
+					"anadelo a allowed_hosts en config.json y reinicia el agente"})
+			return
+		}
 		if s.isAdminRequest(r) && !local {
 			writeJSON(w, http.StatusForbidden, response{OK: false,
 				Error: "este endpoint solo esta disponible desde la PC donde corre el agente"})
@@ -143,6 +157,55 @@ func isLocalRequest(r *http.Request) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// hostPermitido dice si el Host de la peticion es un nombre de este agente:
+// localhost, una IP escrita tal cual (el rebinding necesita un nombre de
+// dominio, con una IP no se puede hacer), el nombre del equipo o uno de
+// allowed_hosts. Sin Host (HTTP/1.0, el conector de la nube) tambien pasa:
+// un navegador siempre lo manda.
+func (s *Server) hostPermitido(hostport string) bool {
+	h := hostport
+	if host, _, err := net.SplitHostPort(hostport); err == nil {
+		h = host
+	}
+	h = strings.ToLower(strings.TrimSuffix(strings.Trim(h, "[]"), "."))
+	if h == "" || h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	if _, err := netip.ParseAddr(h); err == nil {
+		return true
+	}
+	return s.hostsPropios[h]
+}
+
+// nombresDelAgente son el nombre del equipo, tal cual, sin dominio y con
+// .local (mDNS), mas los de allowed_hosts.
+func nombresDelAgente(extra []string) map[string]bool {
+	out := map[string]bool{}
+	anadir := func(n string) {
+		if n = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(n), ".")); n != "" {
+			out[n] = true
+		}
+	}
+	if equipo, err := os.Hostname(); err == nil && equipo != "" {
+		anadir(equipo)
+		corto, _, _ := strings.Cut(equipo, ".")
+		anadir(corto)
+		anadir(corto + ".local")
+	}
+	for _, n := range extra {
+		// Se admite con puerto o con esquema, por si se copio una URL.
+		if i := strings.Index(n, "://"); i >= 0 {
+			n = n[i+3:]
+		}
+		n, _, _ = strings.Cut(n, "/")
+		if host, _, err := net.SplitHostPort(n); err == nil {
+			n = host
+		}
+		anadir(n)
+	}
+	return out
 }
 
 // tokenMatches compara en tiempo constante para no filtrar el token por el
@@ -208,7 +271,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 				w.Header().Set("Vary", "Origin")
 			}
 		}
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-CollaTech-Token")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

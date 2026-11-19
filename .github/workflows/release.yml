@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: "1.22", cache: true }
+        with: { go-version: "1.27", cache: true }
 
       - name: Pruebas con detector de carreras
         run: go test ./... -race -count=1
@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: "1.22", cache: true }
+        with: { go-version: "1.27", cache: true }
 
       - name: Version
         id: v
@@ -156,16 +156,23 @@ jobs:
           cat > NOTAS.md <<EOF
           ## Que descargar
 
-          | Si tienes | Descarga |
-          |---|---|
-          | **Windows** | \`CollaTechAgent-$v-windows.zip\` — descomprime y ejecuta \`INSTALADOR.exe\` |
-          | **Ubuntu o Debian** | \`collatech-agent_${v}_amd64.deb\` — \`sudo dpkg -i\` y queda instalado y arrancado |
-          | **Raspberry Pi, ARM** | \`collatech-agent_${v}_arm64.deb\` |
-          | **Otro Linux** | \`CollaTechAgent-$v-linux-amd64.tar.gz\` — dentro va \`INSTALAR.sh\` |
-          | **Mac con chip Apple** | \`CollaTechAgent-$v-macos-apple.tar.gz\` |
-          | **Mac con Intel** | \`CollaTechAgent-$v-macos-intel.tar.gz\` |
+          | Si tienes | Instalar por primera vez | Si ya tienes una version anterior |
+          |---|---|---|
+          | **Windows** | \`CollaTechAgent-$v-windows.zip\`: descomprime y ejecuta \`INSTALADOR.exe\` | Lo mismo. \`INSTALADOR.exe\` detecta la instalacion anterior y conserva la configuracion |
+          | **Ubuntu o Debian** (PC normal) | \`collatech-agent_${v}_amd64.deb\`: \`sudo dpkg -i collatech-agent_${v}_amd64.deb\` | El mismo comando, encima de la version vieja. No pregunta nada ni toca \`config.json\` |
+          | **Raspberry Pi o ARM** con sistema de 64 bits | \`collatech-agent_${v}_arm64.deb\`: \`sudo dpkg -i collatech-agent_${v}_arm64.deb\` | El mismo comando, encima de la version vieja |
+          | **Otro Linux** (PC normal) | \`CollaTechAgent-$v-linux-amd64.tar.gz\`: descomprime y ejecuta \`sudo ./INSTALAR.sh\` | Descomprime el paquete nuevo y vuelve a ejecutar \`sudo ./INSTALAR.sh\`. Cambia el programa, reinicia el servicio y deja la configuracion como estaba |
+          | **Otro Linux ARM** | \`CollaTechAgent-$v-linux-arm64.tar.gz\`: igual, con \`sudo ./INSTALAR.sh\` | Igual que el de arriba |
+          | **Mac con chip Apple** | \`CollaTechAgent-$v-macos-apple.tar.gz\`: descomprime y ejecuta \`sudo ./INSTALAR.sh\` | Descomprime el paquete nuevo y vuelve a ejecutar \`sudo ./INSTALAR.sh\`. En Mac siempre se actualiza asi, a mano |
+          | **Mac con Intel** | \`CollaTechAgent-$v-macos-intel.tar.gz\`: igual, con \`sudo ./INSTALAR.sh\` | Igual que el de arriba |
 
           Al terminar, el panel queda en **http://localhost:18743/panel**.
+
+          ## Si ya lo tienes instalado
+
+          - **Con la 1.6.4 o una mas nueva, en Windows o Linux:** no hace falta descargar nada. En la PC del agente abre el panel, pestaña **Estado**, tarjeta **Actualizaciones**, y pulsa **Buscar actualizacion** y luego **Instalar**. Comprueba la firma antes de instalar y, si la version nueva no arranca, vuelve sola a la anterior.
+          - **Con una version anterior a la 1.6.4, o en Mac:** instala encima, siguiendo la ultima columna de la tabla.
+          - En todos los casos se conservan el token, las webs autorizadas, la conexion con la nube y las impresoras dadas de alta.
 
           ## Para programar contra el agente
 
